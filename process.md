@@ -2,8 +2,20 @@
 
 **The single source of truth for this project.** Replaces the historical
 change-log. Read this before acting in this repo. Last full revision: 2026-07-04.
-Test suite: **1591 passed, 2 skipped, 0 failed** (2026-07-14; grew from 880 as each
+Test suite: **1595 passed, 2 skipped, 0 failed** (2026-07-14; grew from 880 as each
 audit fix below shipped with its hermetic regression tests).
+
+**CLOSEOUT WAVE 3 (autonomous, additive; suite 1595).** **Reel brand-safety gate in CODE**
+(`reel/coherence.py:coherence_lint`, PD-1): the director is *told* to keep third-party marks out
+of frame — now a deterministic check *enforces* it. A scene whose Veo prompt renders a
+logo/trademark that is NOT the brand's own (or a hard mark: swoosh / golden arches / ® / ™) is
+flagged fail-closed, next to the existing SCREENS check. Precise by design — a mark must carry an
+explicit logo/trademark word, so ordinary nouns ("orange", "apple") never trip it; the brand's own
+and generic-self ("our/brand logo") marks pass. +4 tests. **Poster OCR verbatim gate — MOOT by
+design (documented, no code):** the classic poster composites text as HTML/CSS rendered in a
+browser (template.py), so its text is exact by construction; OCR verification only matters for
+MODEL-drawn text, which is the oneshot engine — already gated by VERBATIM_RENDER_CONTRACT +
+script_wellformed.
 
 **CLOSEOUT WAVE 2 (autonomous, additive; suite 1591).** (a) **U6 Launch Bundle CLI**
 (`launch_bundle/__main__.py`): `python -m launch_bundle <media_plan.json | run_dir | result.json>`

@@ -32,6 +32,16 @@ _INTRA_CUT_RE = re.compile(r"\b(quick\s+cuts?|cut\s+to|montage|series\s+of\s+sho
 _CTA_VERB_RE = re.compile(r"\b(shop|order|book|buy|call|visit|download|subscribe|register|"
                           r"apply|join|get|start|try|اطلب|احجز|اشتري|اتصل|سجل|حمّل|اشترك|زور|"
                           r"جرّب|ابدأ|قدّم)\b", re.I)
+# Third-party mark ban (ad-safety, PD-1). Precise by design: a mark phrase must name an explicit
+# logo/trademark/wordmark, so ordinary nouns ("orange", "apple") never trip it. A hard mark
+# (swoosh / golden arches / ® / ™) is unambiguous on its own.
+_MARK_PHRASE_RE = re.compile(
+    r"\b([a-z][\w'’&.\-]{1,24})\s+(?:logos?|trademarks?|brand\s?marks?|wordmarks?)\b"
+    r"|\blogos?\s+of\s+([a-z][\w'’&.\-]{1,24})", re.I)
+_HARD_MARK_RE = re.compile(r"\b(swoosh|golden\s+arches)\b|[®™]", re.I)
+# self-references that mean "the brand's OWN mark" — always allowed
+_SELF_MARK_WORDS = {"brand", "brand's", "your", "our", "the", "its", "own", "company",
+                    "company's", "his", "her", "their", "a", "an"}
 
 
 class CoherenceReport(BaseModel):
@@ -81,6 +91,25 @@ def coherence_lint(reel: Any, *, profile: Optional[dict] = None,
         if _ABSTRACT_RE.search(veos[i]) and (getattr(s, "product_overlay", "") or "") != "real_screen":
             fail(f"scene {i+1} hides the product behind abstract/blurred visuals — show the real "
                  f"thing (or set product_overlay=\"real_screen\")", 15)
+            break
+
+    # 2b) NO THIRD-PARTY MARKS (ad-safety): the director is told to keep third-party logos and
+    #     trademarks out of frame; enforce it in CODE (PD-1), not the prompt alone. Only the
+    #     brand's OWN mark may appear — the exact failure that would render a competitor's swoosh.
+    own_mark = _tokens(_fv(profile or {}, "name"))
+    for i, v in enumerate(veos):
+        third = None
+        for m in _MARK_PHRASE_RE.finditer(v):
+            tok = (m.group(1) or m.group(2) or "").lower()
+            base = tok.split()[0] if tok else ""
+            if base and base not in _SELF_MARK_WORDS and base not in own_mark:
+                third = tok
+                break
+        if third or _HARD_MARK_RE.search(v):
+            what = ("a third-party logo/trademark (swoosh / golden arches / ® / ™)"
+                    if not third else f"a third-party mark (\"{third}\")")
+            fail(f"scene {i+1} renders {what} — keep third-party logos and trademarks out of the "
+                 f"frame; only the brand's OWN mark may appear", 12)
             break
 
     # 3) HOOK works muted — scene 0 carries a name caption or a hero product, and is not the cliché
