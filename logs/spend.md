@@ -3,6 +3,14 @@
 Metered external spend this run. Hard caps enforced in code; this is the human-readable mirror.
 
 ## Caps (ratified)
+- **Vertex AI (Veo video + Nano-Banana/gemini image renders): monthly cap enforced by `vertex_spend.py`.**
+  Default **$50/month** (`VERTEX_MONTHLY_CAP_USD`); each render is metered (Veo by second, images per
+  model tier) to `runs/vertex_spend.jsonl` and REFUSED before any network call once the month's metered
+  total would breach the cap. WHY (2026-07-14): $228 of a $300 Vertex credit burned in ~4 days with NO
+  local tracking — Veo reel renders (render3 rendered 3×) + image gen, all invisible. Text calls are
+  cents and are not metered. Rates (`VEO_USD_PER_SEC=0.40`, `PRO_IMAGE_USD=0.12`, `NANO_IMAGE_USD=0.04`)
+  are conservative ESTIMATES for the guard; the authoritative number is Cloud Billing. Check anytime:
+  `python -m vertex_spend`.
 - Apify (L4 acquisition provider): **$20/month HARD CAP** — enforced by `social_intel/spend_guard.py`.
 - Meta Ad Library: free (official API); blocked on identity confirmation, not spend.
 - Google Places (reviews/discovery): pay-per-call on the owner's key.

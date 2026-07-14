@@ -57,6 +57,11 @@ def generate_with_refs(prompt: str, out_path: "str | Path", *,
             contents.append(types.Part.from_bytes(data=data, mime_type=mime or "image/png"))
     contents.append(prompt)
 
+    # SPEND GUARD: meter each generated still and refuse if over the monthly Vertex cap.
+    from vertex_spend import guard_image, record
+    _mtag = "gemini-3-pro-image-preview" if pro else "gemini-3.1-flash-image-preview"
+    est_usd = guard_image(1, _mtag, detail=Path(out_path).name)
+
     import time as _time
     last: Optional[Exception] = None
     for model, location in lanes(pro):
@@ -79,6 +84,7 @@ def generate_with_refs(prompt: str, out_path: "str | Path", *,
                                 import base64
                                 data = base64.b64decode(data)
                             out.write_bytes(data)
+                            record("image", 1, est_usd, model=model, detail=out.name)  # metered
                             log(f"[nano] {model}@{location} -> {out.name} "
                                 f"({len(refs or [])} ref(s))")   # resolved id per request
                             return out

@@ -45,6 +45,7 @@ class _FlakyClient:
 def test_quota_burst_is_waited_out(tmp_path, monkeypatch):
     slept: list[float] = []
     monkeypatch.setattr(time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr("vertex_spend.DEFAULT_LEDGER", tmp_path / "v.jsonl")   # isolate the spend ledger
     cl = _FlakyClient([_Err(429, "RESOURCE_EXHAUSTED: quota"), _Err(429, "RESOURCE_EXHAUSTED")])
     out = generate_oneshot_poster("p", tmp_path / "o.png", client=cl)
     assert out.read_bytes() == b"PNG!"

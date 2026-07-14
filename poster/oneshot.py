@@ -243,6 +243,9 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
     from google.genai import types
 
     cl = client or _client(location)
+    # SPEND GUARD: meter each generated poster and refuse if over the monthly Vertex cap.
+    from vertex_spend import guard_image, record
+    est_usd = guard_image(1, model, detail=Path(out_path).name)
     contents: list[Any] = [prompt]
     if logo_bytes:
         contents.append(types.Part.from_bytes(data=logo_bytes, mime_type=logo_mime))
@@ -279,6 +282,7 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
                     import base64
                     data = base64.b64decode(data)
                 out_path.write_bytes(data)
+                record("image", 1, est_usd, model=model, detail=Path(out_path).name)  # metered
                 return out_path
     raise RuntimeError(f"one-shot poster: {model} returned no image")
 

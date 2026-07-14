@@ -314,8 +314,17 @@ class VeoProvider:
     ) -> Path:
         from google.genai import types
 
-        client = self._client()
         dur = min(_VEO_DURATIONS, key=lambda v: abs(v - duration_s))   # snap to 4/6/8
+
+        # SPEND GUARD (2026-07-14): Veo is the single most expensive Google-AI op — meter it and
+        # refuse (BEFORE any client/network work) if this month's metered renders would breach the
+        # cap (VERTEX_MONTHLY_CAP_USD), so no reel burns credit invisibly. SpendRefused propagates
+        # up as a clear render failure.
+        from vertex_spend import guard_video, record
+        est_usd = guard_video(dur, detail=Path(out_path).name, model=self.model)
+        print(f"[veo][spend] est ${est_usd:.2f} for {dur}s ({Path(out_path).name})", file=sys.stderr)
+
+        client = self._client()
 
         def _submit(image_obj):
             kwargs = dict(
@@ -387,6 +396,7 @@ class VeoProvider:
             video.save(str(out_path))
         else:
             raise RuntimeError("Veo video had no bytes to write.")
+        record("veo", dur, est_usd, model=self.model, detail=Path(out_path).name)  # spend metered
         return out_path
 
 
