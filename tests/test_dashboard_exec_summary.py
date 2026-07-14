@@ -36,6 +36,25 @@ def test_executive_summary_tells_who_position_and_the_one_move():
     assert "ابدأ الآن" in html and "عملاء محتملون" in html  # horizon + objective
 
 
+def test_recommended_move_is_an_imperative_not_a_bare_description():
+    # Regression (owner-flagged): the "recommended first move" must read as an INSTRUCTION, never a
+    # raw strength/weakness label (the stored action is "{Type}: {swot text}", often truncated …).
+    tows = {"posture": "leverage", "priority_actions": [{
+        "rank": 1, "horizon": "now",
+        "action": "Leverage: A one-stop digital store for essential, sector-specific bus…",
+        "rationale": "Use your strength — A one-stop digital store for essential, sector-specific "
+                     "business applications — to pursue the opportunity: online booking is absent."}]}
+    html = _executive_summary("Vodafone", "telecom", {"name": {"value": "Vodafone"}}, {}, tows, 4, {})
+    assert "وظّف نقطة قوتك:" in html                     # reframed as a verb-led instruction
+    assert "business applications" in html               # full body recovered from rationale
+    assert "bus…" not in html and "Leverage:" not in html   # no truncation, no bare label
+    # a "Fix:" action reads as an instruction to act, not the bare problem statement
+    tows2 = {"posture": "fix", "priority_actions": [
+        {"rank": 1, "horizon": "now", "action": "Fix: No online booking path on-site"}]}
+    h2 = _executive_summary("X", "", {}, {}, tows2, 0, {})
+    assert "عالِج: No online booking path on-site" in h2
+
+
 def test_executive_summary_degrades_without_actions_or_posture():
     html = _executive_summary("X", "", {}, {}, {}, 0, {})
     assert "الخلاصة التنفيذية" in html and "X" in html

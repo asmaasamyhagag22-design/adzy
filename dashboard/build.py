@@ -224,6 +224,33 @@ _POSTURE = {
 _HORIZON = {"now": ("ابدأ الآن", "start now"), "next": ("الخطوة التالية", "next"),
             "later": ("لاحقاً", "later")}
 
+# The TOWS priority-action `action` is stored as "{Type}: {swot text}" — a LABEL, not an
+# instruction (and often truncated with …). For the first-screen "recommended move" that reads as
+# a bare description ("A one-stop digital store…", "No online booking path…"). Reframe the type as
+# an imperative verb so it reads as a MOVE, and recover the full body from the rationale.
+_ACTION_VERB = {
+    "leverage": "وظّف نقطة قوتك", "fix": "عالِج", "address": "عالِج",
+    "defend": "حصِّن ضد", "exploit": "اغتنم الفرصة",
+}
+
+
+def _imperative_move(action: dict) -> str:
+    """The rank-1 priority action rendered as an actual INSTRUCTION, not a raw strength/weakness.
+    Reframes the "{Type}:" label into an imperative verb and recovers the full, un-truncated body
+    from the action's rationale when the stored action text was clipped (…)."""
+    raw = str(action.get("action") or "").strip()
+    m = re.match(r"^(Leverage|Fix|Address|Defend|Exploit)\s*:\s*(.*)$", raw, re.I)
+    if not m:
+        return raw
+    body = m.group(2).strip()
+    if body.endswith("…") or body.endswith("..."):
+        # "Use your strength — {full body} — to pursue the opportunity: …" -> recover {full body}
+        rm = re.search(r"—\s*(.+?)\s*—", str(action.get("rationale") or ""))
+        if rm and rm.group(1).strip():
+            body = rm.group(1).strip()
+    verb = _ACTION_VERB.get(m.group(1).lower(), "")
+    return f"{verb}: {body}" if verb else body
+
 
 def _one_sentence(text: str) -> str:
     """The first clean sentence of a description — the 'what they do' line."""
@@ -249,8 +276,7 @@ def _executive_summary(name: str, category: str, prof: dict, swot: dict, tows: d
     move, hz = "", ""
     if actions:
         a0 = actions[0]
-        move = re.sub(r"^(Leverage|Fix|Address|Defend|Exploit)\s*:\s*", "",
-                      str(a0.get("action") or "")).strip()
+        move = _imperative_move(a0)
         hz = str(a0.get("horizon") or "now").lower()
     obj_ar = _OBJ_L.get(str(mp_obj.get("objective") or ""), "").split(" · ")[0]
 
