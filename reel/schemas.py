@@ -38,6 +38,10 @@ class ReelScene(BaseModel):
     # owner ruling 2026-07-12: seeds are GENERATED; the real photo moves here as the
     # judging reference (motion-QA place fidelity) — visible never, load-bearing always.
     place_ref_url: Optional[str] = None
+    # overhaul Phase D: a REAL product screen/photo composited onto this scene's generated clip
+    # (so a software product is actually shown). None -> no composite.
+    product_asset_url: Optional[str] = None
+    product_placement: str = ""              # "" | "inset" (reserved for future placements)
 
 
 class Storyboard(BaseModel):

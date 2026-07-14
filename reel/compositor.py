@@ -165,6 +165,29 @@ def render_reel(
                             raw = fb.generate(scene.visual_prompt + _NO_TEXT, **gen_kwargs)
                     if _v_final is not None:
                         scene_qa.append({"scene": i, **_v_final.model_dump()})
+
+            # PRODUCT OVERLAY (overhaul Phase D): composite the brand's REAL screen/photo onto this
+            # scene's generated (abstract) clip, so a software product is actually SHOWN. The text
+            # overlay then rides on top, unchanged. Best-effort: any failure keeps the plain clip.
+            pa = getattr(scene, "product_asset_url", None)
+            if pa:
+                asset_path = None
+                if str(pa).startswith(("http://", "https://")):
+                    try:
+                        from reel.video_provider import _load_reference_image
+                        loaded = _load_reference_image(str(pa))
+                        if loaded:
+                            asset_path = tmpd / f"asset{i}.jpg"
+                            asset_path.write_bytes(loaded[0])
+                    except Exception:  # noqa: BLE001
+                        asset_path = None
+                elif Path(str(pa)).is_file():
+                    asset_path = Path(str(pa))
+                if asset_path:
+                    from reel.product_overlay import composite_product_screen
+                    raw = composite_product_screen(raw, asset_path, tmpd / f"prod{i}.mp4",
+                                                   placement=getattr(scene, "product_placement", "")
+                                                   or "inset", fps=fps, width=W, height=H)
             norm = tmpd / f"norm{i}.mp4"
             d = scene.duration_s
             fout = max(0.0, d - fade)

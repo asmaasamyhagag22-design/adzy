@@ -46,29 +46,58 @@ def _wave_impact_fallback(out_path: str | Path, total_s: float) -> Optional[Path
         return None
 
 
+# The pad's tone by MOOD (universal keywords, substring-matched against the plan's sound_design /
+# music_mood). (root Hz, fifth Hz, lowpass Hz, volume) — darker+sparser for tension, brighter+fuller
+# for confidence. A static pad can't follow a whole progression, so it takes the FIRST mood token
+# found (the opening tone); the per-beat sfx carry the arc's movement.
+_MOOD_TABLE = {
+    "tense": (98.00, 130.81, 360, 0.50), "cluttered": (98.00, 130.81, 360, 0.50),
+    "anxious": (98.00, 130.81, 360, 0.50), "minimal": (110.00, 164.81, 440, 0.48),
+    "calm": (110.00, 164.81, 520, 0.52), "warm": (110.00, 164.81, 620, 0.58),
+    "build": (110.00, 174.61, 720, 0.60), "hopeful": (110.00, 174.61, 700, 0.58),
+    "upbeat": (130.81, 196.00, 900, 0.62), "collaborat": (123.47, 185.00, 820, 0.60),
+    "confident": (130.81, 196.00, 780, 0.62), "resolve": (130.81, 196.00, 700, 0.60),
+    "proud": (130.81, 196.00, 760, 0.60), "triumph": (130.81, 196.00, 900, 0.62),
+}
+_MOOD_DEFAULT = (110.00, 164.81, 520, 0.55)
+
+
+def _mood_params(mood: str) -> tuple[float, float, int, float]:
+    m = (mood or "").lower()
+    for key, params in _MOOD_TABLE.items():
+        if key in m:
+            return params
+    return _MOOD_DEFAULT
+
+
 def synth_sound_bed(
     out_path: str | Path,
     total_s: float,
     cut_times: Optional[list[float]] = None,
     *,
     impact: bool = True,
+    mood: str = "",
+    sfx_beats: Optional[list[tuple[float, str]]] = None,
 ) -> Optional[Path]:
-    """Synthesize a sound bed (pad + whooshes at `cut_times` + opening impact) into an .m4a.
-    Returns the path, or None on failure (caller falls back to silence). Pure ffmpeg synth —
-    no external assets, no network."""
+    """Synthesize a sound bed (mood-tuned pad + whooshes at `cut_times` + opening impact + authored
+    `sfx_beats`) into an .m4a. `mood` tunes the pad's tone; `sfx_beats` are (time_s, name) cues where
+    name is whoosh | impact | chime — the reel's authored per-beat sound. Returns the path, or None on
+    failure (caller falls back to silence). Pure ffmpeg synth — no external assets, no network."""
     out_path = Path(out_path)
     total = max(1.0, float(total_s))
     cuts = [c for c in (cut_times or []) if 0.2 < c < total - 0.1]
+    root, fifth, lp, vol = _mood_params(mood)
 
     inputs: list[str] = []
     filters: list[str] = []
     mix_labels: list[str] = []
     idx = 0
 
-    # 0) ambient PAD — two quiet detuned low sines (A2 + a soft fifth), lowpassed = a warm drone.
+    # 0) ambient PAD — two quiet detuned low sines (root + a soft fifth), lowpassed = a warm drone,
+    #    tuned by the reel's opening mood.
     inputs += ["-f", "lavfi", "-i",
-               f"aevalsrc=0.05*sin(2*PI*110*t)+0.035*sin(2*PI*164.81*t):d={total:.2f}:s=44100"]
-    filters.append(f"[{idx}:a]lowpass=f=520,volume=0.55,"
+               f"aevalsrc=0.05*sin(2*PI*{root:.2f}*t)+0.035*sin(2*PI*{fifth:.2f}*t):d={total:.2f}:s=44100"]
+    filters.append(f"[{idx}:a]lowpass=f={lp},volume={vol:.2f},"
                    f"afade=t=in:d=0.6,afade=t=out:st={max(0.0, total - 1.2):.2f}:d=1.2[pad]")
     mix_labels.append("[pad]")
     idx += 1
@@ -90,6 +119,34 @@ def synth_sound_bed(
             f"adelay={ms}|{ms}[w{idx}]"
         )
         mix_labels.append(f"[w{idx}]")
+        idx += 1
+
+    # 3..) AUTHORED SFX beats — the plan's per-scene sfx cues (whoosh on a hard motion, impact on a
+    # reveal, chime on the pay-off), placed at their scene start times. This is the sound arc's movement.
+    for t_beat, name in (sfx_beats or []):
+        try:
+            t = float(t_beat)
+        except (TypeError, ValueError):
+            continue
+        if not (0.0 <= t < total):
+            continue
+        nm = (name or "").strip().lower()
+        if "chime" in nm or "bell" in nm or "ding" in nm:
+            ms = int(t * 1000)
+            inputs += ["-f", "lavfi", "-i",
+                       "aevalsrc=0.5*sin(2*PI*880*t)+0.4*sin(2*PI*1318.51*t):d=0.4:s=44100"]
+            filters.append(f"[{idx}:a]afade=t=out:st=0.08:d=0.32,volume=0.5,adelay={ms}|{ms}[s{idx}]")
+        elif "impact" in nm or "boom" in nm or "hit" in nm or "riser" in nm:
+            ms = int(t * 1000)
+            inputs += ["-f", "lavfi", "-i", "sine=frequency=62:duration=0.5:sample_rate=44100"]
+            filters.append(f"[{idx}:a]afade=t=out:st=0.06:d=0.42,lowpass=f=180,volume=0.8,"
+                           f"adelay={ms}|{ms}[s{idx}]")
+        else:                                    # whoosh / sweep / anything else -> the sweep
+            ms = int(max(0.0, t - 0.3) * 1000)
+            inputs += ["-f", "lavfi", "-i", "anoisesrc=d=0.6:c=pink:a=0.7:r=44100"]
+            filters.append(f"[{idx}:a]highpass=f=320,lowpass=f=5200,afade=t=in:d=0.3,"
+                           f"afade=t=out:st=0.3:d=0.3,volume=0.5,adelay={ms}|{ms}[s{idx}]")
+        mix_labels.append(f"[s{idx}]")
         idx += 1
 
     n = len(mix_labels)

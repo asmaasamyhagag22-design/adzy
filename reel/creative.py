@@ -43,9 +43,27 @@ def _brand_tone(profile: Any) -> str:
         return ""
 
 
+def _product_asset(profile: Optional[dict], scene, real: Optional[str]) -> Optional[str]:
+    """The REAL asset to composite for a hero-product scene (Phase D): the scene's own real photo
+    for real_photo, else the brand's homepage/app screenshot for real_screen. None -> no composite."""
+    if not getattr(scene, "hero_product", False):
+        return None
+    ov = (getattr(scene, "product_overlay", "") or "").lower()
+    if ov not in ("real_screen", "real_photo"):
+        return None
+    if ov == "real_photo" and real:
+        return real
+    vis = (profile or {}).get("visual") if isinstance(profile, dict) else None
+    shot = vis.get("homepage_screenshot_path") if isinstance(vis, dict) else None
+    if isinstance(shot, dict):
+        shot = shot.get("value")
+    return (str(shot) if shot else None) or real
+
+
 def build_creative_storyboard(reel: CreativeReel, brief: PosterBrief,
                               captions: Optional[bool] = None,
-                              seeds: Optional[list] = None) -> Storyboard:
+                              seeds: Optional[list] = None,
+                              profile: Optional[dict] = None) -> Storyboard:
     """Map an Opus CreativeReel onto the render Storyboard. Each scene carries its
     real-photo seed + Opus's Veo prompt.
 
@@ -98,6 +116,8 @@ def build_creative_storyboard(reel: CreativeReel, brief: PosterBrief,
             visual_prompt=s.veo_prompt,
             seed_image_url=seed,
             place_ref_url=place_ref,
+            product_asset_url=_product_asset(profile, s, real),   # Phase D: real screen/photo to composite
+            product_placement=(s.product_overlay or "").strip(),
             headline=headline,
             cta_text=cta_text,
             source_field="creative",
@@ -242,7 +262,7 @@ def render_creative_reel(
             creative.scenes = [creative.scenes[i] for i in keep]
             seeds = [seeds[i] for i in keep]
 
-    storyboard = build_creative_storyboard(creative, brief, seeds=seeds)
+    storyboard = build_creative_storyboard(creative, brief, seeds=seeds, profile=profile)
 
     # DEAD-TAIL FIT (owner, twice: "الكلام خلص من 10 ثواني والفيديو مكمل"): the video's
     # total must track the SURVIVING speech (post-grounding). Estimate the read at the
@@ -295,6 +315,31 @@ def render_creative_reel(
                 qa_ref = loaded[0] if loaded else None
             except Exception:
                 qa_ref = None
+
+    # SOUND DESIGN (overhaul Phase C): the creative reel was SILENT but for the VO. When no real
+    # music is supplied, synthesize a mood-tuned bed + the plan's authored per-scene sfx (whoosh /
+    # impact / chime) so the sound follows the story arc and no scene is dead air. Free ffmpeg synth;
+    # the compositor ducks it under the VO. Best-effort — a synth failure just leaves today's behavior.
+    if music_path is None:
+        try:
+            from .sound import synth_sound_bed
+            starts, acc = [], 0.0
+            for s in storyboard.scenes:
+                starts.append(acc)
+                acc += float(getattr(s, "duration_s", 0.0) or 0.0)
+            sfx_beats = [(starts[i], (creative.scenes[i].sfx or "").strip())
+                         for i in range(min(len(starts), len(creative.scenes)))
+                         if (creative.scenes[i].sfx or "").strip()]
+            mood = (creative.sound_design or creative.music_mood or "")
+            bed = synth_sound_bed(Path(out_path).with_suffix(".bed.m4a"),
+                                  storyboard.total_duration_s or acc,
+                                  cut_times=starts[1:], mood=mood, sfx_beats=sfx_beats)
+            if bed:
+                music_path = str(bed)
+                logger.info("[reel] sound bed synthesized (mood=%r, %d sfx beats)",
+                            mood[:40], len(sfx_beats))
+        except Exception:  # noqa: BLE001 — never break a render on the sound bed
+            pass
 
     result = render_reel(
         storyboard, provider=provider, out_path=out_path,
