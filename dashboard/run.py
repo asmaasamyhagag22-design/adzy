@@ -372,12 +372,20 @@ def hitl_preview(slug: str, kind: str, *, out_dir: str = "outputs",
     else:
         if dialect in ("masri", "fusha"):
             os.environ["REEL_ARABIC_DIALECT"] = dialect
-        from reel.creative_director import design_creative_reel
+        from reel.coherence import plan_reel_gated
         photos = (profile.get("visual") or {}).get("content_images") or []
         rf = _product_raw_facts(slug, product_name)
-        creative = design_creative_reel(
+        try:
+            from business_profile.llm import default_caller
+            _critic = default_caller(strong=False)
+        except Exception:  # noqa: BLE001
+            _critic = None
+        # The coherence gate authors + auto-corrects the plan BEFORE the owner sees it, so the
+        # 8 creative contracts are enforced (product shown, one CTA, one dialect, sound, brand-
+        # specific, …), not hand-fixed each run. Residual issues are surfaced below, not hidden.
+        creative, crep = plan_reel_gated(
             profile, photos, n_scenes=6, language=(language or None),
-            featured_product=product_name,
+            featured_product=product_name, critic_caller=_critic,
             user_note=("REAL PRODUCT-PAGE FACTS (verbatim):\n" + rf) if rf else None)
         if creative is None or not creative.scenes:
             return {"error": "the director could not design a plan (no usable photos/creds)"}
@@ -404,6 +412,9 @@ def hitl_preview(slug: str, kind: str, *, out_dir: str = "outputs",
                       f"  MOTION: {sc.veo_prompt}",
                       f"  VOICE-OVER: {sc.voiceover}{_flag(sc.voiceover)}",
                       f"  CAPTION: {sc.on_screen_text or '—'}", ""]
+        if crep is not None and not crep.ok and crep.issues:
+            lines += ["⚠ نقاط لم تُحسَم تلقائياً · gate could not fully resolve:"]
+            lines += [f"  - {it}" for it in crep.issues[:8]]
         text = "\n".join(lines)
     return {"text": text, "arabic": _arabic_rendering(text), "file": str(path)}
 
@@ -447,14 +458,20 @@ def hitl_refine(slug: str, kind: str, instruction: str, *, out_dir: str = "outpu
             return {"text": revised, "arabic": _arabic_rendering(revised), "file": str(path)}
         except Exception as e:  # noqa: BLE001
             return {"error": f"refine failed: {type(e).__name__}"}
-    # reel: re-plan with the note
+    # reel: re-plan with the note (the coherence gate still enforces the contracts on the revision)
     if dialect in ("masri", "fusha"):
         os.environ["REEL_ARABIC_DIALECT"] = dialect
     profile = _json.loads(P["profile"].read_text(encoding="utf-8"))
-    from reel.creative_director import design_creative_reel
+    from reel.coherence import plan_reel_gated
     photos = (profile.get("visual") or {}).get("content_images") or []
-    creative = design_creative_reel(profile, photos, n_scenes=6, language=(language or None),
-                                    featured_product=product_name, user_note=instruction)
+    try:
+        from business_profile.llm import default_caller
+        _critic = default_caller(strong=False)
+    except Exception:  # noqa: BLE001
+        _critic = None
+    creative, crep = plan_reel_gated(profile, photos, n_scenes=6, language=(language or None),
+                                     featured_product=product_name, user_note=instruction,
+                                     critic_caller=_critic)
     if creative is None or not creative.scenes:
         return {"error": "the director could not apply the request"}
     path = P["out"] / f"{slug}_reel_plan.json"
@@ -466,5 +483,8 @@ def hitl_refine(slug: str, kind: str, instruction: str, *, out_dir: str = "outpu
                   f"  MOTION: {sc.veo_prompt}",
                   f"  VOICE-OVER: {sc.voiceover}",
                   f"  CAPTION: {sc.on_screen_text or '—'}", ""]
+    if crep is not None and not crep.ok and crep.issues:
+        lines += ["⚠ نقاط لم تُحسَم تلقائياً · gate could not fully resolve:"]
+        lines += [f"  - {it}" for it in crep.issues[:8]]
     text = "\n".join(lines)
     return {"text": text, "arabic": _arabic_rendering(text), "file": str(path)}

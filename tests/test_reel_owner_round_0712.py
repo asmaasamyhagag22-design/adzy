@@ -68,6 +68,27 @@ def test_hitl_approved_plan_is_never_replaced_by_the_eval(monkeypatch, tmp_path)
     assert creative.scenes[0].voiceover == "بتجمع شهادات ومش لاقي فرصة؟"
 
 
+def test_non_approved_render_routes_through_the_coherence_gate(monkeypatch, tmp_path):
+    # With no APPROVED plan, the render authors through the coherence gate (which enforces the
+    # creative contracts + auto-corrects), not the raw director — so a fresh render is gated too.
+    import reel.creative as rc
+    import reel.coherence as co
+    from reel.coherence import CoherenceReport
+    called: dict = {}
+
+    def _fake_gate(profile, photos, **kw):
+        called["yes"] = True
+        return _plan(), CoherenceReport(ok=True, score=100)
+    monkeypatch.setattr(co, "plan_reel_gated", _fake_gate)
+    monkeypatch.setattr(rc, "render_reel", lambda sb, **kw: {"ok": True})
+
+    result, creative = render_creative_reel(
+        {}, PosterBrief(business_name="NTI", headline="NTI"), [],
+        provider=None, out_path=tmp_path / "r.mp4", with_voiceover=False)   # no plan_override
+    assert called.get("yes") is True and result == {"ok": True}
+    assert creative.scenes[0].veo_prompt == "APPROVED SHOT ONE"             # the gated plan is used
+
+
 def test_grounding_gate_blanks_unsourced_vo_even_on_approved_plans(monkeypatch, tmp_path):
     # The owner's pre-EXECUTE check found the creative path AUDIT-ONLY (reel/grounding.py said
     # so itself). Now BLOCKING: an unsourced hard claim in the spoken VO is BLANKED — on HITL

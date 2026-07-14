@@ -153,45 +153,43 @@ def render_creative_reel(
     `photo_subjects` (aligned to `photos`) tells the director what each photo depicts."""
     # HITL (owner law 2026-07-12): a user-APPROVED plan replaces the director call
     # verbatim; every downstream gate (plan_eval, scene_qa, grounding) still runs on it.
+    # HITL SANCTITY (owner, 2026-07-12 — "you wrote a prompt that was never executed"): a
+    # user-APPROVED plan is FINAL creative. The coherence gate may CHECK and LOG it, but NOTHING
+    # may swap in a regenerated plan the user never saw — that betrayal is what the law forbids.
     if plan_override:
         from reel.creative_director import CreativeReel
         try:
             creative = CreativeReel.model_validate(plan_override)
         except Exception:
             creative = None
+        if not creative or not creative.scenes:
+            return None, None
+        try:
+            from reel.coherence import evaluate_reel_coherence
+            crep = evaluate_reel_coherence(creative, profile=profile,
+                                           featured=bool(featured_product))
+            if not crep.ok:
+                logger.info("reel coherence on APPROVED plan: issues=%s -> advisory only, the "
+                            "user's plan renders verbatim", crep.issues)
+        except Exception:  # noqa: BLE001 — the gate never blocks a render
+            pass
     else:
-        creative = design_creative_reel(profile, photos, n_scenes=n_scenes, language=language,
-                                        featured_product=featured_product,
-                                        photo_subjects=photo_subjects)
-    if not creative or not creative.scenes:
-        return None, None
-
-    # PRE-RENDER EVAL (owner: 'evaluate the reel before it comes out'): score the PLAN against the
-    # stranger test + caption rules BEFORE the 10-15 min Veo render. A weak plan is regenerated once
-    # (a cheap Opus call) rather than rendered; the compositor's scene_qa still checks each rendered
-    # clip afterwards. Deterministic, so it never adds a network dependency.
-    # HITL SANCTITY (owner, 2026-07-12 — "you wrote a prompt that was never executed"): a
-    # user-APPROVED plan is FINAL creative. Gates may check and LOG it, but NOTHING may swap in
-    # a regenerated plan the user never saw — that is exactly the betrayal the law forbids.
-    try:
-        from reel.plan_eval import evaluate_reel_plan
-        verdict = evaluate_reel_plan(creative, profile=profile, featured=bool(featured_product))
-        if not verdict.ok and plan_override:
-            logger.info("reel plan eval on APPROVED plan: score=%d issues=%s -> advisory only, "
-                        "the user's plan renders verbatim", verdict.score, verdict.issues)
-        elif not verdict.ok:
-            logger.info("reel plan eval: score=%d issues=%s -> regenerating once",
-                        verdict.score, verdict.issues)
-            retry = design_creative_reel(profile, photos, n_scenes=n_scenes, language=language,
-                                         featured_product=featured_product,
-                                         photo_subjects=photo_subjects)
-            if retry and retry.scenes:
-                v2 = evaluate_reel_plan(retry, profile=profile, featured=bool(featured_product))
-                if v2.score >= verdict.score:                 # keep the stronger plan
-                    creative, verdict = retry, v2
-            logger.info("reel plan eval (final): score=%d issues=%s", verdict.score, verdict.issues)
-    except Exception:  # noqa: BLE001 — the eval must never block a render
-        pass
+        # No approved plan -> the coherence gate AUTHORS + auto-corrects before the 10-15 min Veo
+        # render (product shown, one CTA, one dialect, sound, brand-specific, feasible). Bounded
+        # retries of a cheap text call; the compositor's scene_qa still checks each rendered clip.
+        from reel.coherence import plan_reel_gated
+        try:
+            from business_profile.llm import default_caller
+            _critic = default_caller(strong=False)
+        except Exception:  # noqa: BLE001
+            _critic = None
+        creative, crep = plan_reel_gated(
+            profile, photos, n_scenes=n_scenes, language=language,
+            featured_product=featured_product, photo_subjects=photo_subjects, critic_caller=_critic)
+        if not creative or not creative.scenes:
+            return None, None
+        if not crep.ok:
+            logger.info("reel coherence (final): issues=%s", crep.issues)
 
     # GROUNDING GATE (2026-07-12 — closes the reel's LAST ungated copy surface; the owner's
     # pre-EXECUTE check found the creative path audit-only): the spoken voiceover, hook, cta
