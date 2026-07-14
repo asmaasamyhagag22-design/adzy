@@ -2,8 +2,25 @@
 
 **The single source of truth for this project.** Replaces the historical
 change-log. Read this before acting in this repo. Last full revision: 2026-07-04.
-Test suite: **1568 passed, 2 skipped, 0 failed** (2026-07-14; grew from 880 as each
+Test suite: **1591 passed, 2 skipped, 0 failed** (2026-07-14; grew from 880 as each
 audit fix below shipped with its hermetic regression tests).
+
+**CLOSEOUT WAVE 2 (autonomous, additive; suite 1591).** (a) **U6 Launch Bundle CLI**
+(`launch_bundle/__main__.py`): `python -m launch_bundle <media_plan.json | run_dir | result.json>`
+assembles the Ads-Manager-ready DRAFT bundle from a completed run — completing the chain
+URL→scrape→profile→SWOT/TOWS→media_plan→**launch_bundle** as a usable deliverable (Meta campaign
+plan + compliance + U4 lint + U5 advisor + content-bound approval token; PAUSED/DRAFT, PD-7; pure
+reader/assembler, no network/spend). +4 tests. (b) **Adversarial SSRF pack**
+(`tests/test_ssrf_coverage.py`): pins `is_safe_public_url` (the single fetch choke) against
+IP-literal internals, non-http schemes, hostname→metadata-IP rebinding, mixed public+private
+resolution (fail-closed), DNS-failure (fail-closed), and the reel reference-image sink — its
+IP-classification had NO direct test before. +18 tests. (c) **LLM cost foot-gun guard**
+(`tests/test_llm_extractor.py`): asserts the model `default_caller` actually resolves to is in
+`_PRICING`, so a future default-model switch can't silently zero every cost report. Verified
+already-wired (no code change): **T-3** text cost metering flows caller→`_cost_for`→
+`telemetry.record(cost_usd=)`→`run_cost()`→dashboard; **T-TOWS-ACTION** ships as
+`TowsResult.priority_actions` (ranked `PriorityAction`s, horizon now/next/later); SSRF guard is
+already wired at every external-input fetch source.
 
 **CLOSEOUT FOLLOW-UPS (autonomous, additive; suite 1568).** (a) **U4 rewrite re-gate** (`policy_linter/rewrite.py`, spec §6-W7): `suggest_and_regate` — an LLM `suggested_rewrite` can replace a violating line ONLY after it re-PASSES BOTH the Policy Linter AND the Evidence Ledger (a still-violating or claim-smuggling rewrite is rejected; PD-1/PD-3; injected caller → hermetic). +5 tests. (b) **U9 Tier-3 `snapshot_parser`** (`social_intel/providers/snapshot_parser.py`): parses HUMAN-SAVED page HTML (PD-10 — no login/automation; stdlib `html.parser`, no new dep), authors hashed at ingestion (PD-6); documented `data-author` snapshot format (real FB/IG selectors pending owner raw samples, A5) + a committed demo fixture. +4 tests. (c) **doc-drift**: fixed the stale `poster/oneshot.py` "NOT wired" docstring — oneshot is the DEFAULT poster engine (`poster/schemas.py:149`). (T-1 benchmark naming = not reproducible/already resolved.) (d) **U1→CLI** (`competitor/full_run.py`): the grounded `MediaPlan` now assembles as a post-TOWS stage of the main run (guarded try/except, sibling `media_plan.json`, `--no-media-plan` opt-out) — the media-buying loop is reachable from the real entrypoint, not just tests. (e) **ElevenLabs TTS backend** (`reel/voiceover.py`): EXPLICIT-only (`backend="elevenlabs"`/`REEL_TTS_BACKEND=elevenlabs`; the free-edge auto-default is byte-unchanged), staged for the owner's Creator upgrade to swap the Egyptian voice (per the render#3 deliverable). Degrades to None without `ELEVENLABS_API_KEY`. +4 tests. (f) **U2→SWOT bridge** (`competitor/brand_signals.py:threats_from_ad_presence` + `swot.synthesize_swot(ad_presence=...)`): an ad-library `AdPresence` becomes graded SWOT Threats (proven-winner = validated, active = directional), cited to "Meta Ad Library"; default `None` is regression-safe — flows the instant a `META_ADS_TOKEN` lands. +3 tests. (g) **test hermeticity + spend guard** (`tests/conftest.py`): an autouse two-seam network guard (getaddrinfo remaps hostnames to a fixed global IP so `is_safe_public_url` still resolves; connect refuses every non-loopback address) that ROOT-FIXED an intermittent multi-minute full-suite hang — `render_creative_reel`'s seed-gen reached a real Vertex image call (`generate_oneshot_poster`) with no timeout, which also leaked spend on an ADC machine. Suite is now deterministic (~61s, was masking as ~12min) and no test can spend. `PYTEST_ALLOW_NETWORK=1` opts out for live runs.
 
