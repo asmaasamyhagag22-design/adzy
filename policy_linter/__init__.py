@@ -6,6 +6,7 @@ guaranteed results, medical claims) with COMPILED bilingual (ar+en) detectors â€
 reuse the single source in `poster/contracts.py:_COMPLIANCE_BY_CATEGORY`.
 """
 from policy_linter.linter import lint_campaign
+from policy_linter.rewrite import RewriteOutcome, suggest_and_regate
 from policy_linter.schemas import LintFinding, PolicyLintReport
 
-__all__ = ["LintFinding", "PolicyLintReport", "lint_campaign"]
+__all__ = ["LintFinding", "PolicyLintReport", "lint_campaign", "RewriteOutcome", "suggest_and_regate"]

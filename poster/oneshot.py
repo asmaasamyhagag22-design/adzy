@@ -5,9 +5,10 @@ layout + typography + graphics — in one shot, instead of our photo + HTML text
 overlay architecture exists because Imagen garbles Arabic; the nano-banana-class Gemini image
 models render text far better — but "better" is a claim to MEASURE, not assume.
 
-This module is the pilot + its FIDELITY GATE. It is NOT wired into the poster pipeline:
-`benchmark/measure_oneshot_poster.py` measures Arabic/English verbatim-text fidelity first
-(rule 2), and only a measured pass earns it a pipeline mode.
+This module is now the poster's PRIMARY engine + its FIDELITY GATE — the measured pass earned it
+the default `engine="oneshot"` (poster/schemas.py); the classic bg + HTML-overlay path remains a
+fallback (`engine="classic"`). `benchmark/measure_oneshot_poster.py` measured its Arabic/English
+verbatim-text fidelity (rule 2) before it shipped as the default.
 
 GROUNDING: the text the model is asked to render is OUR already-Ledger-gated copy, passed
 VERBATIM. The new risk is the model ALTERING/garbling that copy inside the image — so every
