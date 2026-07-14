@@ -20,3 +20,74 @@ def _vertex_spend_tmp_ledger(tmp_path, monkeypatch):
     import vertex_spend
     monkeypatch.setattr(vertex_spend, "DEFAULT_LEDGER", tmp_path / "vertex_spend.jsonl")
     monkeypatch.setenv("VERTEX_MONTHLY_CAP_USD", "100000")
+
+
+@pytest.fixture(autouse=True)
+def _block_external_network(monkeypatch):
+    """Hermeticity + spend guard (PD-9 offline spirit). No test does real network I/O, so an
+    UNMOCKED external call degrades instantly instead of hanging (or spending).
+
+    Why this exists: render_creative_reel's seed-gen path reaches a real Vertex image call
+    (poster.oneshot.generate_oneshot_poster over google-genai/httpx). On a machine with ADC that
+    call would (a) intermittently hang the whole suite for minutes — an unmocked read with no
+    timeout — and (b) leak real spend. This guard makes it fail fast through the existing
+    try/except, so the reel tests are deterministic and no test ever spends.
+
+    Two seams, so the SSRF validator (scraper.url_utils.is_safe_public_url, which resolves the
+    target host to prove it is public) keeps working under the guard:
+      * getaddrinfo — a HOSTNAME resolves to a fixed GLOBAL IP with no real DNS (so is_safe_public_url
+        passes for e.g. example.com); an IP LITERAL passes through unchanged (so 169.254.169.254 /
+        127.0.0.1 stay correctly rejected). Note: TEST-NET ranges are is_private in Python, so a
+        globally-routable address is required here.
+      * connect — the actual socket connection is refused for every non-loopback address, so nothing
+        is ever really reached (the resolved IP above is never contacted).
+
+    Loopback stays fully open (dashboard/api server tests bind 127.0.0.1). Tests that mock their
+    provider never hit these seams. Set PYTEST_ALLOW_NETWORK=1 for a live integration run.
+    """
+    import errno
+    import ipaddress
+    import os
+    import socket
+    if os.environ.get("PYTEST_ALLOW_NETWORK") == "1":
+        return
+    _real_getaddrinfo = socket.getaddrinfo
+    _real_connect = socket.socket.connect
+    _real_connect_ex = socket.socket.connect_ex
+    _PUBLIC_IP = "93.184.216.34"  # globally-routable; hostname resolution succeeds without real DNS
+
+    def _is_ip_literal(h: str) -> bool:
+        try:
+            ipaddress.ip_address(h)
+            return True
+        except ValueError:
+            return False
+
+    def _is_local_host(h: str) -> bool:
+        return h in ("localhost", "") or h == "::1" or h.startswith("127.")
+
+    def _is_local_addr(address) -> bool:
+        ip = str(address[0] if isinstance(address, (tuple, list)) else address)
+        return ip in ("localhost", "0.0.0.0", "::1") or ip.startswith("127.")
+
+    def _guarded_getaddrinfo(host, *args, **kwargs):
+        h = str(host)
+        if _is_local_host(h) or _is_ip_literal(h):
+            return _real_getaddrinfo(host, *args, **kwargs)  # loopback + literals: no DNS network
+        port = args[0] if args else (kwargs.get("port") or 0)
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (_PUBLIC_IP, port or 0))]
+
+    def _guarded_connect(self, address, *a, **k):
+        if _is_local_addr(address):
+            return _real_connect(self, address, *a, **k)
+        raise ConnectionRefusedError(f"[test-guard] external connect blocked: {address!r}. "
+                                     "Mock the provider, or set PYTEST_ALLOW_NETWORK=1 for a live run.")
+
+    def _guarded_connect_ex(self, address, *a, **k):
+        if _is_local_addr(address):
+            return _real_connect_ex(self, address, *a, **k)
+        return errno.ECONNREFUSED
+
+    monkeypatch.setattr(socket, "getaddrinfo", _guarded_getaddrinfo)
+    monkeypatch.setattr(socket.socket, "connect", _guarded_connect, raising=False)
+    monkeypatch.setattr(socket.socket, "connect_ex", _guarded_connect_ex, raising=False)
