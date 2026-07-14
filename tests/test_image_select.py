@@ -69,6 +69,13 @@ def test_caller_verdicts_keep_real_photos_best_first():
                               fetch=lambda u: data.get(u))
     assert out == ["https://x.com/hero.jpg", "https://x.com/ok.jpg"]   # banner dropped, best first
 
+    # return_verdicts pairs each kept URL with what the vision model said it depicts (the label was
+    # previously discarded) — best-first, aligned to the URL order. Default call is unchanged (URLs).
+    verds = select_brand_photos(urls, business_name="X", caller=caller,
+                                fetch=lambda u: data.get(u), return_verdicts=True)
+    assert verds == [("https://x.com/hero.jpg", "students in lab"),
+                     ("https://x.com/ok.jpg", "campus exterior")]
+
 
 def test_caller_failure_falls_back_closed():
     urls = ["https://x.com/photo.jpg", "https://x.com/logowall.jpg"]

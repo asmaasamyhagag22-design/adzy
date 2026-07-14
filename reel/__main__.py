@@ -147,6 +147,7 @@ def main() -> int:
     # whose only "images" are 298px category thumbnails -> 0 usable -> text-to-video scene).
     raw_photos = (profile.get("visual") or {}).get("content_images") or []
     selected: list = []
+    photo_subjects: list = []            # what each selected photo depicts (director hint)
     if raw_photos:
         from reel.image_quality import filter_usable_photos
         usable = filter_usable_photos(raw_photos, max_keep=max(2, args.frames))
@@ -158,12 +159,14 @@ def main() -> int:
             def _f(k):
                 fld = profile.get(k)
                 return fld.get("value") if isinstance(fld, dict) else fld
-            selected = select_brand_photos(
+            curated = select_brand_photos(
                 usable, business_name=brief.business_name,
                 category=str(brief.category or _f("category") or ""),
                 description=str(_f("description") or ""),
-                max_keep=max(2, args.frames),
+                max_keep=max(2, args.frames), return_verdicts=True,
             )
+            selected = [u for u, _ in curated]
+            photo_subjects = [s for _, s in curated]
             print(f"   [curate] {len(selected)}/{len(usable)} are on-brand photos", file=sys.stderr)
             if not selected:
                 # FULLY-GENERATED mode (owner ruling 2026-07-12): photos are CONDITIONING +
@@ -171,6 +174,7 @@ def main() -> int:
                 # no longer gates them out. Without this, zero curated photos killed the
                 # whole creative plan (measured on NTI: 0/6 curated -> director skipped).
                 selected = usable
+                photo_subjects = []       # subjects were for the curated set; don't misalign
                 print(f"   [curate] 0 curated -> keeping {len(usable)} quality-passing "
                       "photo(s) as generation/judging references", file=sys.stderr)
 
@@ -179,6 +183,7 @@ def main() -> int:
     # واحد مش ميت منتج"). Bypasses the quality gate — the user chose it.
     if args.product_image:
         selected = [args.product_image]
+        photo_subjects = []               # the featured product image has no curated subject label
         # FRAMING: a single product photo is usually landscape/square; the default 'cover' seed
         # CROPS it to 9:16 (owner: "الصورة كأنها مقصوصة"). 'pad' CONTAINS the WHOLE product over its
         # OWN background colour — nothing cropped AND no visible band (a blurred copy left a soft
@@ -218,6 +223,7 @@ def main() -> int:
             with_voiceover=not args.no_voiceover,
             featured_product=args.product_name,
             plan_override=plan_override,
+            photo_subjects=photo_subjects or None,
         )
         if result is not None:
             _append_brand_endcard(profile, result.reel_path, enabled=not args.no_logo)

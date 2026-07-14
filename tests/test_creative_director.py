@@ -241,3 +241,89 @@ def test_featured_product_makes_the_whole_reel_one_product():
     # the whole-brand default still varies the photo per scene
     montage = _system_prompt(5, "en", "generic")
     assert "DISTINCT photo" in montage and "ALWAYS 0" not in montage
+
+
+# ---------------------------------------------------------------------
+# Phase A — creative contracts + schema + data-wiring
+# ---------------------------------------------------------------------
+
+def _fake_caller(resp):
+    from business_profile.llm.caller import Usage
+
+    def caller(system, user, response_model, group_name="", images=None):
+        caller.system, caller.user = system, user
+        return resp, Usage(model="gemini-2.5-pro")
+    return caller
+
+
+def test_reconstruction_loop_threads_every_new_field(monkeypatch):
+    # the drop-silently guard: fields the model returns must survive the field-by-field rebuild.
+    import reel.creative_director as cd
+    from reel.creative_director import CreativeScene, _ReelResponse
+    monkeypatch.setattr(cd, "_image_parts",
+                        lambda urls, *, max_images, max_side=640: ([(b"IMG", "image/jpeg")], list(urls)[:1]))
+    resp = _ReelResponse(
+        concept="c", hook="h", cta="Order now", language="ar",
+        dialect="ignored-model-value", sound_design="tense -> warm", brand_unique_claim="only we do X",
+        scenes=[CreativeScene(image_index=0, veo_prompt="a hand holds the app", voiceover="vo",
+                              on_screen_text="Order now", duration_s=3.0, hero_product=True,
+                              product_overlay="real_screen", caption_role="cta", sfx="chime",
+                              sound_mood="confident")])
+    reel = design_creative_reel(_profile(), ["https://x.com/a.jpg"], caller=_fake_caller(resp))
+    assert reel is not None
+    assert reel.sound_design == "tense -> warm" and reel.brand_unique_claim == "only we do X"
+    s = reel.scenes[0]
+    assert s.hero_product is True and s.product_overlay == "real_screen"
+    assert s.caption_role == "cta" and s.sfx == "chime" and s.sound_mood == "confident"
+
+
+def test_dialect_is_code_locked_not_model_chosen(monkeypatch):
+    # [ONE VOICE]: the register is stamped in code (Egyptian for an Arabic reel), overriding whatever
+    # the model returned — so the VO can't drift to a different dialect label.
+    import reel.creative_director as cd
+    from reel.creative_director import CreativeScene, _ReelResponse
+    monkeypatch.setattr(cd, "_image_parts",
+                        lambda urls, *, max_images, max_side=640: ([(b"IMG", "image/jpeg")], list(urls)[:1]))
+    resp = _ReelResponse(language="ar", dialect="whatever-the-model-said",
+                         scenes=[CreativeScene(image_index=0, veo_prompt="v", duration_s=3.0)])
+    reel = design_creative_reel(_profile(), ["https://x.com/a.jpg"], caller=_fake_caller(resp))
+    assert "Egyptian" in reel.dialect and "whatever" not in reel.dialect
+
+
+def test_photo_subjects_are_injected_into_the_user_prompt(monkeypatch):
+    import reel.creative_director as cd
+    from reel.creative_director import CreativeScene, _ReelResponse
+    monkeypatch.setattr(cd, "_image_parts",
+                        lambda urls, *, max_images, max_side=640: ([(b"A", "image/jpeg"), (b"B", "image/jpeg")], list(urls)[:2]))
+    caller = _fake_caller(_ReelResponse(scenes=[CreativeScene(image_index=0, veo_prompt="v", duration_s=3.0)]))
+    design_creative_reel(_profile(), ["https://x/a.jpg", "https://x/b.jpg"], caller=caller,
+                         photo_subjects=["a plate of grilled meat", "the dining room"])
+    assert "photo 0 shows: a plate of grilled meat" in caller.user
+    assert "photo 1 shows: the dining room" in caller.user
+
+
+def test_fix_note_appends_corrections_to_the_user_prompt(monkeypatch):
+    import reel.creative_director as cd
+    from reel.creative_director import CreativeScene, _ReelResponse
+    monkeypatch.setattr(cd, "_image_parts",
+                        lambda urls, *, max_images, max_side=640: ([(b"IMG", "image/jpeg")], list(urls)[:1]))
+    caller = _fake_caller(_ReelResponse(scenes=[CreativeScene(image_index=0, veo_prompt="v", duration_s=3.0)]))
+    design_creative_reel(_profile(), ["https://x/a.jpg"], caller=caller,
+                         fix_note="scene 0 hides the product; CTA split")
+    assert "CORRECTIONS REQUIRED" in caller.user and "CTA split" in caller.user
+
+
+def test_old_saved_plan_still_validates_and_new_fields_default():
+    from reel.creative_director import CreativeReel
+    old = {"concept": "c", "hook": "h", "cta": "x", "language": "ar", "images": [],
+           "scenes": [{"image_index": 0, "veo_prompt": "v", "voiceover": "", "duration_s": 3}]}
+    r = CreativeReel.model_validate(old)              # a pre-Phase-A <slug>_reel_plan.json
+    assert r.dialect == "" and r.sound_design == "" and r.brand_unique_claim == ""
+    assert r.scenes[0].hero_product is False and r.scenes[0].product_overlay == ""
+
+
+def test_brand_unique_block_is_ledger_gated():
+    from reel.creative_director import _brand_unique_block
+    # no grounding creds in the bare test env -> the ledger gate yields nothing, no crash.
+    assert _brand_unique_block({"name": {"value": "ACME"}}) == ""
+    assert _brand_unique_block({}) == ""

@@ -145,10 +145,12 @@ def render_creative_reel(
     with_voiceover: bool = True,
     featured_product: Optional[str] = None,
     plan_override: Optional[dict] = None,
+    photo_subjects: Optional[list[str]] = None,
 ):
     """Full creative pipeline. Returns (render_result, creative_reel) or (None, None)
     when Opus could not design a reel (caller falls back to the normal storyboard).
-    `featured_product` (set when the user picked one) makes the WHOLE reel about that item."""
+    `featured_product` (set when the user picked one) makes the WHOLE reel about that item.
+    `photo_subjects` (aligned to `photos`) tells the director what each photo depicts."""
     # HITL (owner law 2026-07-12): a user-APPROVED plan replaces the director call
     # verbatim; every downstream gate (plan_eval, scene_qa, grounding) still runs on it.
     if plan_override:
@@ -159,7 +161,8 @@ def render_creative_reel(
             creative = None
     else:
         creative = design_creative_reel(profile, photos, n_scenes=n_scenes, language=language,
-                                        featured_product=featured_product)
+                                        featured_product=featured_product,
+                                        photo_subjects=photo_subjects)
     if not creative or not creative.scenes:
         return None, None
 
@@ -180,7 +183,8 @@ def render_creative_reel(
             logger.info("reel plan eval: score=%d issues=%s -> regenerating once",
                         verdict.score, verdict.issues)
             retry = design_creative_reel(profile, photos, n_scenes=n_scenes, language=language,
-                                         featured_product=featured_product)
+                                         featured_product=featured_product,
+                                         photo_subjects=photo_subjects)
             if retry and retry.scenes:
                 v2 = evaluate_reel_plan(retry, profile=profile, featured=bool(featured_product))
                 if v2.score >= verdict.score:                 # keep the stronger plan

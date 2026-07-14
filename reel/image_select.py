@@ -119,7 +119,8 @@ def select_brand_photos(
     api_key: Optional[str] = None,     # legacy, unused (OpenAI removed 2026-07)
     model: str = "",                   # legacy, unused
     timeout_s: float = 90.0,           # legacy, unused
-) -> list[str]:
+    return_verdicts: bool = False,     # return (url, subject) pairs instead of bare URLs
+) -> list:
     """Return the subset of `image_urls` that are real, on-brand photographs, ordered
     best-first. FIX-D1 (2026-07-11): runs on the LIVE model stack — the shared Gemini
     caller (`caller` injectable for tests; default `default_caller(strong=False)`), the
@@ -128,13 +129,21 @@ def select_brand_photos(
     the mechanism behind the screwdriver-macro / TRAINING-banner / partner-logo-wall reel.
     Never raises; with no caller or a failed call it fails CLOSED via the deterministic
     collage screen instead of keeping junk."""
+    def _ret(url_list, subj_map=None):
+        """Shape the result: bare URLs, or (url, subject) pairs when return_verdicts is set — so the
+        director learns what each photo depicts (labels the vision model already computed)."""
+        if not return_verdicts:
+            return url_list
+        subj_map = subj_map or {}
+        return [(u, subj_map.get(u, "")) for u in url_list]
+
     _bad_hosts = ("facebook.com/tr", "/tr?", "google-analytics", "googletagmanager",
                   "doubleclick", "/pixel", "analytics.")
     urls = [u for u in (image_urls or [])
             if isinstance(u, str) and u.startswith(("http://", "https://"))
             and not any(b in u.lower() for b in _bad_hosts)]
     if len(urls) <= 1:
-        return urls
+        return _ret(urls)
 
     # Download + downscale each image OURSELVES; keep only the ones we could fetch
     # (a site that blocks the model's fetcher still works because we send bytes).
@@ -146,7 +155,7 @@ def select_brand_photos(
             pairs.append((u, d))
     if len(pairs) <= 1:
         logger.info("image_select: only %d images fetchable; keeping them", len(pairs))
-        return [u for u, _ in pairs] or urls[:max_keep]
+        return _ret([u for u, _ in pairs] or urls[:max_keep])
 
     if caller is None:
         try:
@@ -156,7 +165,7 @@ def select_brand_photos(
             caller = None
     if caller is None:
         logger.info("image_select: no vision caller; failing CLOSED on suspicious classes")
-        return _fail_closed(pairs, max_keep)
+        return _ret(_fail_closed(pairs, max_keep))
 
     try:
         user = (
@@ -170,15 +179,17 @@ def select_brand_photos(
         )
         fetched = [u for u, _ in pairs]
         if parsed is None:
-            return _fail_closed(pairs, max_keep)
+            return _ret(_fail_closed(pairs, max_keep))
 
         kept: list[tuple[int, str]] = []   # (quality, url)
+        subj_map: dict[str, str] = {}      # url -> what the photo depicts (for the director)
         dropped: list[str] = []
         for v in parsed.verdicts:
             if not (0 <= v.index < len(fetched)):
                 continue
             if v.kind == _KEEP_KIND and v.on_brand:
                 kept.append((v.quality, fetched[v.index]))
+                subj_map[fetched[v.index]] = str(getattr(v, "subject", "") or "").strip()
             else:
                 dropped.append(f"{v.kind}:{v.subject}")
         kept.sort(key=lambda kv: -kv[0])
@@ -187,7 +198,7 @@ def select_brand_photos(
                     len(result), len(fetched), "; ".join(dropped[:8]))
         # If the model rejected everything (over-strict / all-logos site), that's the
         # caller's honest "logo-only" signal — return empty and let the caller decide.
-        return result
+        return _ret(result, subj_map)
     except Exception as e:  # noqa: BLE001
         logger.warning("image_select failed (%s); failing CLOSED on suspicious classes", e)
-        return _fail_closed(pairs, max_keep)
+        return _ret(_fail_closed(pairs, max_keep))

@@ -37,6 +37,12 @@ class CreativeScene(BaseModel):
     voiceover_delivery: str = ""           # emotion/performance note for this line
     on_screen_text: str = ""               # short kinetic caption (may be empty)
     duration_s: float = 4.0
+    # --- creative-contract fields (additive; the gate + render layers consume these) ---
+    hero_product: bool = False             # this scene concretely shows the product/service
+    product_overlay: str = ""              # "" | "none" | "real_screen" | "real_photo" (post-composite)
+    caption_role: str = ""                 # "" | name | benefit | proof | cta | layer
+    sfx: str = ""                          # SFX cue for this beat: whoosh | impact | chime | ...
+    sound_mood: str = ""                   # per-scene mood token in the sound arc
 
 
 class CreativeReel(BaseModel):
@@ -48,6 +54,10 @@ class CreativeReel(BaseModel):
     images: list[str] = Field(default_factory=list)   # the real photos the model saw, in index order
     scenes: list[CreativeScene] = Field(default_factory=list)
     model: str = _DEFAULT_MODEL
+    # --- creative-contract fields (additive) ---
+    dialect: str = ""                       # locked register/dialect for the whole VO
+    sound_design: str = ""                  # the mood-progression arc (Phase C render consumes it)
+    brand_unique_claim: str = ""            # the one thing only this brand can say (grounded)
 
 
 class _ReelResponse(BaseModel):
@@ -57,6 +67,9 @@ class _ReelResponse(BaseModel):
     music_mood: str = ""
     cta: str = ""
     language: str = ""
+    dialect: str = ""
+    sound_design: str = ""
+    brand_unique_claim: str = ""
     scenes: list[CreativeScene] = Field(default_factory=list)
 
 
@@ -65,6 +78,29 @@ def _v(profile: dict, key: str) -> str:
     if isinstance(f, dict):
         f = f.get("value")
     return str(f).strip() if f else ""
+
+
+def _brand_unique_block(profile: dict) -> str:
+    """The grounded differentiators only THIS brand can credibly claim — fed to the director so the
+    reel says something specific, not generic (the [SAY THE ONE THING…] contract). Reuses the
+    Ledger-gated brand-signal strengths + other_unique_insights; every line is verified sourced, so
+    nothing is fabricated. Empty string on any failure (the director must never break on grounding)."""
+    try:
+        from grounding.ledger import EvidenceLedger
+        from competitor.brand_signals import strengths_from_profile
+        ledger = EvidenceLedger.from_profile(profile)
+        items: list[str] = [s.text for s in strengths_from_profile(profile, ledger)]
+        for ins in (profile.get("other_unique_insights") or []):
+            t = str((ins.get("value") if isinstance(ins, dict) else ins) or "").strip()
+            if t and t not in items and all(v.sourced for v in ledger.audit_text(t)):
+                items.append(t)
+    except Exception:  # noqa: BLE001
+        return ""
+    items = [t for t in items if t][:5]
+    if not items:
+        return ""
+    return ("BRAND-UNIQUE (only THIS brand can credibly say — use >=1 in the copy, grounded):\n- "
+            + "\n- ".join(items))
 
 
 def _identity_block(profile: dict) -> str:
@@ -106,6 +142,10 @@ def _identity_block(profile: dict) -> str:
                 lines.append(f"- {f.label}: {f.value}")
     except Exception:
         pass
+
+    unique = _brand_unique_block(profile)
+    if unique:
+        lines.append(unique)
     return "\n".join(lines)
 
 
@@ -214,11 +254,26 @@ _DELIVERY_EG = {
 }
 
 
+def _locked_register(language: str) -> str:
+    """The one dialect/register locked for the whole voice-over ([ONE VOICE]). Universal + config
+    driven: Arabic defaults to Egyptian colloquial (the pilot market), overridable to MSA via
+    REEL_ARABIC_DIALECT=fusha; any other language locks to a conversational register of that language."""
+    lang = (language or "en").lower()
+    if lang.startswith("ar"):
+        pref = (os.environ.get("REEL_ARABIC_DIALECT") or "").strip().lower()
+        if pref in ("fusha", "msa", "standard"):
+            return "Modern Standard Arabic (فصحى) — formal, consistent"
+        return "Egyptian colloquial (عامية مصرية) — natural spoken Masri"
+    return f"conversational {lang.split('-')[0]}"
+
+
 def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
                    featured: Optional[str] = None, compliance: str = "",
-                   product_photo_anchored: bool = False) -> str:
+                   product_photo_anchored: bool = False, register: str = "") -> str:
     motion = _MOTION_GUIDANCE.get(mode, _MOTION_GUIDANCE["generic"])
     deliveries = _DELIVERY_EG.get(mode, _DELIVERY_EG["generic"])
+    register_note = (f"LOCKED DIALECT — write EVERY voiceover line in: {register}. One register, no "
+                     f"drift (the [ONE VOICE] contract).\n\n" if register else "")
     # Ad-safety, ONE source (poster.contracts.compliance_for): a clinic/beauty reel must obey the
     # same policy as its poster — no before/after, no clinical claims, no guaranteed results. Empty
     # for categories with no rule beyond brand-safety, so most reels are unchanged.
@@ -265,12 +320,18 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         "hero. A DELIBERATE macro crop on a detail shot (nozzle, label, texture) is welcome for the "
         "hook; that crop is intentional, not an accident.\n\n")
     from poster.contracts import CRAFT_CONTRACT
+    from reel.reel_contracts import REEL_CRAFT_CONTRACTS
     return (
         # CRAFT BAR, not a persona primer (Batch 4): a fixed "15-year TikTok director" homogenized
         # every brand to hype pacing — the register is now DERIVED FROM THE BRAND. The spine below is
         # unchanged; only the opener changed.
         CRAFT_CONTRACT + "\n\n"
-        "Design a vertical 9:16 ad reel that turns THIS brand's REAL features into short, impactful "
+        # The reel craft contracts — the 8 hard rules a creative director enforces (product visible,
+        # arresting muted hook, one CTA, one voice/dialect, sound arc, caption strategy, brand-specific,
+        # feasible). The coherence gate re-checks each in code.
+        + REEL_CRAFT_CONTRACTS + "\n\n"
+        + register_note
+        + "Design a vertical 9:16 ad reel that turns THIS brand's REAL features into short, impactful "
         "stories that SELL, understanding the audience's consumer psychology. The reel's ENERGY and "
         "REGISTER must MATCH THIS BRAND — a luxury house is unhurried and reverent; a youth brand is "
         "fast and playful; a clinic is calm and credible. Do NOT default every brand to high-energy "
@@ -333,9 +394,13 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         "answer → it working in real life → the transformation → CTA.\n\n"
         "SCREENS & MARKS (hard): any screen/monitor/phone display inside a scene shows ABSTRACT "
         "glowing graphics or blurred UI with NO readable text or numbers (video models render junk "
-        "pseudo-text — the exact failure the poster gate rejects). NEVER depict any company's logo or "
-        "trademark — no third-party marks (swooshes, fruit logos, telecom brands) AND not the brand's "
-        "own (the end-card composites the REAL logo); no branded badges on clothing or objects.\n\n"
+        "pseudo-text — the exact failure the poster gate rejects). EXCEPTION for a screen/app product: "
+        "keep the generated screen abstract AND set that scene's product_overlay=\"real_screen\" so the "
+        "REAL product screen is composited in post — that is how a software product is actually SHOWN "
+        "(see [PRODUCT ON SCREEN]); never let 'abstract screen' become the whole ad. NEVER depict any "
+        "company's logo or trademark — no third-party marks (swooshes, fruit logos, telecom brands) "
+        "AND not the brand's own (the end-card composites the REAL logo); no branded badges on "
+        "clothing or objects.\n\n"
         # AGENCY PROMPT FORMULA — the owner's spec for how each veo_prompt is engineered.
         "WRITE EACH veo_prompt WITH THE AGENCY FORMULA — SUBJECT + STYLE + CAMERA + LIGHTING + MOTION, "
         "concrete, never lazy:\n"
@@ -356,8 +421,10 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         "sells the moment. PACE BUDGET (hard rule — a rushed narration is unintelligible): the line "
         "must fit its scene at a natural speaking pace, AT MOST 2 words per second of duration_s "
         "(a 4s scene fits ~8 words) and NEVER more than 8 words total. Fewer words land harder "
-        "(owner: 'الكلام أوفر') — one or two scenes SHOULD be silent (voiceover: '') and let the "
-        "footage + music breathe. TTS-FRIENDLY: write numbers as words in the narration language "
+        "(owner: 'الكلام أوفر') — a scene MAY be spoken-silent (voiceover: '') to let the footage "
+        "breathe, but ONLY when its sfx/sound_mood clearly carries it (never a scene with no voice "
+        "AND no sound — that is dead air). Keep ONE locked dialect across every line (see [ONE "
+        "VOICE]). TTS-FRIENDLY: write numbers as words in the narration language "
         "(أربع شهور, not ٤ or 4), no abbreviations or Latin acronyms unless they are the brand's "
         "own name.\n"
         "- voiceover_delivery: the EMOTION/performance in a few words "
@@ -372,7 +439,16 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         "visual scene MAY leave on_screen_text empty, but do NOT leave the reel mostly text-free.\n"
         "- duration_s: 2-4 — a FAST TikTok cut for a caption-free scene; a CAPTIONED scene needs >=3s "
         "(>= words*0.4 + 1.5) so it can be READ (owner: 'the text goes by too fast'). If a caption "
-        "would need more than ~7 words, SPLIT it into two scenes rather than speeding it up.\n\n"
+        "would need more than ~7 words, SPLIT it into two scenes rather than speeding it up.\n"
+        "- hero_product: true on at least ONE scene that concretely SHOWS the product/service (see "
+        "[PRODUCT ON SCREEN]); false otherwise.\n"
+        "- product_overlay: \"real_screen\" when the product is a screen/app and its real screen "
+        "should be composited in post; else \"\".\n"
+        "- caption_role: for a captioned scene, one of name | benefit | proof | cta | layer (scene 0 "
+        "= name, last scene's CTA caption = cta).\n"
+        "- sfx: a sound cue on key beats — whoosh (hard motion) | impact (reveal) | chime (pay-off) — "
+        "else \"\".\n"
+        "- sound_mood: this scene's mood in the arc (e.g. 'tense', 'warm build', 'confident').\n\n"
         "DISCIPLINE: be creative and persuasive, but invent NO facts — no fake awards, ratings, "
         "numbers, or certifications. Every factual claim must come from the identity provided. The CTA "
         "line is COPY you WRITE (an action + a reason to act now); only its factual claims (offer, "
@@ -392,8 +468,10 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         + compliance_line +
         "Return ONLY a JSON object, no prose, no markdown fences:\n"
         '{"concept":"...","hook":"...","music_mood":"...","cta":"...","language":"' + language + '",'
+        '"dialect":"...","sound_design":"...","brand_unique_claim":"...",'
         '"scenes":[{"image_index":0,"veo_prompt":"...","voiceover":"...","voiceover_delivery":"...",'
-        '"on_screen_text":"...","duration_s":3}]}'
+        '"on_screen_text":"...","duration_s":3,"hero_product":true,"product_overlay":"",'
+        '"caption_role":"name","sfx":"","sound_mood":"..."}]}'
     )
 
 
@@ -406,11 +484,16 @@ def design_creative_reel(
     featured_product: Optional[str] = None,
     caller=None,
     user_note: Optional[str] = None,
+    photo_subjects: Optional[list[str]] = None,
+    fix_note: Optional[str] = None,
 ) -> Optional[CreativeReel]:
     """Gemini 2.5 Pro designs the full creative reel from the identity + real photos (it SEES the
     photos — natively multimodal). When `featured_product` is set, the WHOLE reel is about that ONE
     product (several shots of the same item). Returns None on any failure (no caller/creds/images).
-    `caller` is injectable for tests; it defaults to default_caller(strong=True)."""
+    `caller` is injectable for tests; it defaults to default_caller(strong=True).
+    `photo_subjects` (aligned to the attached photos) tells the director what each photo depicts so
+    it can pick the product shot for the hero moment. `fix_note` appends explicit corrections for a
+    coherence-gate retry (the [BRACKET] contracts still apply)."""
     urls = [u for u in (image_urls or []) if isinstance(u, str) and u.startswith(("http://", "https://"))]
     if not urls:
         logger.info("creative_director: no real photos; skipping")
@@ -454,17 +537,30 @@ def design_creative_reel(
         # rules in the system prompt still apply unchanged.
         note_line = ("\n\nUSER CHANGE REQUEST (must be honored): "
                      + str(user_note).strip())
-    user = ("BUSINESS IDENTITY:\n" + _identity_block(profile) + feat +
+    # What each attached photo depicts, so the director picks the product shot for the hero moment
+    # (the labels are computed by image_select but were otherwise discarded).
+    subj_line = ""
+    if photo_subjects:
+        subj_line = "\n\nATTACHED PHOTOS (what each shows):\n" + "\n".join(
+            f"- photo {i} shows: {str(s).strip()}" for i, s in enumerate(photo_subjects[:len(used)])
+            if str(s or "").strip())
+    fix_block = ""
+    if fix_note and str(fix_note).strip():
+        fix_block = ("\n\nCORRECTIONS REQUIRED — fix ALL of these from your previous attempt, "
+                     "introduce no new violations:\n" + str(fix_note).strip())
+    user = ("BUSINESS IDENTITY:\n" + _identity_block(profile) + feat + subj_line +
             f"\n\n{len(used)} real photos are attached in index order 0..{len(used) - 1}. "
             "Design the reel.")
-    user = user + note_line
+    user = user + note_line + fix_block
 
+    register = _locked_register(lang)
     try:
         from poster.contracts import compliance_for
         resp, usage = caller(
             _system_prompt(n_scenes, lang, _vertical_mode(profile), featured=featured_product,
                            compliance=compliance_for(_v(profile, "category")),
-                           product_photo_anchored=bool(featured_product) and len(used) == 1),
+                           product_photo_anchored=bool(featured_product) and len(used) == 1,
+                           register=register),
             user, _ReelResponse, group_name="creative_director", images=parts,
         )
     except Exception as e:  # noqa: BLE001 — a call failure must never break the reel pipeline
@@ -487,6 +583,11 @@ def design_creative_reel(
             voiceover_delivery=str(getattr(s, "voiceover_delivery", "")).strip(),
             on_screen_text=str(getattr(s, "on_screen_text", "")).strip(),
             duration_s=float(getattr(s, "duration_s", 4.0) or 4.0),
+            hero_product=bool(getattr(s, "hero_product", False)),
+            product_overlay=str(getattr(s, "product_overlay", "")).strip(),
+            caption_role=str(getattr(s, "caption_role", "")).strip(),
+            sfx=str(getattr(s, "sfx", "")).strip(),
+            sound_mood=str(getattr(s, "sound_mood", "")).strip(),
         ))
     if not scenes:
         return None
@@ -496,6 +597,9 @@ def design_creative_reel(
         music_mood=str(getattr(resp, "music_mood", "")).strip(),
         cta=str(getattr(resp, "cta", "")).strip(),
         language=lang, images=used, scenes=scenes,
+        dialect=register or str(getattr(resp, "dialect", "")).strip(),   # code-locked register wins
+        sound_design=str(getattr(resp, "sound_design", "")).strip(),
+        brand_unique_claim=str(getattr(resp, "brand_unique_claim", "")).strip(),
         model=getattr(usage, "model", "") or _DEFAULT_MODEL,
     )
 
