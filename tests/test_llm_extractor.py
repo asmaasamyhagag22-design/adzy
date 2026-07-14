@@ -213,6 +213,28 @@ def test_cost_for_unknown_model_returns_zero():
     assert _cost_for("some-other-model", 1000, 500) == 0.0
 
 
+def test_default_caller_models_are_in_the_pricing_table(monkeypatch):
+    """Foot-gun guard (the exact failure _cost_for's docstring warns about): switching the
+    default model without updating _PRICING makes every cost report, SSE payload and benchmark
+    field silently read $0. This reads the model default_caller ACTUALLY resolves to (strong and
+    cheap lanes) and asserts it is priced — so a future default change fails HERE, loudly."""
+    import importlib.util
+
+    import business_profile.llm.caller as caller_mod
+    if not importlib.util.find_spec("google.genai"):
+        import pytest
+        pytest.skip("google.genai not installed — cannot construct the live default caller")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-proj")
+    for k in ("GEMINI_MODEL", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    for strong in (True, False):
+        c = caller_mod.default_caller(strong=strong)
+        assert c is not None, "default_caller returned None despite creds + genai present"
+        assert caller_mod._cost_for(c.model, 1000, 500) > 0, (
+            f"default model {c.model!r} is missing from _PRICING -> cost silently reads $0; "
+            "add it to business_profile/llm/caller.py:_PRICING")
+
+
 def pytest_approx(value, rel=1e-9):
     """Lightweight approx helper to avoid pulling in pytest.approx import."""
     class _Approx:
