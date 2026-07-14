@@ -339,6 +339,86 @@ def test_asset_being_regenerated_returns_503(live, monkeypatch):
     assert e.value.code == 503                           # clean 503, not an unhandled 500
 
 
+def test_strategy_tie_surfaces_the_why(tmp_path):
+    # RUBRIC D: the WHY (strategy line + funnel + audience) is built for the LIVE studio, not only
+    # the export. Prefixes ("Leverage:", "the brand's audience:") are stripped like the export tie.
+    (tmp_path / "brand_media_plan.json").write_text(json.dumps({
+        "objectives": [{"funnel_stage": "bofu"}],
+        "base_persona": {"interests": [{"claim": "the brand's audience: busy new parents"}]},
+    }), encoding="utf-8")
+    (tmp_path / "brand_result.json").write_text(json.dumps({
+        "tows": {"priority_actions": [
+            {"action": "Leverage: free trial to win price-sensitive leads"}]},
+    }), encoding="utf-8")
+    tie = srv._strategy_tie("brand", str(tmp_path))
+    assert "serves your strategy" in tie
+    assert "free trial to win price-sensitive leads" in tie      # strat, prefix stripped
+    assert "تحويل · BOFU" in tie                                 # funnel label
+    assert "busy new parents" in tie                             # audience, prefix stripped
+    assert "tie-chip tie-strat" in tie
+
+
+def test_strategy_tie_empty_without_media_plan(tmp_path):
+    # No media plan yet (analyze not re-run) -> nothing to tie -> render nothing (no empty box).
+    assert srv._strategy_tie("nope", str(tmp_path)) == ""
+
+
+def test_studio_shows_strategy_tie_beside_the_creative(live, tmp_path):
+    # The live Creative Studio must carry the tie chips (the fake analyze doesn't write U1, so
+    # seed a media plan + tows, then confirm /studio renders the WHY beside the on-demand assets).
+    _get(live + "/analyze?url=https://brand.example/")
+    (tmp_path / "brand_example_media_plan.json").write_text(json.dumps({
+        "objectives": [{"funnel_stage": "tofu"}],
+        "base_persona": {"interests": [{"claim": "eco-conscious shoppers"}]},
+    }), encoding="utf-8")
+    _s, body = _get(live + "/studio?slug=brand_example")
+    h = body.decode("utf-8")
+    assert "serves your strategy" in h and "وعي · TOFU" in h
+    assert "eco-conscious shoppers" in h
+    assert "Creative Studio" in h                                 # tie sits inside the studio card
+
+
+def test_ask_route_returns_grounded_answer(live, monkeypatch):
+    # /ask wires the archive Q&A: guard slug, call answer_question, return its answer+citations.
+    from dashboard.archive_qa import ArchiveAnswer
+    _get(live + "/analyze?url=https://brand.example/")
+    monkeypatch.setattr(srv, "answer_question", lambda slug, q, **kw: ArchiveAnswer(
+        answer="Accredited by the Supreme Council.", grounded=True,
+        citations=[{"n": 1, "label": "Trust signal", "url": "https://b.example/about"}],
+        corpus_size=42))
+    _s, body = _get(live + "/ask?slug=brand_example&q=" + "what%20accreditation")
+    d = json.loads(body)
+    assert d["grounded"] is True and "Supreme Council" in d["answer"]
+    assert d["citations"][0]["label"] == "Trust signal" and d["corpus_size"] == 42
+
+
+def test_ask_route_guards_bad_slug(live):
+    with pytest.raises(urllib.error.HTTPError) as e:
+        _get(live + "/ask?slug=../etc&q=hi")
+    assert e.value.code == 400
+
+
+def test_ask_route_survives_answer_failure(live, monkeypatch):
+    # a raising answerer must not 500 the route — it returns a clean, ungrounded payload.
+    def boom(slug, q, **kw):
+        raise RuntimeError("model down")
+    monkeypatch.setattr(srv, "answer_question", boom)
+    _get(live + "/analyze?url=https://brand.example/")
+    _s, body = _get(live + "/ask?slug=brand_example&q=hi")
+    d = json.loads(body)
+    assert d["grounded"] is False and d["answer"] == "" and d["note"]
+
+
+def test_studio_has_ask_archive_panel(live):
+    _get(live + "/analyze?url=https://brand.example/")
+    _s, body = _get(live + "/studio?slug=brand_example")
+    h = body.decode("utf-8")
+    assert "Ask the archive" in h and 'id="ask-q"' in h                # the panel + input
+    assert "askArchive()" in h and "/ask?slug=" in h                    # handler + route call
+    assert "اسأل الأرشيف" in h                                          # bilingual heading
+    assert "test(c.url)" in h                                           # citation href scheme-guard (no javascript: XSS)
+
+
 def test_bad_slug_and_missing_analysis_are_guarded(live):
     with pytest.raises(urllib.error.HTTPError) as e1:
         _get(live + "/studio?slug=../etc")

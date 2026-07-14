@@ -26,7 +26,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from dashboard import run as _run_mod
-from dashboard.build import build_dashboard_html
+from dashboard.archive_qa import answer_question
+from dashboard.build import _esc, build_dashboard_html
 
 # Baseera palette (in lock-step with dashboard/build.py::_C so studio + dashboard read as one).
 _C = {
@@ -319,11 +320,15 @@ def _studio_css() -> str:
     </style>"""
 
 
-def _studio_section(slug: str, has_poster: bool, has_reel: bool) -> str:
-    """The interactive Creative Studio block (uses the dashboard's own .sec/.card/.bar classes)."""
+def _studio_section(slug: str, has_poster: bool, has_reel: bool, strategy_tie: str = "") -> str:
+    """The interactive Creative Studio block (uses the dashboard's own .sec/.card/.bar classes).
+    `strategy_tie` (from `_strategy_tie`) surfaces the WHY — the strategy/funnel/audience each
+    creative serves — at the top of the studio, so the rationale is beside the live asset, not
+    only in the export (RUBRIC D)."""
     return f"""<div class="sec"><div class="sec-h"><span class="bar"></span>
       <h2>Creative Studio — generate on demand</h2><span class="cnt">grounded · brand-safe · yours to drive</span></div>
       <div class="card">
+        {strategy_tie}
         <div class="cst-qa" id="scrape-qa">
           <div class="cst-qa-h" onclick="toggleQA()">
             <span>🔎 Scraper quality <span id="qa-sub" style="font-family:'Inter',sans-serif;font-weight:400;font-size:12px;color:#8a7480"></span></span>
@@ -344,6 +349,49 @@ def _studio_section(slug: str, has_poster: bool, has_reel: bool) -> str:
         {_panel('poster', '🎨', 'Poster', 'one-shot · crisp logo', has_poster, slug)}
         {_panel('reel', '🎬', 'Reel', 'Veo 3.1 · branded end-card', has_reel, slug)}
       </div></div></div>"""
+
+
+def _ask_archive_section() -> str:
+    """اسأل الأرشيف · Ask the archive — a grounded Q&A box over the brand's whole saved run. Self-
+    contained CSS so it needs no change to build.py's stylesheet. Answers cite sources and say so
+    when the archive doesn't cover a question (honesty, not a chatbot that guesses)."""
+    return """<style>
+      .ask-row{display:flex;gap:8px;margin-bottom:8px}
+      .ask-row input{flex:1;padding:11px 13px;border:1px solid #e7d3da;border-radius:10px;
+        font-family:inherit;font-size:14px;background:#fff}
+      .ask-row button{padding:0 18px;border:0;border-radius:10px;background:#B85C7A;color:#fff;
+        font-weight:700;cursor:pointer;white-space:nowrap}
+      .ask-row button:disabled{opacity:.6;cursor:default}
+      .ask-ex{font-size:12px;color:#8a7480;margin-bottom:6px}
+      .ask-ex a{color:#B85C7A;cursor:pointer;text-decoration:none;border-bottom:1px dotted #d9a9ba}
+      .ask-ans{margin-top:10px;padding:13px 15px;background:#fdf7f9;border:1px solid #f0dfe6;
+        border-radius:12px;line-height:1.7}
+      .ask-a{font-size:15px;color:#2b2226;white-space:pre-wrap}
+      .ask-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
+      .ask-g{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px}
+      .ask-g.ok{color:#1f7a4d;background:#e3f5ec}
+      .ask-g.warn{color:#8a5a00;background:#fbf0d8}
+      .ask-cites{display:flex;flex-wrap:wrap;gap:6px}
+      .ask-cites a,.ask-cites span{font-size:11px;color:#6b5560;background:#fff;border:1px solid #eddde4;
+        border-radius:14px;padding:2px 9px;text-decoration:none}
+      .ask-cites a:hover{border-color:#B85C7A;color:#B85C7A}
+      .ask-load,.ask-note{font-size:13px;color:#8a7480}
+    </style>
+    <div class="sec"><div class="sec-h"><span class="bar"></span>
+      <h2>اسأل الأرشيف · Ask the archive</h2>
+      <span class="cnt">يردّ من بيانات العلامة المحفوظة فقط · يذكر المصدر · ويقول لما ما يعرفش</span></div>
+      <div class="card">
+        <div class="ask-row">
+          <input id="ask-q" type="text" dir="auto"
+            placeholder="اسأل عن العلامة… (اعتمادات؟ منافسين؟ عروض؟ what does it offer?)"
+            onkeydown="if(event.key==='Enter')askArchive()"/>
+          <button id="ask-btn" onclick="askArchive()">اسأل · Ask</button>
+        </div>
+        <div class="ask-ex">جرّب: <a onclick="askEx(this)">إيه اعتمادات المعهد؟</a> ·
+          <a onclick="askEx(this)">مين المنافسين؟</a> ·
+          <a onclick="askEx(this)">إيه العروض اللي بيقدمها؟</a></div>
+        <div id="ask-ans" class="ask-ans" style="display:none"></div>
+      </div></div>"""
 
 
 def _studio_js(slug: str, auto_poster: bool, auto_reel: bool) -> str:
@@ -514,6 +562,26 @@ function genExecute(kind){{
     setEmpty(stage,kind,'Couldn\\'t generate the '+kind,'press Regenerate to try again');}});
   es.onerror=()=>{{if(es.readyState===EventSource.CLOSED){{btn.disabled=false;}}}};
 }}
+function askArchive(){{
+  const inp=document.getElementById('ask-q'),btn=document.getElementById('ask-btn'),box=document.getElementById('ask-ans');
+  const q=(inp.value||'').trim(); if(!q)return;
+  btn.disabled=true; box.style.display='block'; box.innerHTML='<div class="ask-load">…بيدوّر في الأرشيف</div>';
+  fetch('/ask?slug='+encodeURIComponent(SLUG)+'&q='+encodeURIComponent(q)).then(r=>r.json()).then(d=>{{
+    btn.disabled=false;
+    if(!d||(!d.answer&&!d.note)){{box.innerHTML='<div class="ask-load">لا يوجد رد</div>';return;}}
+    if(!d.answer){{box.innerHTML='<div class="ask-note">'+esc(d.note||'—')+'</div>';return;}}
+    let cites='';
+    (d.citations||[]).forEach(c=>{{const ok=c.url&&/^https?:\\/\\//i.test(c.url);  // only http(s) may be a link (no javascript: XSS)
+      cites+=(ok
+      ?'<a href="'+esc(c.url)+'" target="_blank" rel="noopener">['+c.n+'] '+esc(c.label)+'</a>'
+      :'<span>['+c.n+'] '+esc(c.label)+'</span>');}});
+    const badge=d.grounded?'<span class="ask-g ok">✓ من الأرشيف</span>'
+                          :'<span class="ask-g warn">⚠ مش مغطّى بالأرشيف بالكامل</span>';
+    box.innerHTML='<div class="ask-a">'+esc(d.answer)+'</div><div class="ask-meta">'+badge
+      +'<span class="ask-cites">'+cites+'</span></div>';
+  }}).catch(()=>{{btn.disabled=false;box.innerHTML='<div class="ask-load">✗ خطأ في الاتصال</div>';}});
+}}
+function askEx(a){{document.getElementById('ask-q').value=a.textContent;askArchive();}}
 window.addEventListener('load',()=>{{
   loadScrapeQA();                                  // scraper quality panel
   loadProducts();                                  // populate the product picker
@@ -521,6 +589,55 @@ window.addEventListener('load',()=>{{
   if(AUTO.reel)setTimeout(()=>gen('reel'),500);
 }});
 </script>"""
+
+
+_FUN_L = {"tofu": "وعي · TOFU", "mofu": "تفكير · MOFU", "bofu": "تحويل · BOFU"}
+
+
+def _strategy_tie(slug: str, out_dir: str) -> str:
+    """RUBRIC D in the LIVE studio: the WHY beside the on-demand creative — the strategy line,
+    funnel stage and audience each asset serves. Mirrors the export's tie chips (build.py `_tie`)
+    so the owner sees the strategic rationale next to the poster/reel they're about to spend on,
+    not only in the downloaded dashboard (the live studio previously showed neither). Empty when
+    there is no media plan yet (analyze not re-run)."""
+    mp_path = Path(out_dir) / f"{slug}_media_plan.json"
+    if not mp_path.is_file():
+        return ""
+    try:
+        mp = json.loads(mp_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return ""
+    obj = (mp.get("objectives") or [{}])[0]
+    tows = {}
+    res_path = Path(out_dir) / f"{slug}_result.json"
+    if res_path.is_file():
+        try:
+            tows = (json.loads(res_path.read_text(encoding="utf-8")).get("tows") or {})
+        except Exception:  # noqa: BLE001
+            tows = {}
+    strat = ""
+    if tows.get("priority_actions"):
+        strat = re.sub(r"^(Leverage|Fix|Address|Defend|Exploit)\s*:\s*", "",
+                       str(tows["priority_actions"][0].get("action") or "")).strip()
+    elif tows.get("strategies"):
+        strat = str(tows["strategies"][0].get("title") or "")
+    fun = str(obj.get("funnel_stage") or "").lower()
+    aud = ""
+    for itx in ((mp.get("base_persona") or {}).get("interests") or [])[:1]:
+        aud = str(itx.get("claim") if isinstance(itx, dict) else itx).replace(
+            "the brand's audience:", "").strip()
+    chips = []
+    if strat:
+        chips.append(f'<span class="tie-chip tie-strat">🎯 {_esc(strat[:60])}</span>')
+    if fun in _FUN_L:
+        chips.append(f'<span class="tie-chip">{_esc(_FUN_L[fun])}</span>')
+    if aud:
+        chips.append(f'<span class="tie-chip">👥 {_esc(aud[:40])}</span>')
+    if not chips:
+        return ""
+    return ('<div class="tie" style="margin-bottom:12px">'
+            '<div class="tie-h">الإبداع تحت — يخدم استراتيجيتك · the creative below serves your '
+            f'strategy</div><div class="tie-chips">{"".join(chips)}</div></div>')
 
 
 def _media_plan_card(slug: str, out_dir: str) -> str:
@@ -582,12 +699,13 @@ def _studio_page(slug: str, out_dir: str) -> str | None:
         standalone=False,           # the English grid duplicated it (owner: the plan mess)
     )
     has_poster, has_reel = P["poster"].is_file(), P["reel"].is_file()
-    section = _studio_section(slug, has_poster, has_reel)
+    section = _studio_section(slug, has_poster, has_reel, _strategy_tie(slug, out_dir))
     # inject the Creative Studio just before the report's footer (where the static creative was)
     marker = '<div class="foot"'
     i = report.rfind(marker)
     mp_card = _media_plan_card(slug, out_dir)
-    block = f'<div class="bsr"><div class="wrap">{mp_card}{section}</div></div>'
+    ask = _ask_archive_section()
+    block = f'<div class="bsr"><div class="wrap">{mp_card}{ask}{section}</div></div>'
     body = (report[:i] + block + report[i:] if i >= 0 else report + block)
     bar = ('<div class="cst-bar"><a href="/dashboard?slug=' + slug +
            '" target="_blank">⤓ Download the full dashboard</a></div>')
@@ -674,6 +792,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._serve_product_by_url(q)
         elif route == "/scrape_qa":
             self._serve_scrape_qa(q)
+        elif route == "/ask":
+            self._serve_ask(q)
         elif route == "/generate/poster":
             self._stream_generate(q, "poster")
         elif route == "/generate/reel":
@@ -773,6 +893,26 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception:
             qa = None
         self._send(200, json.dumps({"qa": qa}).encode("utf-8"),
+                   "application/json; charset=utf-8")
+
+    def _serve_ask(self, q: dict):
+        """اسأل الأرشيف · Ask the archive — a grounded answer about this brand, drawn ONLY from its
+        saved run (profile / SWOT / competitors / TOWS / media plan / scraped pages), citing sources
+        and refusing when the archive doesn't cover it. One cheap text call; never raises."""
+        slug = (q.get("slug") or [""])[0]
+        if not _ok_slug(slug):
+            self._send(400, b"bad slug", "text/plain; charset=utf-8")
+            return
+        question = (q.get("q") or [""])[0].strip()
+        try:
+            ans = answer_question(slug, question, out_dir=self.out_dir)
+            payload = {"answer": ans.answer, "grounded": ans.grounded,
+                       "citations": ans.citations, "corpus_size": ans.corpus_size,
+                       "note": ans.note}
+        except Exception as exc:  # noqa: BLE001
+            payload = {"answer": "", "grounded": False, "citations": [],
+                       "corpus_size": 0, "note": f"{type(exc).__name__}"}
+        self._send(200, json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                    "application/json; charset=utf-8")
 
     def _serve_product_by_url(self, q: dict):

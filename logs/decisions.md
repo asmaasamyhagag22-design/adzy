@@ -169,6 +169,47 @@ Owner ended the review asking "تحبي أكتبلك برومبت الـDirector
 improved Director prompt — hook contract, callback, sound design, VO-binding, input-floor). That is
 the biggest CRAFT leverage but is the OWNER's to author. Awaiting it; not blocking engineering fronts.
 
+## FRONT 3 — dashboard (Run#2, 2026-07-14)
+Read-only recon (Explore agent) confirmed the owner's "when I open it" dashboard = **Baseera Studio**
+(`dashboard/server.py`+`build.py`, port 8770), NOT the thin Next.js `frontend/`. 5 of the 6 target
+features already render there from real pipeline data (registry-diff, tier reasons, market pulse,
+capability census, media-plan rationale). Only real gap: RUBRIC-D creative↔strategy "why" chips
+rendered only in the downloadable `/dashboard` export, not beside the LIVE on-demand poster/reel.
+FIXED: `_strategy_tie` mirrors the export chips into `_studio_section` (visible before any paid
+render). Verified live on nti_sci_eg. The Next.js app remains a separate, thinner UI (registry/tier/
+pulse/census absent there) — extending "the dashboard" means the Python Studio; Next.js not touched.
+
+## FRONT 4 — "اسأل الأرشيف · Ask the archive" (Run#2, 2026-07-14)
+The one wholly-absent feature. New `dashboard/archive_qa.py` + `/ask` route + studio panel. Grounded
+Q&A over the brand's saved run (profile/SWOT/competitors/TOWS/media-plan/scraped pages), embedding
+retrieval with keyword fallback, strict no-fabrication contract + honesty guard, injectable for
+hermetic tests. Verified LIVE on nti_sci_eg (real citations, exact course fees pulled, competitor
+named). Adversarial review workflow run over the new code.
+
+### TICKET T-ASK-BOOST — retrieval boost for structured archive chunks (deferred, low)
+On some phrasings the structured trust-signal / value-prop chunks lose the top-K to raw page chunks
+(measured: "الاعتمادات؟" surfaced partnership pages over the "Supreme Council accreditation" trust
+signal). Both are grounded + cited, so answers stay honest — but a small retrieval boost for the
+high-signal structured chunks (or a hybrid rank that always seeds a few structured chunks) would
+improve answer precision. Its own measured change.
+
+## OWNER-FLAGGED — "recommended first move" showed a description, not an action (2026-07-14)
+Owner opened the dashboard and asked what the "الخطوة المُوصى بها الآن / recommended first move"
+banner meant — it read as a bare brand description ("A one-stop digital store…", truncated "bus…").
+ROOT CAUSE: `dashboard/build.py:_executive_summary` took `tows.priority_actions[0].action` (stored
+as "{Type}: {swot text}", often truncated) and only stripped the "Leverage:/Fix:" prefix, leaving
+the raw strength/weakness as if it were the move — WORST for "Fix:" (e.g. iti showed "No online
+booking path on-site" as the recommended move). Affected EVERY brand. FIXED (display-layer, works on
+saved data): new `_imperative_move` reframes the type as an imperative verb (وظّف/عالِج/…) and
+recovers the full un-truncated body from the action's rationale. Verified live on Vodafone. +1 test.
+
+### TICKET T-TOWS-ACTION — generate real imperative actions at the source (deferred, medium)
+The deep fix is in `competitor/tows.py`: `priority_actions[].action` should be a genuine imperative
+directive (strength→opportunity as "do X to capture Y"), not "{Type}: {raw swot text}" (which is a
+label, and is stored truncated with …). Needs a TOWS assembly/prompt change + a re-run to regenerate
+artifacts, so it's its own measured change; the dashboard reframing above covers what the owner sees
+now. Note the truncation itself (action clipped at ~60 chars) is part of this ticket.
+
 ## OWNER UNBLOCKS (human actions that release blocked units)
 - **REEL VOICE**: upgrade ElevenLabs to Creator (~$22/mo) — free tier CANNOT use library voices via
   API. Then say "ظبطها": I add a native Egyptian voice (Moatassem/Ziad/ELareef), re-synth the VO,
