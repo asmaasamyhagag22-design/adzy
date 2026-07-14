@@ -117,6 +117,7 @@ def synthesize_swot(
     unique_insights: Optional[List[str]] = None,
     profile: Optional[dict] = None,
     trends: Optional[list] = None,
+    ad_presence: Optional[list] = None,
 ) -> SWOT:
     themes = themes or []
     swot = SWOT()
@@ -263,6 +264,15 @@ def synthesize_swot(
             t_opps, t_threats = [], []
         _prepend_unique(swot.opportunities, t_opps)
         _prepend_unique(swot.threats, t_threats)
+
+    # U2 ad-presence -> Threats (competitors' proven-winner/active ads). ad_presence=None/[] ->
+    # unchanged (regression-safe); flows the instant META_ADS_TOKEN + the identity confirm land.
+    if ad_presence:
+        try:
+            from competitor.brand_signals import threats_from_ad_presence
+            _prepend_unique(swot.threats, threats_from_ad_presence(ad_presence))
+        except Exception:  # noqa: BLE001
+            pass
 
     if not any([swot.strengths, swot.weaknesses, swot.opportunities, swot.threats]):
         swot.notes.append("No subject dimensions were known either — the scrape "

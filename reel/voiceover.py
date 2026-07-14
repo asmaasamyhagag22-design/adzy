@@ -262,16 +262,49 @@ def narration_lines(storyboard) -> list[str]:
     return out
 
 
+_ELEVENLABS_MODEL = "eleven_multilingual_v2"
+# A native Egyptian ElevenLabs library voice id (set once the Creator plan is active). Placeholder
+# empty until the owner supplies it via REEL_ELEVENLABS_VOICE — the free tier can't use library voices.
+_ELEVENLABS_DEFAULT_VOICE = os.environ.get("REEL_ELEVENLABS_VOICE", "")
+
+
+def _elevenlabs_segment(text: str, out_mp3: Path, *, voice: str, model: str,
+                        api_key: str, timeout: float = 120.0) -> bool:
+    """One TTS segment via ElevenLabs (native Egyptian library voices — needs a Creator-tier key).
+    Stdlib urllib; returns True on a written mp3, False on any failure (caller degrades)."""
+    import json as _json
+    import urllib.request
+    if not voice:
+        logger.warning("elevenlabs: no voice id (set REEL_ELEVENLABS_VOICE); skipping")
+        return False
+    body = _json.dumps({
+        "text": text, "model_id": model or _ELEVENLABS_MODEL,
+        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75, "style": 0.0},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{voice}", data=body, method="POST",
+        headers={"xi-api-key": api_key, "Content-Type": "application/json", "Accept": "audio/mpeg"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = r.read()
+        if data:
+            Path(out_mp3).write_bytes(data)
+            return Path(out_mp3).is_file()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("elevenlabs TTS failed: %s", type(e).__name__)
+    return False
+
+
 def _resolve_backend(backend: Optional[str]) -> str:
-    """gemini | openai | edge. Explicit > REEL_TTS_BACKEND > auto.
+    """gemini | openai | edge | elevenlabs. Explicit > REEL_TTS_BACKEND > auto.
 
     Auto prefers a configured PAID backend (Gemini on GCP credits, else OpenAI by key),
     and falls back to FREE, keyless `edge` when no paid backend is configured — so a
     reel always gets a voice instead of going silent. Set REEL_TTS_BACKEND=edge to force
     the free native-Egyptian voice and skip the paid TTS spend entirely."""
     b = (backend or os.environ.get("REEL_TTS_BACKEND") or "").lower()
-    if b in ("gemini", "openai", "edge"):
-        return b
+    if b in ("gemini", "openai", "edge", "elevenlabs"):
+        return b   # elevenlabs is EXPLICIT-ONLY (never auto-selected) — a paid native-EG library voice
     # OWNER-RATIFIED (2026-07-11 listen test): فصحى (fusha) -> Gemini Kore DIRECTED (variant 2);
     # عامية (masri) -> OpenAI gpt-audio (variant 4). The dialect itself is the USER's choice
     # (REEL_ARABIC_DIALECT / the studio UI); this only routes the ratified voice per register.
@@ -360,14 +393,22 @@ def synth_voiceover(
         except ImportError:
             return None
         oa_client = OpenAI(api_key=key)
+    el_key = None
+    if chosen == "elevenlabs":                           # native-EG library voice (Creator-tier key)
+        el_key = api_key or os.environ.get("ELEVENLABS_API_KEY")
+        if not el_key:
+            return None
     # chosen == "edge" needs no client/key (free, keyless).
 
     model = model or os.environ.get("REEL_TTS_MODEL") or (
-        _GEMINI_TTS_MODEL if chosen == "gemini" else _DEFAULT_MODEL)
+        _GEMINI_TTS_MODEL if chosen == "gemini"
+        else _ELEVENLABS_MODEL if chosen == "elevenlabs" else _DEFAULT_MODEL)
     if chosen == "edge":
         default_voice = _edge_voice_for(" ".join(lines), None)
     elif chosen == "gemini":
         default_voice = _GEMINI_VOICE
+    elif chosen == "elevenlabs":
+        default_voice = _ELEVENLABS_DEFAULT_VOICE
     else:
         default_voice = _DEFAULT_VOICE
     voice = voice or os.environ.get("REEL_TTS_VOICE") or default_voice
@@ -397,6 +438,8 @@ def synth_voiceover(
         elif chosen == "edge":
             _e_rate, _e_pitch = _edge_prosody_for_tone(tone)   # tone-driven, never a flat +0%/+0Hz
             ok = _edge_segment(script, raw, voice=voice, rate=_e_rate, pitch=_e_pitch)
+        elif chosen == "elevenlabs":
+            ok = _elevenlabs_segment(script, raw, voice=voice, model=model, api_key=el_key)
         else:
             ok = _tts_segment(oa_client, script, raw, model=model, voice=voice,
                               instructions=instructions)

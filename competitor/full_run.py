@@ -190,6 +190,8 @@ def main():
                          "block) — slower/heavier; the rare site that needs every image.")
     ap.add_argument("--no-themes", action="store_true",
                     help="skip the Gemini review-theme extraction step")
+    ap.add_argument("--no-media-plan", action="store_true",
+                    help="skip the U1 media-plan deduction (objective/destination/KPI/persona/geo)")
     ap.add_argument("--json", action="store_true",
                     help="print the SWOT as JSON to stdout (progress goes to stderr)")
     ap.add_argument("--out", default=None,
@@ -350,6 +352,21 @@ def main():
     from competitor import build_tows
     tows = build_tows(swot, caller=None, profile=profile_dict)
 
+    # U1 MEDIA PLAN (CLI parity with the dashboard path): the deduced objective/destination/KPI/
+    # persona/geo. Guarded + honest-degrade (None if no objective can be grounded); never breaks a run.
+    media_plan = None
+    if not args.no_media_plan:
+        say("[5/5] deducing the media plan (U1)")
+        try:
+            import re as _re
+            from media_plan.builder import build_media_plan
+            _rid = "cli_" + (_re.sub(r"[^a-z0-9]+", "_", args.url.lower()).strip("_")[:40] or "run")
+            media_plan = build_media_plan(profile, manifest=manifest, run_id=_rid)
+            say("[media-plan] " + ("grounded plan produced" if media_plan else
+                                   "no objective could be grounded (honest-degrade)"))
+        except Exception as exc:  # noqa: BLE001
+            say(f"[media-plan] skipped ({type(exc).__name__})")
+
     # --- consolidated result -> output file ------------------------------------
     # Everything the run produced, grounded: the subject profile, the discovered
     # competitors (with their why_selected provenance), and the cited SWOT. The
@@ -377,6 +394,7 @@ def main():
         "trends": [dataclasses.asdict(t) if dataclasses.is_dataclass(t) else t for t in (trends or [])],
         "swot": swot_json,
         "tows": dataclasses.asdict(tows),
+        "media_plan": (media_plan.model_dump(mode="json") if media_plan is not None else None),
     }
 
     out_path = Path(args.out) if args.out else (Path(scrape_dir) / "result.json")
@@ -385,6 +403,9 @@ def main():
         _json.dumps(result_doc, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
+    if media_plan is not None:                       # a sibling file, same shape the dashboard writes
+        (out_path.parent / "media_plan.json").write_text(
+            media_plan.model_dump_json(indent=2), encoding="utf-8")
     say("\n[ok] wrote full result (profile + competitors + SWOT) -> %s"
         % out_path.resolve())
 

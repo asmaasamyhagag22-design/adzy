@@ -219,3 +219,31 @@ def opportunities_threats_from_trends(profile: Any, trends: list) -> tuple[list,
                         claim_strength="directional_not_validated")
         (opps if bucket == "opportunities" else threats).append(item)
     return opps, threats
+
+
+def threats_from_ad_presence(ad_presences: Any) -> list[SWOTItem]:
+    """U2 -> Threats: a competitor's RUNNING ads are a market-position threat, graded by longevity
+    (the market's own split-test verdict). Deterministic, no LLM; cites the Meta Ad Library. Empty
+    input -> []. A proven winner (live >= the longevity threshold) is a `validated` threat; merely
+    active advertising is `directional_not_validated`."""
+    out: list[SWOTItem] = []
+    for ap in (ad_presences or []):
+        name = (getattr(ap, "page_name", "") or getattr(ap, "brand_ref", "") or "A competitor").strip()
+        winners = int(getattr(ap, "proven_winners", 0) or 0)
+        active = int(getattr(ap, "active_count", 0) or 0)
+        longest = int(getattr(ap, "longest_days", 0) or 0)
+        if winners > 0:
+            out.append(SWOTItem(
+                text=f"{name} runs {winners} proven-winner ad(s) (live 60+ days) — validated creative "
+                     f"you're competing against.",
+                citation=["Meta Ad Library"],
+                evidence=f"proven_winners={winners}, longest_running={longest}d",
+                claim_strength="validated"))
+        elif active > 0:
+            out.append(SWOTItem(
+                text=f"{name} is actively advertising ({active} live ad(s)) — competing for the same "
+                     f"audience's attention.",
+                citation=["Meta Ad Library"],
+                evidence=f"active_count={active}",
+                claim_strength="directional_not_validated"))
+    return out
