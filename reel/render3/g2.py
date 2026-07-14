@@ -118,10 +118,18 @@ def run_g2_loop(seed_paths: List[str], ref_sheet_png: bytes, *,
                | {o.frame for o in verdict.grade_offenders}
                | set(verdict.junk_screens))
         bad = {b for b in bad if 1 <= b <= len(seed_paths)}
-        log(f"[g2] FAIL attempt {attempt + 1}: regenerating frame(s) {sorted(bad)}")
         if not bad:
-            # arc/grade failed with no per-frame offender named -> regenerate everything once
-            bad = set(range(1, len(seed_paths) + 1))
+            # M4: arc/grade FAILED but the gate named NO frame. Re-rolling seeds can't fix a
+            # story-ARC/ordering problem — the shots and locked blocks are identical, so a new
+            # pixel roll yields the same unreadable sequence. That is a treatment-level fix
+            # (Director/G1), not a seed re-roll. Fail closed now instead of burning image spend
+            # on `max_retries` blind full regens that cannot converge.
+            raise RuntimeError(
+                "G2 FAIL — arc/grade unreadable with no per-frame offender named. This is a "
+                "treatment-level problem (shot order / story readability), not a seed the loop "
+                "can re-roll; revise the treatment (Director/G1) rather than regenerating. "
+                f"Veo blocked. Verdict: {verdict.model_dump()}")
+        log(f"[g2] FAIL attempt {attempt + 1}: regenerating frame(s) {sorted(bad)}")
         for k in sorted(bad):
             seed_paths[k - 1] = regen(k - 1)
     raise RuntimeError(f"G2 failed {max_retries}x — Veo blocked: "

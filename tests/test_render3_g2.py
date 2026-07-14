@@ -84,6 +84,21 @@ def test_loop_targeted_regen_then_pass(tmp_path):
     assert seeds[0].endswith("s0.png")                       # untouched frame stays
 
 
+def test_arc_failure_without_offenders_fails_fast_no_regen(tmp_path):
+    # M4: an unreadable arc with NO named frame can't be fixed by re-rolling seeds -> the loop
+    # must fail closed immediately, spending zero regens (not blind-regen everything max_retries x).
+    seeds = [_png(tmp_path / f"s{i}.png", (90, 90, 90)) for i in range(3)]
+    regens = []
+    arc_fail = G2Verdict(same_person=True, same_world_grade=True, junk_screens=[],
+                         arc_readable=False)                    # story unreadable, no frame blamed
+    judge = _Judge([arc_fail])
+    with pytest.raises(RuntimeError, match="treatment-level"):
+        run_g2_loop(seeds, _ref_png(), regen=lambda k: regens.append(k) or seeds[k],
+                    caller=judge, max_retries=3)
+    assert regens == []                                        # ZERO wasted image spend
+    assert judge.calls == 1                                    # no blind re-gate loop either
+
+
 def test_loop_exhaustion_blocks_veo(tmp_path):
     seeds = [_png(tmp_path / f"s{i}.png", (90, 90, 90)) for i in range(2)]
     bad = G2Verdict(same_person=False,

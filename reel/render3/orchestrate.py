@@ -15,6 +15,7 @@ RuntimeError AND re-checked here explicitly.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -37,6 +38,28 @@ def _needs_pro_lane(shot) -> bool:
         return True
     blob = (shot.action + " " + shot.camera).lower()
     return any(cue in blob for cue in _LEGIBLE_TEXT_CUES)
+
+
+def _resolve_treatment(prep_or_treatment) -> ReelTreatment:
+    if isinstance(prep_or_treatment, ReelTreatment):
+        return prep_or_treatment
+    t = prep_or_treatment.get("treatment")
+    if isinstance(t, ReelTreatment):
+        return t
+    return ReelTreatment.model_validate_json(
+        Path(prep_or_treatment["treatment_path"]).read_text(encoding="utf-8"))
+
+
+def approval_token(prep_or_treatment) -> str:
+    """The HITL #1 sign-off token: sha256 of the EXACT treatment the owner approves.
+
+    continue_render3 refuses to seed/animate unless the caller passes this back — so image/Veo
+    spend is (a) EXPLICIT: a silent or automated code path that omits it is refused, not run;
+    and (b) CONTENT-BOUND: approving concept A never authorizes rendering a mutated concept B,
+    because any edit to the treatment changes the token. This turns the HITL law from a comment
+    convention into a code checkpoint."""
+    t = _resolve_treatment(prep_or_treatment)
+    return hashlib.sha256(t.model_dump_json().encode("utf-8")).hexdigest()
 
 
 def prepare_render3(profile: dict, *, caller: Any, out_dir: "str | Path",
@@ -79,7 +102,8 @@ def prepare_render3(profile: dict, *, caller: Any, out_dir: "str | Path",
         # approval BEFORE any character card is spent. Card follows on approval.
         log(f"[render3] clean treatment ready for concept approval (text-only): {tp}")
         return {"treatment": t, "treatment_path": str(tp), "hashes": hashes,
-                "sheet_path": None, "card_pending": True}
+                "sheet_path": None, "card_pending": True,
+                "approval_token": approval_token(t)}
 
     sheet_path = out / "character_sheet.png"
     generate_with_refs(character_sheet_prompt(t.character_sheet), sheet_path, refs=None,
@@ -87,7 +111,7 @@ def prepare_render3(profile: dict, *, caller: Any, out_dir: "str | Path",
     log(f"[render3] HITL #1 ready — approve the CONCEPT + PROTAGONIST CARD before any "
         f"further spend: {tp} + {sheet_path}")
     return {"treatment": t, "treatment_path": str(tp), "sheet_path": str(sheet_path),
-            "hashes": hashes}
+            "hashes": hashes, "approval_token": approval_token(t)}
 
 
 def render_veo_from_seeds(t: ReelTreatment, seeds: list, *, out_dir: "str | Path",
@@ -112,6 +136,7 @@ def render_veo_from_seeds(t: ReelTreatment, seeds: list, *, out_dir: "str | Path
 
 
 def continue_render3(prep: dict, *, caller: Any, out_dir: "str | Path",
+                     approval: str = "",
                      location_photos: Optional[dict[str, str]] = None,
                      screenshots: Optional[dict[int, str]] = None,
                      veo_provider: Any = None, max_g2_retries: int = 3,
@@ -121,13 +146,23 @@ def continue_render3(prep: dict, *, caller: Any, out_dir: "str | Path",
     Veo from verified seeds -> per-shot clips. Returns {clips, seeds, g2} — assembly/VO
     ride the existing reel toolchain downstream.
 
+    `approval` MUST equal the HITL #1 token (`prep['approval_token']`, == approval_token(t))
+    or this refuses to spend — the HITL law enforced in code, bound to THIS exact treatment
+    (H2). Pass it only after the owner signs off on the concept + protagonist card.
+
     `stop_after_g2=True` returns the G2-VERIFIED seed set (+ verdict) WITHOUT spending on
     Veo — so the caller can show the verified contact sheet before the (expensive) Veo pass,
     then resume with render_veo_from_seeds. The gate is still the code checkpoint; this only
     adds visibility, it never lets Veo fire on an unverified set."""
-    t: ReelTreatment = prep["treatment"] if isinstance(prep.get("treatment"), ReelTreatment) \
-        else ReelTreatment.model_validate_json(
-            Path(prep["treatment_path"]).read_text(encoding="utf-8"))
+    t: ReelTreatment = _resolve_treatment(prep)
+    expected = approval_token(t)
+    if approval != expected:                                  # H2: fail-closed HITL gate
+        raise PermissionError(
+            "continue_render3 refused: seed/Veo spend requires the owner's HITL #1 approval "
+            f"of THIS treatment (expected token {expected[:12]}…, got "
+            f"{(approval[:12] + '…') if approval else '<none>'}). Pass "
+            "approval=prep['approval_token'] only after sign-off — a mismatch means the "
+            "treatment changed since approval, or approval was never given.")
     hashes = prep["hashes"]
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)

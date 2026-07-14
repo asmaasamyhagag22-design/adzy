@@ -157,7 +157,8 @@ def seed_prompt(t: ReelTreatment, shot: Shot, *, n_shots: int,
         assert_locked(sb, hashes[f"style_act{shot.act}"], f"style_act{shot.act}")
     screen = (screen_rule_with_screenshot(screenshot_index)
               if screenshot_index is not None else expand_screen_rule(shot.screen_rule))
-    place = ("Place her inside the attached real location (image 2); preserve the "
+    _noun, poss = _gender_words(t.character_sheet)          # gender-aware (C1 fix): never hardcode her
+    place = ("Place the protagonist inside the attached real location (image 2); preserve the "
              "location's architecture and signage.\n" if location_photo_attached else "")
     return (
         "Using attached image 1 as the identity reference, render the SAME person in a "
@@ -165,7 +166,7 @@ def seed_prompt(t: ReelTreatment, shot: Shot, *, n_shots: int,
         f"{cb}\n\n"
         f"{sb}\n\n"
         f"SCENE {shot.id}/{n_shots} — {shot.location}: {shot.action}. "
-        f"Emotion on her face: {shot.emotion}.\n"
+        f"Emotion on {poss} face: {shot.emotion}.\n"
         f"Camera: {shot.camera}. Motif: {shot.motif_placement}.\n"
         f"Screen: {screen}\n"
         f"{place}"
@@ -179,14 +180,15 @@ def seed_prompt(t: ReelTreatment, shot: Shot, *, n_shots: int,
 
 def veo_prompt(t: ReelTreatment, shot: Shot) -> str:
     ch = t.character_sheet
-    hijab_bit = f", her {ch.hijab} hijab" if ch.hijab else ""
+    noun, poss = _gender_words(ch)                          # gender-aware (C1 fix)
+    hijab_bit = f", {poss} {ch.hijab} hijab" if ch.hijab else ""
     end_bit = f" End the shot on: {shot.match_cut_out}." if shot.match_cut_out.strip() else ""
     return (
-        f"Animate this exact frame. Identity and world lock: the woman's face{hijab_bit}, "
-        f"her outfit, and the setting must remain exactly as shown; no new person becomes "
+        f"Animate this exact frame. Identity and world lock: the {noun}'s face{hijab_bit}, "
+        f"{poss} outfit, and the setting must remain exactly as shown; no new person becomes "
         f"the subject; no scene change.\n\n"
-        f"Action: {shot.action}. Her emotion: {shot.emotion}, visible in her face. "
-        f"Camera: {shot.camera}.{end_bit}\n\n"
+        f"Action: {shot.action}. {poss.capitalize()} emotion: {shot.emotion}, visible in "
+        f"{poss} face. Camera: {shot.camera}.{end_bit}\n\n"
         f"Audio: ambient room tone only — no dialogue, no music, no narration. "
         f"No on-screen text, captions, or logos."
     )

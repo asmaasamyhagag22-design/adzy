@@ -149,6 +149,26 @@ outputs/reels/nti_render3_final.mp4 (= guardian_reel_v4). Veo authorization cons
 Veo this run. G2 seed gate PASSed (zero regens). Reel evolved Layla→pharmacist(domain-drift, fixed
 by R10)→Karim/guardian(testimonial, real NTI, lip-synced).
 
+## FRONT 1 — code-review remediation (Run#2, 2026-07-14)
+Owner injected a dual-lens (Staff-Eng × Creative-Director) review of the render3 subsystem. Fixed
+the VERIFIED findings, each with a hermetic test, in one cohesive commit (same front, interlocking
+correctness/safety fixes): C1 (gender still hardcoded in seed_prompt/veo_prompt — critical, LIVE bug
+I introduced when the gender refactor was left half-applied), C2 (fail-open moat → fail-visible),
+H1 (duration-sum), L1 (id-uniqueness), H2 (content-bound HITL approval token gates continue_render3
+spend), M4 (no blind-regen on unfixable arc failure). L2 already satisfied.
+
+### TICKET T-M3 — explicit `Shot.legible_text` field (deferred, medium)
+`_needs_pro_lane` decides the text-capable image model via brittle substring cues
+("legible"/"clearly see"/"readable"/"the title") on action+camera. A cleaner design is an explicit
+`legible_text: bool` on `Shot` that the Director sets. Deferred because it's a schema + Director-prompt
+change (LLM must populate it) that deserves its own measured commit + a live Director call to validate,
+not a half-measure inside the review-fix batch. Current heuristic works (tested); this is hardening.
+
+### FLAG — owner's open offer (Director prompt rewrite)
+Owner ended the review asking "تحبي أكتبلك برومبت الـDirector المحسّن كامل؟" (want me to write the
+improved Director prompt — hook contract, callback, sound design, VO-binding, input-floor). That is
+the biggest CRAFT leverage but is the OWNER's to author. Awaiting it; not blocking engineering fronts.
+
 ## OWNER UNBLOCKS (human actions that release blocked units)
 - **REEL VOICE**: upgrade ElevenLabs to Creator (~$22/mo) — free tier CANNOT use library voices via
   API. Then say "ظبطها": I add a native Egyptian voice (Moatassem/Ziad/ELareef), re-synth the VO,

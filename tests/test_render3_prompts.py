@@ -96,6 +96,23 @@ def test_character_block_is_gender_aware():
     assert "Egyptian woman" in character_block(t.character_sheet, 1)
 
 
+def test_seed_and_veo_prompts_are_gender_aware():
+    # C1 regression: a male protagonist must never surface "her"/"the woman" in the
+    # per-shot seed prompt OR the Veo animate prompt (both were hardcoded female).
+    from reel.render3.director import CharacterSheet
+    from reel.render3.prompts import seed_prompt
+    man = CharacterSheet(name="Karim", age=28, presenting_gender="man", skin_tone="olive",
+                         face="oval", distinctive_features=["a scar on his brow", "sharp jaw"],
+                         eyes="brown", hijab=None, outfit_act1="a blue shirt",
+                         outfit_act3="a navy blazer", constant_accessory="a silver watch")
+    tm = _treatment().model_copy(update={"character_sheet": man})
+    sp = seed_prompt(tm, tm.shots[0], n_shots=len(tm.shots))
+    assert "his face" in sp and "her " not in sp and "woman" not in sp
+    vp = veo_prompt(tm, tm.shots[0])
+    assert "the man's face" in vp and "his outfit" in vp
+    assert "her " not in vp and "woman" not in vp
+
+
 def test_character_sheet_and_veo_prompts():
     t = _treatment()
     cs = character_sheet_prompt(t.character_sheet)

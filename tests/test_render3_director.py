@@ -88,6 +88,31 @@ def test_g1_catches_each_violation_class():
     bad = t.model_copy(deep=True)
     bad.shots[0].location = "undeclared alley"
     assert any("not in locations" in i for i in g1_lint(bad).issues)
+    # H1: shot durations must sum to the target runtime (each shot still 3-8s, but sum blows out)
+    bad = t.model_copy(deep=True)
+    for s in bad.shots:
+        s.duration_s = 8                                       # 6x8 = 48s, far past 30±5
+    assert any("sum to" in i for i in g1_lint(bad).issues)
+    # L1: duplicate shot ids would collide seed/clip filenames
+    bad = t.model_copy(deep=True)
+    bad.shots[1].id = bad.shots[0].id
+    assert any("duplicate shot ids" in i for i in g1_lint(bad).issues)
+
+
+def test_g1_moat_skip_is_visible_not_silent(monkeypatch):
+    # C2: if the VO<->evidence ledger can't run, that must FAIL VISIBLE (moat_skipped + a G1
+    # issue), never pass as silently clean.
+    import grounding
+
+    class _Boom:
+        @staticmethod
+        def from_profile(_p):
+            raise RuntimeError("ledger unavailable")
+
+    monkeypatch.setattr(grounding, "EvidenceLedger", _Boom)
+    r = g1_lint(_treatment(), profile={})
+    assert r.moat_skipped is True and not r.ok
+    assert any("moat could not run" in i for i in r.issues)
 
 
 def test_g1_vo_ledger_trace_flags_unsourced_claims():

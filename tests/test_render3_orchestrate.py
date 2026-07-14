@@ -134,6 +134,7 @@ def test_continue_g2_fail_blocks_veo(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="Veo blocked"):
         orch.continue_render3(prep, caller=_GateCaller([bad, bad]),
                               out_dir=tmp_path / "run", veo_provider=veo,
+                              approval=prep["approval_token"],
                               max_g2_retries=2, log=lambda *a: None)
     assert veo.calls == []                                 # the invariant: zero Veo spend
 
@@ -162,6 +163,7 @@ def test_stop_after_g2_returns_verified_seeds_without_veo(tmp_path, monkeypatch)
                    arc_readable=True)
     res = orch.continue_render3(prep, caller=_GateCaller([ok]),
                                 out_dir=tmp_path / "run", veo_provider=veo,
+                                approval=prep["approval_token"],
                                 stop_after_g2=True, log=lambda *a: None)
     assert res["veo_pending"] is True and res["clips"] == []
     assert veo.calls == []                                   # NO Veo spend at the G2 checkpoint
@@ -183,6 +185,7 @@ def test_continue_pass_animates_every_verified_seed(tmp_path, monkeypatch):
                    arc_readable=True)
     res = orch.continue_render3(prep, caller=_GateCaller([ok]),
                                 out_dir=tmp_path / "run", veo_provider=veo,
+                                approval=prep["approval_token"],
                                 log=lambda *a: None)
     t = res["treatment"]
     assert len(veo.calls) == len(t.shots) == len(res["clips"])
@@ -193,3 +196,37 @@ def test_continue_pass_animates_every_verified_seed(tmp_path, monkeypatch):
     assert len(seed_calls) == len(t.shots)
     assert all(c["n_refs"] >= 1 for c in seed_calls)
     assert res["g2"]["verdict"] == "PASS"
+
+
+def test_continue_without_approval_token_refuses_all_spend(tmp_path, monkeypatch):
+    # H2: the HITL law is code-enforced — no token, no seed and no Veo spend.
+    nano_calls = []
+    monkeypatch.setattr(orch, "generate_with_refs", _fake_nano(tmp_path, nano_calls))
+    prep = orch.prepare_render3(_PROFILE, caller=_DirectorCaller([_treatment()]),
+                                out_dir=tmp_path, log=lambda *a: None)
+    charsheet_spend = len(nano_calls)                          # only the HITL #1 card so far
+    veo = _VeoRecorder()
+    ok = G2Verdict(same_person=True, same_world_grade=True, junk_screens=[], arc_readable=True)
+    with pytest.raises(PermissionError, match="HITL"):
+        orch.continue_render3(prep, caller=_GateCaller([ok]),
+                              out_dir=tmp_path / "run", veo_provider=veo,
+                              log=lambda *a: None)                 # approval omitted
+    assert len(nano_calls) == charsheet_spend                  # ZERO seed spend
+    assert veo.calls == []                                      # ZERO Veo spend
+
+
+def test_continue_refuses_mutated_treatment(tmp_path, monkeypatch):
+    # Content-bound: approving concept A never authorizes rendering a mutated concept B.
+    nano_calls = []
+    monkeypatch.setattr(orch, "generate_with_refs", _fake_nano(tmp_path, nano_calls))
+    prep = orch.prepare_render3(_PROFILE, caller=_DirectorCaller([_treatment()]),
+                                out_dir=tmp_path, log=lambda *a: None)
+    approved = prep["approval_token"]
+    prep["treatment"].shots[0].action += " (edited after approval)"   # mutate post-sign-off
+    veo = _VeoRecorder()
+    ok = G2Verdict(same_person=True, same_world_grade=True, junk_screens=[], arc_readable=True)
+    with pytest.raises(PermissionError, match="token"):
+        orch.continue_render3(prep, caller=_GateCaller([ok]),
+                              out_dir=tmp_path / "run", veo_provider=veo,
+                              approval=approved, log=lambda *a: None)  # stale token
+    assert veo.calls == []

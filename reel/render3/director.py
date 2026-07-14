@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 _ALLOWED_SCREEN = ("NONE", "OUT_OF_FOCUS", "ANGLED_AWAY")
 _SMILE_RE = re.compile(r"smil|يبتسم|تبتسم|ابتسام|مبتسم", re.IGNORECASE)
+_TARGET_DURATION_S = 30    # the reel's target runtime; per-shot durations must sum to ~this
+_DURATION_TOL_S = 5        # tolerance either side (a 6-shot 3-8s reel lands 25-35s legitimately)
 
 
 class Motif(BaseModel):
@@ -394,6 +396,7 @@ class G1Report:
     ok: bool
     issues: List[str] = field(default_factory=list)
     unsourced_vo_claims: List[str] = field(default_factory=list)
+    moat_skipped: bool = False   # the VO<->evidence ledger could not run — surface at HITL, never silent
 
 
 def g1_lint(t: ReelTreatment, *, profile: Optional[dict] = None,
@@ -427,12 +430,22 @@ def g1_lint(t: ReelTreatment, *, profile: Optional[dict] = None,
             issues.append(f"shot {s.id}: screen_rule {s.screen_rule!r} not allowed")
         if not 3 <= s.duration_s <= 8:
             issues.append(f"shot {s.id}: duration {s.duration_s}s outside 3-8s")
+    total_s = sum(s.duration_s for s in t.shots)             # H1: shots must sum to the target runtime
+    if abs(total_s - _TARGET_DURATION_S) > _DURATION_TOL_S:
+        issues.append(f"shot durations sum to {total_s}s "
+                      f"(target {_TARGET_DURATION_S}±{_DURATION_TOL_S}s)")
+    ids = [s.id for s in t.shots]                            # L1: seeds/clips are named by id
+    if len(set(ids)) != len(ids):
+        issues.append(f"duplicate shot ids {ids} — seed/clip filenames would collide")
     words = len(t.vo_script_ar.split())
     if not 55 <= words <= 75:
         issues.append(f"VO is {words} words (must be 55-75)")
 
-    # VO <-> EVIDENCE trace via the Ledger (D-R3.4 — the moat, not an LLM opinion)
+    # VO <-> EVIDENCE trace via the Ledger (D-R3.4 — the moat, not an LLM opinion).
+    # C2: the moat must FAIL VISIBLE. If it cannot run, that is surfaced (logged + moat_skipped +
+    # a G1 issue) so HITL #1 sees an ungrounded VO as a risk, never as an invisible clean pass.
     unsourced: list[str] = []
+    moat_skipped = False
     if profile is not None:
         try:
             from grounding import EvidenceLedger
@@ -440,7 +453,13 @@ def g1_lint(t: ReelTreatment, *, profile: Optional[dict] = None,
             unsourced = [v.claim.text for v in ledger.audit_text(t.vo_script_ar)
                          if not v.sourced]
             if unsourced:
-                issues.append(f"VO carries {len(unsourced)} unsourced hard claim(s)")
-        except Exception:  # noqa: BLE001 — the ledger never blocks the lint itself
-            pass
-    return G1Report(ok=not issues, issues=issues, unsourced_vo_claims=unsourced)
+                issues.append(f"VO carries {len(unsourced)} unsourced hard claim(s): "
+                              f"{unsourced[:3]}")
+        except Exception as exc:  # noqa: BLE001
+            moat_skipped = True
+            logger.warning("VO<->evidence ledger SKIPPED (moat off) — %s: %s",
+                           type(exc).__name__, str(exc)[:160])
+            issues.append(f"VO<->evidence moat could not run ({type(exc).__name__}) — "
+                          f"treat the VO as UNVERIFIED at HITL, not clean")
+    return G1Report(ok=not issues, issues=issues, unsourced_vo_claims=unsourced,
+                    moat_skipped=moat_skipped)
