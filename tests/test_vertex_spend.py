@@ -64,10 +64,45 @@ def test_spend_summary_breaks_down_by_kind(ledger):
     assert s["by_kind"]["veo"] == 3.2 and s["by_kind"]["image"] == 0.04
 
 
-def test_corrupt_ledger_line_never_opens_budget(ledger):
+def test_a_junk_line_with_no_cost_is_simply_skipped(ledger):
+    # a line that never carried a cost can be dropped safely — dropping $0 cannot open budget.
     ledger.write_text("not json\n" + '{"month":"%s","est_cost_usd":5}\n' % vs.month_key(),
                       encoding="utf-8")
-    assert vs.month_spend_usd(ledger) == 5.0               # the bad line is skipped, not counted as budget
+    assert vs.month_spend_usd(ledger) == 5.0
+
+
+def test_a_TRUNCATED_SPEND_line_never_opens_budget(ledger):
+    """P6 #6 — the guard must fail CLOSED when the month total is unknowable.
+
+    The old test here corrupted `"not json"` — a line that never had a cost — so it proved
+    nothing: dropping a $0 line cannot re-open budget. The REAL risk is a truncated line that WAS
+    a spend record, which is exactly what a killed render appends. Dropping it silently erases
+    $40 from the month and re-authorises a $50 month. The module docstring claimed a corrupt line
+    "never opens budget — callers add their estimate before comparing"; that reasoning is wrong,
+    because the caller only ever adds ITS OWN estimate and never recovers the dropped one.
+    """
+    mk = vs.month_key()
+    ledger.write_text(
+        '{"month":"%s","est_cost_usd":40.0,"kind":"veo"' % mk + "\n"        # TRUNCATED mid-record
+        '{"month":"%s","est_cost_usd":5.0,"kind":"image"}\n' % mk,
+        encoding="utf-8")
+    # $40 is unreadable => the month total is UNKNOWABLE. It must not quietly read as $5.
+    ok, msg = vs.check_budget(1.0, ledger=ledger, cap=50.0)
+    assert ok is False, "a truncated SPEND line silently re-opened the budget"
+    assert "unreadable" in msg.lower()
+    # and the corruption must be visible, not inferred
+    assert vs.corrupt_line_count(ledger) == 1
+
+
+def test_the_SHIPPED_default_vertex_cap_is_50(monkeypatch):
+    """P6 #5 — tests/conftest.py raises VERTEX_MONTHLY_CAP_USD to 100000 for EVERY test, so
+    nothing in the suite bound the LIVE default: you could edit the "50" literal to "50000" and
+    all tests would still pass. This reads the cap exactly as production does with the env seam
+    DEFEATED — the tests/test_ssrf_coverage.py pattern — so it fails if the shipped default moves.
+    This is the guard built after the 2026-07-14 $228/4-days scare; its value must be pinned.
+    """
+    monkeypatch.delenv("VERTEX_MONTHLY_CAP_USD", raising=False)
+    assert vs.monthly_cap_usd() == 50.0
 
 
 def test_veo_provider_refuses_render_over_cap_before_any_network(monkeypatch, tmp_path):

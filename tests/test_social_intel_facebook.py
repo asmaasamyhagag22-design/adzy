@@ -75,6 +75,27 @@ def test_real_fiveguys_fixture_is_sanitized():
     assert all(len(s.author_hash) >= 8 and s.source == "facebook_apify" for s in signals)
 
 
+def test_a_TRUNCATED_SPEND_line_never_opens_the_apify_budget(tmp_path):
+    """P6 #6 (sibling) — spend_guard.month_spend_usd had vertex_spend's exact defect and NO test.
+    A killed pull appends a truncated record; dropping it erases its cost and re-opens the $20 cap.
+    """
+    from social_intel.spend_guard import check_budget as cb, corrupt_line_count
+    ledger = tmp_path / "spend.jsonl"
+    ledger.write_text('{"month":"2026-07","est_cost_usd":15.0,"n":3000'  # TRUNCATED mid-record
+                      "\n", encoding="utf-8")
+    ok, msg = cb(100, ledger=ledger, cap=20.0, cost_per_1k=5.0, month="2026-07")
+    assert ok is False, "a truncated SPEND line silently re-opened the Apify budget"
+    assert "unreadable" in msg.lower()
+    assert corrupt_line_count(ledger, month="2026-07") == 1
+
+
+def test_the_SHIPPED_default_apify_cap_is_20(monkeypatch):
+    """P6 #5 (sibling) — pin the LIVE default the way production reads it, env seam defeated."""
+    from social_intel.spend_guard import monthly_cap_usd
+    monkeypatch.delenv("APIFY_MONTHLY_CAP_USD", raising=False)
+    assert monthly_cap_usd() == 20.0
+
+
 def test_spend_guard_refuses_over_the_monthly_cap(tmp_path):
     from datetime import datetime, timezone
     ledger = tmp_path / "spend.jsonl"

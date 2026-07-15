@@ -32,21 +32,41 @@ def month_key(dt: Optional[datetime] = None) -> str:
     return f"{d.year:04d}-{d.month:02d}"
 
 
-def month_spend_usd(ledger: Path = DEFAULT_LEDGER, *, month: Optional[str] = None) -> float:
-    """Sum of estimated spend recorded for the month. Missing/corrupt lines count as 0 —
-    but a corrupt ledger never silently OPENS budget: callers still add before comparing."""
-    mk = month or month_key()
+def _scan(ledger: Path, mk: str) -> tuple[float, int]:
+    """(total_for_month, corrupt_lines). An unreadable line is COUNTED, never silently dropped —
+    it may be a truncated pull record whose cost would vanish with it."""
     total = 0.0
+    corrupt = 0
     if not ledger.is_file():
-        return 0.0
+        return 0.0, 0
     for line in ledger.read_text(encoding="utf-8").splitlines():
-        try:
-            row = json.loads(line)
-            if row.get("month") == mk:
-                total += float(row.get("est_cost_usd") or 0.0)
-        except Exception:  # noqa: BLE001
+        s = line.strip()
+        if not s:
             continue
-    return round(total, 4)
+        try:
+            row = json.loads(s)
+        except Exception:  # noqa: BLE001
+            corrupt += 1
+            continue
+        if not isinstance(row, dict):
+            corrupt += 1
+            continue
+        if row.get("month") == mk:
+            total += float(row.get("est_cost_usd") or 0.0)
+    return round(total, 4), corrupt
+
+
+def month_spend_usd(ledger: Path = DEFAULT_LEDGER, *, month: Optional[str] = None) -> float:
+    """Sum of the READABLE spend rows for the month. Unreadable lines are excluded here and
+    refused outright by `check_budget` (see `corrupt_line_count`) — the old docstring claimed a
+    corrupt ledger "never silently OPENS budget because callers add before comparing", which is
+    false: the caller only adds ITS OWN estimate and never recovers the dropped one."""
+    return _scan(ledger, month or month_key())[0]
+
+
+def corrupt_line_count(ledger: Path = DEFAULT_LEDGER, *, month: Optional[str] = None) -> int:
+    """Unreadable lines. >0 means the month total is UNKNOWABLE, not merely lower."""
+    return _scan(ledger, month or month_key())[1]
 
 
 def check_budget(planned_results: int, *, ledger: Path = DEFAULT_LEDGER,
@@ -55,7 +75,13 @@ def check_budget(planned_results: int, *, ledger: Path = DEFAULT_LEDGER,
     """(ok, message). ok=False means the pull must NOT run."""
     cap_usd = cap if cap is not None else monthly_cap_usd()
     est = est_cost_usd(planned_results, cost_per_1k=cost_per_1k)
-    spent = month_spend_usd(ledger, month=month)
+    spent, corrupt = _scan(ledger, month or month_key())
+    # FAIL-CLOSED (P6 #6): an unreadable line makes the month total unknowable, not just smaller.
+    # A killed pull appends a truncated record; skipping it erases its cost and re-opens the cap.
+    if corrupt:
+        return False, (f"REFUSED: {corrupt} unreadable line(s) in {ledger} — the month total is "
+                       f"unknowable (a truncated pull record would silently re-open the cap). "
+                       f"Fix or remove the bad line(s), then re-run.")
     if spent + est > cap_usd:
         return False, (f"REFUSED: est ${est:.2f} for {planned_results} results + "
                        f"${spent:.2f} already spent this month exceeds the owner's "
