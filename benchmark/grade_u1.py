@@ -1,5 +1,14 @@
 """U1 objective-deduction gate — grade `build_campaign_objective` against per-URL labels.
 
+╔══════════════════════════════════════════════════════════════════════════════════════════╗
+║ ⚠  THIS ENTRYPOINT SPENDS REAL MONEY. It is NOT an offline check.                        ║
+║    `python -m benchmark.grade_u1` makes ONE LIVE GEMINI CALL PER LABELLED URL (~12/run), ║
+║    and `_load_env()` below loads the repo-root .env, so it has creds even when your      ║
+║    shell has none. On 2026-07-15 this was misread as "offline+free": ~72 billed calls.   ║
+║    Refused automatically under pytest / BASEERA_NO_SPEND=1 (see spend_tripwire.py).      ║
+║    To grade for free, inject a caller:  grade_u1(caller=my_fake)                         ║
+╚══════════════════════════════════════════════════════════════════════════════════════════╝
+
 `python -m benchmark.grade_u1` : for every benchmark URL that carries an `expected_objective` label
 in benchmark/ground_truth.json, load its cached business_profile.json, run build_campaign_objective,
 and grade the deduced objective + destination against the label. Prints objective / destination /
@@ -155,6 +164,10 @@ def _load_env() -> None:
 
 
 def main() -> int:
+    # A comment is not a control — refuse mechanically before _load_env() can hand us credentials.
+    from spend_tripwire import refuse_if_no_spend
+    refuse_if_no_spend("one live Gemini call per labelled URL — ~12 calls per run",
+                       alternative="To grade for free, inject a caller: grade_u1(caller=my_fake).")
     _load_env()
     grades = grade_u1()
     if not grades:

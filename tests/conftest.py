@@ -23,6 +23,20 @@ def _vertex_spend_tmp_ledger(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_spend_in_tests(monkeypatch):
+    """No test may spend real money. Belt to the network guard's braces below.
+
+    Two entrypoints bill on every run — `python -m benchmark.grade_u1` (one live Gemini call per
+    labelled URL) and `python -m trends` (paid Serper). Their `main()` calls
+    `spend_tripwire.refuse_if_no_spend()`, which already trips on pytest's own
+    PYTEST_CURRENT_TEST; setting BASEERA_NO_SPEND=1 here makes the rule EXPLICIT at the place a
+    reader looks for it, and keeps holding if pytest ever stops exporting that variable.
+    History: 2026-07-15, ~72 billed Gemini calls because a docstring was trusted over a control.
+    """
+    monkeypatch.setenv("BASEERA_NO_SPEND", "1")
+
+
+@pytest.fixture(autouse=True)
 def _block_external_network(monkeypatch):
     """Hermeticity + spend guard (PD-9 offline spirit). No test does real network I/O, so an
     UNMOCKED external call degrades instantly instead of hanging (or spending).

@@ -1,5 +1,16 @@
 """CLI: show trends relevant to keywords or a business profile.
 
+╔══════════════════════════════════════════════════════════════════════════════════════════╗
+║ ⚠  THIS ENTRYPOINT SPENDS REAL MONEY. `SerperTrendSource` is FIRST in                    ║
+║    `default_trend_sources` and calls the PAID serper.dev SERP API                        ║
+║    (competitor/search_providers.py:14 — "paid credits"); load_dotenv below supplies      ║
+║    SERPER_API_KEY. NOTE: trends/sources.py's "FREE, keyless public APIs" docstring       ║
+║    predates Serper and is WRONG. There is no cap on this path today (unlike Apify's      ║
+║    $20/mo and Vertex's $50/mo).                                                          ║
+║    Refused automatically under pytest / BASEERA_NO_SPEND=1 (see spend_tripwire.py).      ║
+║    To exercise the engine for free, inject fake sources — see tests/test_trends.py.      ║
+╚══════════════════════════════════════════════════════════════════════════════════════════╝
+
     python -m trends "ai marketing automation"          # from keywords
     python -m trends --profile profile.json             # keywords from a profile
     python -m trends "jewelry" --require-match --top 5   # only on-topic trends
@@ -18,6 +29,12 @@ def main() -> int:
             _s.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
         except Exception:
             pass
+    # A comment is not a control — refuse mechanically before load_dotenv hands us a paid key.
+    from spend_tripwire import refuse_if_no_spend
+    refuse_if_no_spend("live paid Serper SERP calls (SerperTrendSource is first in "
+                       "default_trend_sources)",
+                       alternative="To exercise the engine for free, inject fake sources — see "
+                                   "tests/test_trends.py.")
     # Load .env so the web (Serper) trend source finds SERPER_API_KEY — trends used to be keyless
     # (HN/Reddit/Dev.to), but the reliable consumer source now searches the SERP provider.
     try:
