@@ -2,8 +2,14 @@
 
 Origin (owner): the SWOT had no market-shift signal — an ecommerce brand with no Places peers and
 no reachable reviews got EMPTY Opportunities/Threats. Now on-topic market TRENDS become brand-level
-O/T, each citing the trend URL, `directional_not_validated`, with junk/aggregator hosts dropped and
-every line Ledger-gated. Hermetic: synthetic TrendItems, no network/LLM.
+O/T, each citing a real trend URL and graded `directional_not_validated`, with junk/aggregator
+hosts dropped. Hermetic: synthetic TrendItems, no network/LLM.
+
+NOT Ledger-gated — this header used to claim "every line Ledger-gated". That gate existed but was
+theatre: it indexed the candidate lines as their own evidence, so its reject rate was structurally
+zero ("a reputable trend self-grounds", its own comment). Deleted in P1; honest absence beats
+theatrical presence. The real protections are asserted below: host denylist, on-topic term match,
+a required URL, and the directional grading.
 """
 from __future__ import annotations
 

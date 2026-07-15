@@ -252,9 +252,12 @@ def synthesize_swot(
         _prepend_unique(swot.strengths, brand)   # brand-level strengths lead
         _append_unique(swot.weaknesses, rweak)   # readiness-gap weaknesses are supplementary
 
-    # Market-shift Opportunities/Threats from on-topic TRENDS — the signal the SWOT never had, so
-    # an ecommerce brand with no Places peers and no reachable reviews still gets real O/T (not an
-    # empty quadrant). Grounded: junk hosts dropped + Ledger-gated inside the helper. Prepended so
+    # Coverage Opportunities/Threats from on-topic TRENDS — the signal the SWOT never had, so an
+    # ecommerce brand with no Places peers and no reachable reviews still gets real O/T (not an
+    # empty quadrant). NOT Ledger-gated: this comment used to say "Ledger-gated inside the helper",
+    # which was false — that gate indexed the trend lines as their own evidence and could never
+    # reject one (deleted, P1). What is real: junk/aggregator hosts dropped, an on-topic term match,
+    # a required URL, and claim_strength="directional_not_validated" on every line. Prepended so
     # market signals lead; trends=None/[] -> unchanged (regression-safe).
     if trends:
         try:

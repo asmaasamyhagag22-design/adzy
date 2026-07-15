@@ -166,9 +166,17 @@ def opportunities_threats_from_trends(profile: Any, trends: list) -> tuple[list,
     SCOPE OF THE CLAIM (2026-07-15): an opportunity line asserts only that COVERAGE on the brand's
     terms exists — NOT that interest is rising. Nothing upstream measures direction: `trends/engine.py`
     is "no time-series" and the primary Serper source derives `score` from SERP rank with
-    `created_ts=None`. A threat line reads the headwind word out of the title itself. A
-    non-reputable/aggregator host is dropped up front. Returns (opportunities, threats); ([],[]) when
-    no on-topic trend survives. Pure — the caller fetches trends (best-effort) and passes them in."""
+    `created_ts=None`. A threat line reads the headwind word out of the title itself.
+
+    NOT LEDGER-GATED, AND WE SAY SO. This docstring used to claim "every line is then Ledger-gated
+    exactly like the rest of the pipeline". That was false: the gate built its evidence set FROM
+    these very lines, so it could never reject one (P1). What is real: the host denylist drops
+    aggregator/junk sources, the trend must share a term with the brand, it must carry a URL, and
+    every line ships `claim_strength="directional_not_validated"` — one uncorroborated web signal,
+    graded honestly, never presented as verified.
+
+    Returns (opportunities, threats); ([],[]) when no on-topic trend survives. Pure — the caller
+    fetches trends (best-effort) and passes them in."""
     opps: list[SWOTItem] = []
     threats: list[SWOTItem] = []
     if not trends:
@@ -209,26 +217,25 @@ def opportunities_threats_from_trends(profile: Any, trends: list) -> tuple[list,
     if not cand:
         return opps, threats
 
-    # Build a ledger with the candidate trends indexed as web evidence (+ the profile), then gate
-    # each line — a reputable trend self-grounds; anything the ledger can't back is dropped.
-    ledger = None
-    try:
-        from grounding import EvidenceLedger
-        swot_ev = {
-            "opportunities": [{"text": tx, "citation": [u]} for (b, tx, u) in cand if b == "opportunities"],
-            "threats": [{"text": tx, "citation": [u]} for (b, tx, u) in cand if b == "threats"],
-        }
-        ledger = EvidenceLedger.from_profile(_unwrap(profile) or {}, swot=swot_ev)
-    except Exception:
-        ledger = None
-
+    # NO LEDGER GATE HERE — DELIBERATELY (P1, 2026-07-15). There used to be one, and it was
+    # THEATRE: it built the ledger FROM the candidate trend lines themselves
+    # (swot_ev = {"opportunities": [{"text": tx, "citation": [u]} ...]}) and then gated those same
+    # strings against it, so every candidate self-grounded and the gate's reject rate was
+    # STRUCTURALLY ZERO. The old comment said the quiet part out loud: "a reputable trend
+    # self-grounds". It was vacuous three times over: circular; `all([])` is True so any title
+    # without a number/superlative passed with no evidence check at all; and `ledger is None`
+    # returned True. Worst of all it made the docstring claim these lines were "Ledger-gated
+    # exactly like the rest of the pipeline" — deceiving US first, and it was pinned by a test.
+    #
+    # Honest absence beats theatrical presence. What actually protects this path is real and
+    # stated: the host denylist (is_reputable_web_source, above), the on-topic term match, the
+    # url requirement, and `claim_strength="directional_not_validated"` — a single uncorroborated
+    # web signal, graded as such. A trend line is NOT ledger-verified, so we no longer say it is.
     for bucket, text, url in cand:
-        if not _gated(ledger, text):
-            continue
         # citation is ALWAYS a real URL — a url-less trend was dropped above rather than cited as
         # the literal string "market trends", which rendered as a citation pointing at nothing.
         item = SWOTItem(text=text, citation=[url],
-                        evidence="market trend signal (on-topic)",
+                        evidence="market trend signal (on-topic, not corroborated)",
                         claim_strength="directional_not_validated")
         (opps if bucket == "opportunities" else threats).append(item)
     return opps, threats
