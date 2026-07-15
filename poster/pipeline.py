@@ -654,12 +654,26 @@ def _verified_external_headline(headline_override, concept_headline, ledger):
     concept_h = (concept_headline or "").strip() or None
     if not ho:
         return concept_h, None                       # no override -> concept headline (unchanged)
+
+    def _ungated(reason: str):
+        """FAIL-CLOSED (P6 #3): we could not verify the override, so we do not render it. Fall
+        back to the concept headline — which IS Ledger-gated — or drop. Both triggers used to
+        `return ho, None`, shipping the exact line this gate exists to stop: its own docstring
+        names "Egypt's #1 pharmacy" as the failure, and a test pinned that it shipped."""
+        return concept_h, {
+            "field": "headline_override",
+            "original_text": ho,
+            "unsourced_claims": ["gate_unavailable"],
+            "action": "replaced_with_grounded_concept" if concept_h else "dropped",
+            "note": reason,
+        }
+
     if ledger is None:
-        return ho, None                              # can't verify -> preserve prior behavior
+        return _ungated("no Evidence Ledger could be built — the override was never verified")
     try:
         unsourced = [v for v in ledger.audit_text(ho) if not v.sourced]
-    except Exception:  # noqa: BLE001 — a gate error must never break rendering
-        return ho, None
+    except Exception as exc:  # noqa: BLE001 — a gate error must never break rendering
+        return _ungated(f"the Evidence Ledger errored ({type(exc).__name__}) — override unverified")
     if not unsourced:
         return ho, None                              # override is grounded -> use it
     rem = {

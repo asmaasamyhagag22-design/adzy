@@ -29,15 +29,23 @@ class RewriteOutcome(BaseModel):
 
 
 def _ledger_clean(profile: Any, text: str) -> tuple[bool, List[str]]:
-    """Every hard claim in the rewrite must resolve to real evidence. Degrades to clean (noted) if
-    the ledger can't run — the Policy Linter still gates."""
+    """Every hard claim in the rewrite must resolve to real evidence.
+
+    FAIL-CLOSED (P6 #4): if the ledger cannot run we CANNOT certify the rewrite is grounded, so we
+    reject it. It used to `return True` here — reporting CLEAN exactly when it had checked nothing,
+    which is the inverse of PD-3 ("evidence or it doesn't ship") that this module cites. The Policy
+    Linter alone is a regex over 4 rules; it cannot see a fabricated superiority claim.
+    Note: `profile=None` does NOT reach this path — from_profile(None) yields an EMPTY ledger, so
+    every hard claim is unsourced and the gate already fails closed on the normal route.
+    """
     try:
         from grounding import EvidenceLedger
         led = EvidenceLedger.from_profile(profile)
         unsourced = [v.claim.text for v in led.audit_text(text or "") if not v.sourced]
         return (not unsourced), [f"unsourced claim: {c}" for c in unsourced[:3]]
-    except Exception:  # noqa: BLE001
-        return True, ["evidence ledger unavailable — policy lint only"]
+    except Exception as exc:  # noqa: BLE001
+        return False, [f"evidence ledger unavailable ({type(exc).__name__}) — cannot certify the "
+                       f"rewrite carries no unsourced claim; rejecting rather than shipping it"]
 
 
 def suggest_and_regate(*, surface: str, text: str, category, caller: Any,

@@ -51,10 +51,32 @@ def test_no_override_uses_concept_headline():
     assert hl == "Concept HL" and rem is None
 
 
-def test_ledger_unavailable_preserves_override_without_crashing():
-    # Best-effort gate: if no ledger could be built, don't break rendering.
+def test_ledger_unavailable_falls_back_to_the_grounded_headline():
+    """P6 #3 — "cannot verify" is not "verified".
+
+    This test used to assert that "Egypt's #1 pharmacy" SHIPS when no ledger could be built —
+    i.e. it pinned the hole this gate's own docstring exists to close ("a calendar topic like
+    'Egypt's #1 pharmacy' would ship unverified"). An ungated external override must never win
+    over the concept headline, which IS ledger-gated. Fail closed, and record why.
+    """
     hl, rem = _verified_external_headline("Egypt's #1 pharmacy", "Concept HL", None)
-    assert hl == "Egypt's #1 pharmacy" and rem is None
+    assert hl == "Concept HL"
+    assert rem is not None and rem["action"] == "replaced_with_grounded_concept"
+    assert rem["unsourced_claims"] == ["gate_unavailable"]
+
+
+def test_ledger_error_also_falls_back_rather_than_shipping_the_override():
+    class _Boom:
+        def audit_text(self, _t):
+            raise RuntimeError("ledger exploded")
+    hl, rem = _verified_external_headline("Egypt's #1 pharmacy", "Concept HL", _Boom())
+    assert hl == "Concept HL" and rem is not None
+
+
+def test_ledger_unavailable_with_no_concept_headline_DROPS_the_override():
+    # nothing grounded to fall back to -> drop. Never render the unverifiable line.
+    hl, rem = _verified_external_headline("Egypt's #1 pharmacy", None, None)
+    assert hl is None and rem is not None and rem["action"] == "dropped"
 
 
 def test_fabricated_override_drops_when_no_grounded_alternative():

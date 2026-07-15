@@ -128,3 +128,27 @@ def test_malformed_audit_returns_none_never_a_fabricated_sheet():
     assert build_compliance_sheet("nope") is None
     assert build_compliance_sheet({}) is None                       # no final_copy
     assert build_compliance_sheet({"final_copy": "bad"}) is None    # unusable trail
+
+
+def test_an_EMPTY_audit_never_ships_a_green_PASS():
+    """P6 #2 — the all([]) vacuity landing in the client-facing deliverable.
+
+    `{"final_copy": {"fields": []}}` produced zero rows, hence zero unverified, hence
+    `verdict: "PASS"` — a sheet that checked NOTHING certifying itself clean. Any upstream that
+    fails to populate `fields` (a changed copy path, a serialisation miss) yielded a green PASS.
+    Nothing checked = nothing certified.
+    """
+    sheet = build_compliance_sheet({"final_copy": {"fields": []}})
+    assert sheet is not None                       # the shape is usable -> we still build a sheet
+    assert sheet["shipped_copy"] == []             # ...that reviewed nothing...
+    assert sheet["verdict"] == "NEEDS_REVIEW"      # ...so it must not say PASS
+
+
+def test_a_claim_row_we_could_not_read_forces_review_instead_of_vanishing():
+    """A claim we cannot parse is a claim we did NOT check. It used to `continue` — silently
+    dropping out of the counts — and the sheet still said PASS."""
+    sheet = build_compliance_sheet({"final_copy": {"fields": [
+        {"field": "headline", "text": "Egypt's #1 clinic", "claims": ["not-a-dict"]},
+    ]}})
+    assert sheet["verdict"] == "NEEDS_REVIEW"
+    assert sheet["summary"]["claims_unreadable"] == 1

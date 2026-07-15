@@ -81,10 +81,18 @@ def test_web_claim_from_reputable_source_resolves():
     assert res.source_url == "https://www.reuters.com/business/digilians"
 
 
-def test_web_claim_with_no_url_is_kept():
-    # A missing host can't be judged junk; keep it rather than over-drop honest evidence.
+def test_web_claim_with_no_url_is_NOT_evidence():
+    """P6 #1 — a web "fact" with no source_url cannot resolve a claim.
+
+    This test used to assert the opposite ("a missing host can't be judged junk; keep it"). That
+    made the moat circular: poster/brand_research.py declares `source_url: str = ""` BY DEFAULT,
+    so an LLM-emitted fact with no source entered the ledger as evidence, resolved a hard claim,
+    and the client's Ad Compliance Sheet printed "Verified against a sourced web result" with
+    source_url: None. The model's own output became the proof of the model's own claim.
+    If we cannot show the client a source, it is not evidence. Brand-tier is unaffected.
+    """
     led = EvidenceLedger.from_profile(_profile(), research=_research(""))
-    assert led.resolve_claim(_CLAIM) is not None
+    assert led.resolve_claim(_CLAIM) is None
 
 
 def test_brand_tier_evidence_is_always_kept():

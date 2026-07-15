@@ -487,9 +487,17 @@ class EvidenceLedger:
                 # Web-tier evidence with a KNOWN non-reputable source (an aggregator/junk host)
                 # is not proof — drop it so a claim can't be "verified" by SEO junk in ANY
                 # gate (concept/calendar/TOWS/reel), not just pick_angle. Brand-tier (profile*)
-                # is always kept; a web entry with no url is kept (can't judge, don't over-drop).
+                # is always kept.
+                #
+                # FAIL-CLOSED (P6 #1, 2026-07-15): a web entry with NO url is dropped too. It used
+                # to be kept ("can't judge, don't over-drop") — but poster/brand_research.py
+                # declares `source_url: str = ""` BY DEFAULT, so an LLM-emitted fact with no source
+                # entered as evidence, resolved a hard claim, and the client's compliance sheet
+                # printed "Verified against a sourced web result" with source_url: None. The
+                # model's own output became the proof of the model's own claim. If we cannot show
+                # the client a source, it is not evidence.
                 is_web = not str(stype).startswith("profile")
-                if is_web and url and not is_reputable_web_source(url):
+                if is_web and (not url or not is_reputable_web_source(url)):
                     return
                 entries.append(LedgerEntry(raw=str(raw), source_url=url or "",
                                            source_type=stype, confidence=conf))

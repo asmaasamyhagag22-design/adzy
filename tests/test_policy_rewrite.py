@@ -42,3 +42,31 @@ def test_empty_rewrite_is_rejected():
     out = suggest_and_regate(surface="hook", text="نتيجة مضمونة", category="clinic",
                              caller=_caller("   "), profile={})
     assert out.accepted is False
+
+
+def test_a_ledger_ERROR_rejects_the_rewrite_instead_of_blessing_it(monkeypatch):
+    """P6 #4 — PD-3: "evidence or it doesn't ship". The Ledger half of the re-gate used to
+    `return True, ["evidence ledger unavailable — policy lint only"]` on ANY exception, i.e. it
+    reported CLEAN precisely when it could not check. An LLM rewrite carrying a fabricated
+    superiority claim would then pass with only the regex linter having looked at it, and land in
+    the client's ads_manager.csv.
+
+    (Scope note, verified: `profile=None` does NOT trigger this — EvidenceLedger.from_profile(None)
+    returns an EMPTY ledger, so every hard claim is unsourced and the gate already fails closed.
+    This hole needs an actual ledger exception, which makes it latent, not routine.)
+    """
+    import policy_linter.rewrite as rw
+
+    def _boom(*a, **k):
+        raise RuntimeError("ledger down")
+    monkeypatch.setattr("grounding.EvidenceLedger.from_profile", _boom)
+    ok, reasons = rw._ledger_clean({"name": {"value": "X"}}, "أفضل مركز معتمد في القاهرة")
+    assert ok is False, "a ledger error blessed an unverified rewrite"
+    assert any("cannot" in r.lower() or "unavailable" in r.lower() for r in reasons)
+
+
+def test_profile_none_already_fails_closed_via_an_empty_ledger():
+    # pins the scope note above: no evidence => nothing resolves => not clean. No exception needed.
+    import policy_linter.rewrite as rw
+    ok, reasons = rw._ledger_clean(None, "We are the #1 clinic in Cairo")
+    assert ok is False and reasons

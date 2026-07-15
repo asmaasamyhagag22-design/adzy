@@ -59,6 +59,12 @@ def build_poster_audit(profile: dict, concept: Any, brief: Any = None) -> dict:
     return {
         "asset_type": "poster",
         "gate": "evidence_ledger",
+        # SCOPE (P6 #3): this describes THE COPY AUDIT only, and it is honest because
+        # `EvidenceLedger.from_profile` above is deliberately UNGUARDED — a gate failure raises
+        # and no trail is emitted, so there is no path that reports a gate which did not run.
+        # It does NOT speak for the H6 headline gate: that one records its own outcome in
+        # `remediation` (unsourced_claims=["gate_unavailable"]) when it could not verify an
+        # external override. Do not widen this flag's meaning without deriving it.
         "gate_active": True,
         "policy": POLICY,
         "coverage": coverage_block(_POSTER_EXCLUDED),

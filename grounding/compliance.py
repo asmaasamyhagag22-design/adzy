@@ -61,9 +61,13 @@ def build_compliance_sheet(audit: Any) -> Optional[dict]:
 
     rows: list[dict] = []
     verified = unverified = clean_fields = 0
+    # A field/claim we cannot READ is a claim we did not CHECK (P6 #2). It used to `continue` and
+    # vanish from every count, leaving the sheet free to say PASS about copy it never inspected.
+    unreadable = 0
 
     for fa in final.get("fields") or []:
         if not isinstance(fa, dict):
+            unreadable += 1
             continue
         field_name = fa.get("field") or ""
         copy_text = fa.get("text") or ""
@@ -84,6 +88,7 @@ def build_compliance_sheet(audit: Any) -> Optional[dict]:
             continue
         for c in claims:
             if not isinstance(c, dict):
+                unreadable += 1          # unchecked, not clean — forces NEEDS_REVIEW below
                 continue
             sourced = bool(c.get("sourced"))
             if sourced:
@@ -120,7 +125,14 @@ def build_compliance_sheet(audit: Any) -> Optional[dict]:
             "note": rec.get("note"),
         })
 
-    verdict = "PASS" if unverified == 0 else "NEEDS_REVIEW"
+    # FAIL-CLOSED (P6 #2): PASS is a POSITIVE statement — it requires that we actually reviewed
+    # something and found every claim sourced. `unverified == 0` alone was the all([]) vacuity:
+    # an audit with zero rows (a changed copy path, a serialisation miss) certified itself clean,
+    # and unreadable rows silently dropped out of the counts. Nothing checked = nothing certified.
+    if not rows or unreadable:
+        verdict = "NEEDS_REVIEW"
+    else:
+        verdict = "PASS" if unverified == 0 else "NEEDS_REVIEW"
     return {
         "title": SHEET_TITLE,
         "asset_type": audit.get("asset_type") or "asset",
@@ -133,6 +145,7 @@ def build_compliance_sheet(audit: Any) -> Optional[dict]:
             "rows": len(rows),
             "claims_verified": verified,
             "claims_unverified": unverified,
+            "claims_unreadable": unreadable,      # >0 => we could not check it => NEEDS_REVIEW
             "fields_without_claims": clean_fields,
             "claims_remediated": len(remediation_rows),
         },

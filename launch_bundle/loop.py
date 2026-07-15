@@ -41,8 +41,13 @@ def _ledger_ok(profile: Any, creative: dict) -> tuple[bool, List[str]]:
         for ln in lines:
             unsourced += [v.claim.text for v in led.audit_text(ln) if not v.sourced]
         return (not unsourced), ([f"unsourced claim: {c}" for c in unsourced[:3]] if unsourced else [])
-    except Exception:  # noqa: BLE001
-        return True, ["evidence ledger unavailable — policy lint only"]
+    except Exception as exc:  # noqa: BLE001
+        # FAIL-CLOSED (P6 #4): a variation we could not verify does not become a DRAFT bundle.
+        # This used to `return True` — blessing the creative precisely when the Ledger half of the
+        # re-gate had checked nothing, in the loop whose whole selling point is "re-gate the
+        # variant through BOTH the Evidence Ledger AND the Policy Linter".
+        return False, [f"evidence ledger unavailable ({type(exc).__name__}) — cannot certify the "
+                       f"variant is grounded; rejecting rather than bundling it"]
 
 
 def run_closed_loop(*, policy, snapshots, profile: Any, media_plan: Any,
