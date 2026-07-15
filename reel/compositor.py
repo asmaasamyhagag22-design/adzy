@@ -27,6 +27,15 @@ from .schemas import REEL_H, REEL_W, ReelRenderResult, Storyboard
 from .textlayer import render_text_sequences
 from .video_provider import KenBurnsProvider, VideoProvider
 
+# C1: a per-run Veo budget refusal must be distinguishable from a provider failure. Imported
+# defensively so the compositor keeps working if the spend guard is ever absent — in that case
+# SpendRefused simply cannot be raised, and the generic handler below still catches everything.
+try:
+    from vertex_spend import SpendRefused as _SpendRefused
+except Exception:  # noqa: BLE001 — pragma: no cover
+    class _SpendRefused(Exception):  # type: ignore[no-redef]
+        """Placeholder: never raised when vertex_spend is unavailable."""
+
 
 def _even(n: float) -> int:
     return int(n) // 2 * 2          # libx264 yuv420p needs even dimensions
@@ -75,6 +84,8 @@ def render_reel(
                 "text, labels, posters or logos; any text-bearing surface stays abstract, "
                 "blurred or out of frame.")
     fallback_used = (provider.name == "stub")
+    budget_stopped = False
+    budget_note = ""
     scene_qa: list = []   # per-scene motion-QA verdicts (exported on the audit trail)
     fb = fallback_provider or KenBurnsProvider(
         storyboard.content_images, fallback_palette=storyboard.palette_hex or None
@@ -108,6 +119,18 @@ def render_reel(
             )
             try:
                 raw = provider.generate(scene.visual_prompt + _NO_TEXT, **gen_kwargs)
+            except _SpendRefused as exc:                   # C1 — a DECISION, not a failure
+                # The run hit its Veo budget. Reporting this as "provider failed" would be a lie
+                # (the provider is fine) and would hide the one thing a human can act on. The reel
+                # still completes on the fallback — a budget stop must not kill the deliverable —
+                # but the result SAYS it stopped, so HITL can offer "approve an override or
+                # shorten the reel" instead of showing an infra error.
+                print(f"[reel][budget] scene {i}: per-run Veo budget reached — remaining scenes "
+                      f"use '{fb.name}'. {exc}", file=sys.stderr)
+                budget_stopped = True
+                budget_note = str(exc)
+                fallback_used = True
+                raw = fb.generate(scene.visual_prompt + _NO_TEXT, **gen_kwargs)
             except Exception as exc:                       # noqa: BLE001
                 # A provider failure on ONE scene must not kill the whole reel.
                 # Regenerate just this scene with the fallback (real-photo KenBurns
@@ -273,5 +296,5 @@ def render_reel(
         reel_path=str(out_path), filename=out_path.name,
         width=W, height=H, duration_s=storyboard.total_duration_s, fps=fps,
         provider=provider.name, fallback_used=fallback_used, has_audio=has_audio,
-        scene_qa=scene_qa,
+        scene_qa=scene_qa, budget_stopped=budget_stopped, budget_note=budget_note,
     )

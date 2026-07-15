@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -37,6 +38,29 @@ def monthly_cap_usd() -> float:
 
 def _veo_usd_per_sec() -> float:
     return float(os.getenv("VEO_USD_PER_SEC", "0.40"))
+
+
+def veo_max_usd_per_run() -> float:
+    """Ceiling for ONE run's Veo spend — roughly one reasonable reel.
+
+    WHY A RUN AND NOT A RENDER (2026-07-15): `guard_video` is called PER CLIP, and
+    `reel/video_provider.py` snaps every clip to 4/6/8s, so a single call can never exceed
+    $3.20 — a "per-render cap" could never bind. But a reel is 6-8 clips ($12-26), and THAT is
+    what ate half a $50 month. Money accumulates per RUN, so the ceiling belongs there.
+    """
+    return float(os.getenv("VEO_MAX_USD_PER_RUN", "8"))
+
+
+# One id per PROCESS when no pipeline minted one — so a bare `python -m reel` IS one run. A
+# pipeline (dashboard job, full_run) exports TELEMETRY_RUN_ID and we adopt it, which makes that
+# job's whole reel a single budget. Deliberately not a module constant read at import: late
+# binding is what lets tests monkeypatch the env (the same idiom as monthly_cap_usd).
+_PROCESS_RUN_ID = f"proc_{uuid.uuid4().hex[:8]}"
+
+
+def current_run_id() -> str:
+    """The run this spend belongs to: the pipeline's TELEMETRY_RUN_ID, else this process."""
+    return os.getenv("TELEMETRY_RUN_ID") or _PROCESS_RUN_ID
 
 
 def _image_usd(model: str) -> float:
@@ -98,6 +122,29 @@ def corrupt_line_count(ledger: Optional[Path] = None, *, month: Optional[str] = 
     return _scan(ledger, month or month_key())[1]
 
 
+def run_spend_usd(kind: str = "veo", *, ledger: Optional[Path] = None,
+                  run_id: Optional[str] = None) -> float:
+    """This RUN's metered spend for `kind`. Rows written before run-stamping carry no `run_id` and
+    are never attributed to a run — otherwise every historical clip would poison the first new
+    reel's budget."""
+    ledger = ledger or DEFAULT_LEDGER
+    rid = run_id or current_run_id()
+    if not ledger.is_file():
+        return 0.0
+    total = 0.0
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        try:
+            row = json.loads(s)
+        except Exception:  # noqa: BLE001 — corruption is the month guard's business, not the run's
+            continue
+        if isinstance(row, dict) and row.get("run_id") == rid and row.get("kind") == kind:
+            total += float(row.get("est_cost_usd") or 0.0)
+    return round(total, 4)
+
+
 def check_budget(est_cost_usd: float, *, ledger: Optional[Path] = None,
                  cap: Optional[float] = None, month: Optional[str] = None) -> tuple[bool, str]:
     """(ok, message). ok=False means the render must NOT run."""
@@ -124,8 +171,9 @@ def record(kind: str, units: float, est_cost_usd: float, *, model: str = "", det
     """Append a render event to the ledger (kind = 'veo' | 'image')."""
     ledger = ledger or DEFAULT_LEDGER
     d = when or datetime.now(timezone.utc)
-    row = {"ts": d.isoformat(), "month": month_key(d), "kind": kind, "units": units,
-           "model": model, "detail": detail, "est_cost_usd": round(float(est_cost_usd), 4)}
+    row = {"ts": d.isoformat(), "month": month_key(d), "run_id": current_run_id(), "kind": kind,
+           "units": units, "model": model, "detail": detail,
+           "est_cost_usd": round(float(est_cost_usd), 4)}
     ledger.parent.mkdir(parents=True, exist_ok=True)
     with ledger.open("a", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -133,10 +181,30 @@ def record(kind: str, units: float, est_cost_usd: float, *, model: str = "", det
 
 
 def guard_video(seconds: float, *, detail: str = "", model: str = "",
-                ledger: Optional[Path] = None) -> float:
-    """Pre-flight a Veo render: raise SpendRefused if it would breach the cap, else return the
-    estimate (the caller records() it after a successful render)."""
+                ledger: Optional[Path] = None, max_usd: Optional[float] = None) -> float:
+    """Pre-flight a Veo render: raise SpendRefused if it would breach the PER-RUN budget or the
+    monthly cap, else return the estimate (the caller records() it after a successful render).
+
+    TWO CEILINGS, and the per-run one is the load-bearing half. This function is called PER CLIP
+    and `reel/video_provider.py` snaps every clip to 4/6/8s, so no single call can exceed $3.20 —
+    a per-render cap could never bind. A reel is 6-8 clips ($12-26), which is exactly how half a
+    $50 month vanished. So the budget that matters accumulates per RUN.
+
+    `max_usd` overrides the run ceiling explicitly for one call — the same shape as
+    `check_budget(cap=...)`. We REFUSE the clip rather than silently truncate the reel: the caller
+    surfaces it at HITL so a human can approve an override or shorten the reel.
+    """
     est = est_video_cost_usd(seconds)
+    run_cap = max_usd if max_usd is not None else veo_max_usd_per_run()
+    spent_run = run_spend_usd("veo", ledger=ledger)
+    if spent_run + est > run_cap:
+        what = f" ({detail})" if detail else ""
+        raise SpendRefused(
+            f"REFUSED{what}: this run has already metered ${spent_run:.2f} of Veo; +${est:.2f} for "
+            f"{seconds:.0f}s would exceed the ${run_cap:.2f} per-run budget. A reel is 6-8 clips, "
+            f"so the per-clip cost never trips the monthly cap on its own — this ceiling is what "
+            f"stops ONE reel eating the month. Shorten the reel, or raise VEO_MAX_USD_PER_RUN "
+            f"(or pass max_usd=) to proceed.")
     ok, msg = check_budget(est, ledger=ledger)
     if not ok:
         raise SpendRefused(msg)

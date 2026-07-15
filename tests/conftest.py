@@ -20,6 +20,9 @@ def _vertex_spend_tmp_ledger(tmp_path, monkeypatch):
     import vertex_spend
     monkeypatch.setattr(vertex_spend, "DEFAULT_LEDGER", tmp_path / "vertex_spend.jsonl")
     monkeypatch.setenv("VERTEX_MONTHLY_CAP_USD", "100000")
+    # ...and the PER-RUN Veo budget (C1). Without this the shipped $8 default would silently bind
+    # for any test that drives a real guard_video. Tests that exercise the ceiling set their own.
+    monkeypatch.setenv("VEO_MAX_USD_PER_RUN", "100000")
 
 
 @pytest.fixture(autouse=True)

@@ -102,6 +102,11 @@ class ReelRenderResult(BaseModel):
     fallback_used: bool = False
     has_audio: bool = False
     scene_qa: list = []              # per-scene motion-QA verdict dicts (additive, 2026-07-12)
+    # C1 (2026-07-15): the run hit VEO_MAX_USD_PER_RUN and the remaining scenes fell back. This is
+    # a BUDGET DECISION, not a provider failure — HITL must be able to offer "approve an override
+    # or shorten the reel" instead of showing "the video model broke".
+    budget_stopped: bool = False
+    budget_note: str = ""
 
 
 # ---------------------------------------------------------------------
