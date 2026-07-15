@@ -2,8 +2,36 @@
 
 **The single source of truth for this project.** Replaces the historical
 change-log. Read this before acting in this repo. Last full revision: 2026-07-04.
-Test suite: **1595 passed, 2 skipped, 0 failed** (2026-07-14; grew from 880 as each
-audit fix below shipped with its hermetic regression tests).
+Test suite: **1595 passed, 2 skipped, 0 failed** (2026-07-15, re-derived live; grew from
+880 as each audit fix below shipped with its hermetic regression tests).
+
+**⚠ CORRECTION — U1 GATE IS NOT CURRENTLY REPRODUCIBLE AT 93/92/92 (re-derived live 2026-07-15).**
+A live `python -m benchmark.grade_u1` today returns **objective 86% (12/14) · destination 83%
+(10/12) · combined 83% · GATE PASS** (bar = `U1_GATE = 0.80`, `benchmark/grade_u1.py:23`) — NOT the
+"objective 93% / destination 92% / combined 92%" recorded below (entry "DIRECTOR ROUND (2026-07-11
+late)", ~line 700). The delta is fully accounted for, and none of it is a builder error:
+1. **Two objective "misses" are missing CACHE, not wrong deductions.** `benchmark/runner.py:
+   find_latest_scrape_dir` returns the NEWEST scrape dir even when it holds no `business_profile.json`.
+   `raw_african`'s newest dirs (`scrapes/rawafrican_net_20260713_*`) are scrape-only (manifest only);
+   its profile lives in `…_20260711_141527`. `mumm` is bot-walled (only the 2026-05-30 dir has a
+   profile). grade_u1 scores "no cached profile" as a MISS — so the metric conflates *no data* with
+   *wrong answer*, which is none of the three taxonomy categories (builder-error / profile-weakness /
+   label-uncertainty). **Objective over the 12 URLs that HAVE a cached profile: 12/12 = 100%.**
+2. **`assalam` destination flipped match→miss on FROZEN inputs.** Its profile
+   (`scrapes/assih_com_20260711_164437/business_profile.json`) has mtime 2026-07-11 19:58 and its
+   label has been frozen since the 2026-07-12 amendment (`a6ffaed`, mtime 09:15). Same profile, same
+   label, different answer. `build_campaign_objective` is a **live Gemini call** (`media_plan/
+   builder.py`; `grade_u1.py:9`, and `_load_env()` ~line 148 loads the repo-root `.env`), and
+   `temperature=0.0` is not a determinism guarantee — `gemini-2.5-pro` is also a moving alias. The
+   deterministic layer (`conversion_signals`) correctly enumerates 4 evidence-backed candidates for
+   assalam (whatsapp / phone_call / lead_form / website); the **LLM picks one**, and that pick is
+   where the variance lives.
+**Consequences to state plainly:** (a) the gate's run-to-run variance has NEVER been quantified — it
+has only ever been run once per measurement, so 93 vs 86 cannot be attributed with confidence;
+(b) `grade_u1` is a **PAID** gate (one live Gemini call per labelled URL) and must not be described as
+offline; (c) fixes: prefer the newest scrape dir that actually CONTAINS a profile, exclude (don't
+score) uncached URLs, pin a model snapshot, and report mean±range over N runs. Until then, quote the
+**live** number (86/83/83 PASS), not 93/92/92.
 
 **CLOSEOUT WAVE 3 (autonomous, additive; suite 1595).** **Reel brand-safety gate in CODE**
 (`reel/coherence.py:coherence_lint`, PD-1): the director is *told* to keep third-party marks out

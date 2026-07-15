@@ -23,7 +23,7 @@ carries a status, so nothing is oversold. Statuses:
 | U8a Review acquisition | **Shipped & Gated** | `reviews/`; fixtures-first providers; live Maps/Vezeeta pulls need owner data. |
 | U8b MarketDefinition + Discovery v2 | **Shipped & Gated** | `competitor/market_definition.py`, discovery/registry/tier-match; anti-hallucination test permanent. |
 | U8c Arabic ABSA → SWOT v2 | **Shipped & Gated** | `reviews/absa.py` → `competitor/swot.py`; verbatim-substring validator. ABSA gold labels (~100) = owner task. |
-| U9 Social Organic Intelligence | **Roadmap** | `social_intel/`; IG Tier-1 live-validated; Apify Tier-2 behind the $20/mo cap; `snapshot_parser` (Tier-3) absent; not wired into SWOT. Schema pending owner raw samples. |
+| U9 Social Organic Intelligence | **Roadmap** | `social_intel/`; IG Tier-1 live-validated; Apify Tier-2 behind the $20/mo cap (code-enforced: `social_intel/spend_guard.py:18`, called on the only network path `scripts/pull_facebook.py:30`, pinned by `tests/test_social_intel_facebook.py:78`); `snapshot_parser` (Tier-3) **shipped 2026-07-14 (`03c20ef`)** — stdlib parser + demo fixture, authors hashed at ingestion (PD-6); real FB/IG selectors still pending owner raw samples, and **still not wired into SWOT**. |
 | Reel / poster creative + gates | **Shipped & Gated** | copy is Evidence-Ledger-gated; reel coherence gate + product compositing; imagery/Veo-extended audio still ungated (roadmap). |
 | Vertex spend guard | **Shipped & Gated** | `vertex_spend.py`; meters + caps Veo + Nano-Banana image renders ($50/mo default). |
 | Tier-4 autonomous FB/IG scraping | **Rejected** | PD-10 — forbidden; snapshots are human-provided inputs only. |
