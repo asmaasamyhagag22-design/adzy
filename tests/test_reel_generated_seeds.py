@@ -161,3 +161,88 @@ def test_an_UNJUDGED_seed_never_animates(monkeypatch, tmp_path):
     # every scene falls back to the real photo; NOT ONE unjudged seed is handed to Veo
     assert [s for s, _ in out] == [None, None]
     assert [r for _, r in out] == ["https://x/real0.jpg", "https://x/real1.jpg"]
+
+
+def test_the_seed_lane_is_chosen_EXPLICITLY_not_inherited(monkeypatch, tmp_path):
+    """C2 — seeds must NAME their model, never inherit the poster's.
+
+    seed_gen called generate_oneshot_poster passing NO model=, so seeds silently rode the POSTER's
+    lane: .env sets ONESHOT_IMAGE_MODEL=gemini-3-pro-image-preview (a measured ruling about the
+    POSTER's Arabic text), oneshot.py binds it into DEFAULT_ONESHOT_MODEL, and that is a def-time
+    default arg. A poster decision therefore governed reel seeds by accident — and a future .env
+    edit would have moved seeds again, silently. Now it is an explicit constant.
+
+    NOTE the value is PRO, and that is a MEASURED conclusion, not the original hypothesis — see
+    test_the_pro_seed_lane_is_justified_by_measurement below.
+    """
+    import reel.seed_gen as sg
+    from reel.scene_qa import SeedVerdict
+
+    seen: dict = {}
+
+    def _fake_gen(prompt, out_path, **kw):
+        seen["model"] = kw.get("model")
+        Path(out_path).write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 16)
+        return Path(out_path)
+
+    monkeypatch.setattr("poster.oneshot.generate_oneshot_poster", _fake_gen)
+    monkeypatch.setattr(sg, "_ref_bytes", lambda url: None)
+    monkeypatch.setattr("reel.scene_qa.check_seed_frame",
+                        lambda p, caller=None, brand_hint="", log=None:
+                        SeedVerdict(overall_pass=True, checked=True))
+
+    generate_scene_seeds(_plan(), ["https://x/real0.jpg", "https://x/real1.jpg"],
+                         profile={"name": {"value": "NTI"}}, out_dir=tmp_path, caller=object())
+
+    assert seen["model"] == sg._SEED_IMAGE_MODEL, "seeds are not naming their own model"
+    assert seen["model"] is not None, "seeds fell back to inheriting the poster's default"
+
+
+def test_the_POSTERS_env_cannot_move_the_seed_lane(monkeypatch, tmp_path):
+    """Env-sharing caused this, so the fix must not depend on env AT ALL. Whatever the poster's
+    ruling is in the environment, seeds render on the model THEY name."""
+    import reel.seed_gen as sg
+    from reel.scene_qa import SeedVerdict
+
+    monkeypatch.setenv("ONESHOT_IMAGE_MODEL", "some-other-model-entirely")
+    seen: dict = {}
+
+    def _fake_gen(prompt, out_path, **kw):
+        seen["model"] = kw.get("model")
+        Path(out_path).write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 16)
+        return Path(out_path)
+
+    monkeypatch.setattr("poster.oneshot.generate_oneshot_poster", _fake_gen)
+    monkeypatch.setattr(sg, "_ref_bytes", lambda url: None)
+    monkeypatch.setattr("reel.scene_qa.check_seed_frame",
+                        lambda p, caller=None, brand_hint="", log=None:
+                        SeedVerdict(overall_pass=True, checked=True))
+
+    generate_scene_seeds(_plan(), ["https://x/real0.jpg"], profile={"name": {"value": "NTI"}},
+                         out_dir=tmp_path, caller=object())
+    assert seen["model"] == sg._SEED_IMAGE_MODEL
+    assert seen["model"] != "some-other-model-entirely", "the poster's env moved the seed lane"
+
+
+def test_the_pro_seed_lane_is_justified_by_measurement_not_inheritance():
+    """The premium is DEFENDED, not assumed — and the obvious optimisation was tested and refused.
+
+    Hypothesis (mine and the owner's): the pro lane exists to RENDER legible text; build_seed_prompt
+    BANS text; therefore seeds pay 3x ($0.12 vs $0.04) for a capability their own prompt forbids.
+    A same-prompt A/B (outputs/defense/seed_ab/, ~$0.16) asked the project's OWN seed gate:
+        PRO  -> overall_pass=True,  score 9, no_text=True
+        NANO -> overall_pass=False, score 4, no_text=False
+               "The computer screen displays readable code, violating the no-text rule."
+    The premium buys INSTRUCTION-FOLLOWING (including "do not render text"), not text rendering.
+    With the gate in the loop nano retries 3x = $0.12 — one clean pro seed's price — and can still
+    yield NO seed. Same cost, worse outcome.
+
+    This test pins the CONCLUSION so nobody re-runs the same clever idea without re-measuring.
+    """
+    import vertex_spend as vs
+
+    import reel.seed_gen as sg
+    assert sg._SEED_IMAGE_MODEL == "gemini-3-pro-image-preview"
+    assert vs.est_image_cost_usd(1, sg._SEED_IMAGE_MODEL) == 0.12   # the premium, eyes open
+    # and the ban the hypothesis was built on really is in the prompt (it was never the issue)
+    assert "no text, letters, numbers, logos" in sg.build_seed_prompt("x", n_refs=0)

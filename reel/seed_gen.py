@@ -55,6 +55,39 @@ def build_seed_prompt(veo_prompt: str, *, brand_name: str = "", dna_lines: str =
     )
 
 
+# THE SEED LANE IS PRO — EXPLICITLY, AND NOW FOR A MEASURED REASON (C2, 2026-07-15).
+#
+# It WAS pro by accident: `generate_oneshot_poster`'s `model` default binds at def time from
+# `poster/oneshot.py:DEFAULT_ONESHOT_MODEL` (which reads ONESHOT_IMAGE_MODEL; .env sets it to
+# gemini-3-pro-image-preview for the POSTER's Arabic-with-diacritics fidelity). seed_gen shares
+# that function and passed no `model=`, so seeds silently billed $0.12 instead of $0.04.
+#
+# THE OBVIOUS FIX WAS WRONG, AND WE MEASURED IT INSTEAD OF ASSUMING IT. The hypothesis was: the
+# pro lane exists to RENDER legible text, and `build_seed_prompt` BANS text outright, so seeds pay
+# 3x for a capability their own prompt forbids. A same-prompt A/B (outputs/defense/seed_ab/,
+# 2026-07-15, ~$0.16) put that to the project's own seed gate:
+#     PRO  -> overall_pass=True,  score 9, no_text=True   ("clean")
+#     NANO -> overall_pass=False, score 4, no_text=FALSE  ("The computer screen displays readable
+#                                                           code, violating the no-text rule.")
+# The premium does not buy text RENDERING — it buys INSTRUCTION-FOLLOWING, including the
+# instruction NOT to render text. Nano paints junk pseudo-text into screens; pro leaves them dark.
+# With the gate in the loop the economics invert: a rejected nano seed retries up to 3x = $0.12 —
+# the same as one clean pro seed — and can still end with NO seed at all (fallback to the raw
+# photo). Same cost, worse outcome. So the premium stays, now justified by evidence instead of
+# inherited by accident.
+#
+# What we DID fix is the fragility: this is an explicit CONSTANT, not env inheritance. Env-sharing
+# is what made a poster ruling silently govern reel seeds; a dedicated env var would repeat the
+# mistake in a new shape. Served at the same location the poster uses
+# (`oneshot.DEFAULT_LOCATION = "global"`), so no location change is needed.
+#
+# OPEN (ticketed): n=1, and a "student coding at a workstation" is the WORST case for no-text
+# (screens invite code). A per-scene lane choice — reusing render3's `orchestrate._needs_pro_lane`
+# pattern — is the real optimisation: pro for screen-bearing scenes, nano elsewhere. That needs
+# n>=3 across scene types to settle, not one sample.
+_SEED_IMAGE_MODEL = "gemini-3-pro-image-preview"
+
+
 def _ref_bytes(url: Optional[str]) -> Optional[tuple[bytes, str]]:
     if not url:
         return None
@@ -127,6 +160,7 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
                 generate_oneshot_poster(
                     a_prompt,
                     p, logo_bytes=None,
+                    model=_SEED_IMAGE_MODEL,          # EXPLICIT nano — never the poster's env
                     product_images=([ref] if (ref and attempt < 3) else None))
                 stats["generated"] += 1
                 v = check_seed_frame(p, caller=caller, brand_hint=name)
