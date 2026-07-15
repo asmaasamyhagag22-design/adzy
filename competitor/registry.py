@@ -46,14 +46,27 @@ def registry_path(brand_ref: str, *, store_dir: str = _STORE) -> Path:
     return Path(store_dir) / f"{slug}.json"
 
 
+class RegistryCorrupt(RuntimeError):
+    """The registry file EXISTS but is unreadable — we cannot know what the owner approved."""
+
+
 def load_registry(brand_ref: str, *, store_dir: str = _STORE) -> dict:
-    """The persisted registry for a brand, or an empty new one. Never raises."""
+    """The persisted registry for a brand, or an empty new one for a first run.
+
+    Raises RegistryCorrupt when the file exists but will not parse (P6 #11c). A corrupt registry
+    used to be INDISTINGUISHABLE from a missing one: it returned `entries: []`, so
+    `establish_or_diff` read that as "first run, trust everything", AUTO-APPROVED every live peer
+    and OVERWROTE the owner's file — the single thing this module promises it never does. A
+    truncated write (a killed run) was enough. Refusing keeps the owner's file intact.
+    """
     p = registry_path(brand_ref, store_dir=store_dir)
     if p.is_file():
         try:
             return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            raise RegistryCorrupt(
+                f"{p} exists but is unreadable ({type(exc).__name__}); refusing to re-baseline "
+                f"and auto-approve every live peer. Fix or delete the file, then re-run.") from exc
     return {"brand_ref": brand_ref, "entries": []}
 
 
@@ -113,3 +126,57 @@ def approved_competitors(discovered: list, approved_keys: list) -> list:
     against (never the raw live pool). Order preserved."""
     keys = set(approved_keys or [])
     return [c for c in (discovered or []) if _entry_of(c)["key"] in keys]
+
+
+def stable_competitors(brand_ref: str, discovered: list, *, store_dir: str = _STORE,
+                       now: str = "") -> tuple[list, dict]:
+    """(competitors_for_SWOT, registry_diff) — the ONE way to obtain a peer set.
+
+    Both entrypoints MUST route through this: the CLI (competitor/full_run.py) and the API /
+    dashboard (api/routes/swot.py). `approved_competitors` says it plainly — SWOT computes
+    against the APPROVED baseline, "never the raw live pool" — but the API used to skip the
+    registry entirely, so the PAID deliverable re-ran discovery every time and the
+    non-determinism the owner caught on 2026-07-12 stayed live for the client (P6 #11a).
+
+    On a first run the baseline is established from this discovery and it IS the peer set.
+    Afterwards the approved set is authoritative EVEN WHEN EMPTY — `if approved:` was the bug
+    (P6 #11b): rejecting every peer via HITL yields [], which is falsy, so the raw pool came back
+    and the rival the owner explicitly removed reappeared in the next SWOT.
+
+    Raises RegistryCorrupt if the persisted file is unreadable (never silently re-baselines).
+    """
+    reg = establish_or_diff(brand_ref, discovered, store_dir=store_dir, now=now)
+    if reg["established"]:
+        return list(discovered or []), reg["diff"]
+    return approved_competitors(discovered, reg["approved_keys"]), reg["diff"]
+
+
+def brand_ref_from_profile(profile: Any) -> str:
+    """A stable registry key for a profile — the brand's own site URL, else its name.
+
+    The API/dashboard receives only a profile (no typed URL), while the CLI passes `args.url`.
+    Both must reach a registry, or the paid deliverable falls back to the raw live pool (P6 #11a).
+
+    CAVEAT, stated rather than hidden: if the CLI's typed URL and the profile-derived URL differ in
+    form (e.g. a `www.` prefix), the two entrypoints keep SEPARATE baselines. Each is still stable
+    run-to-run — which is what kills the drift — they just do not share approvals. Converging them
+    would mean re-slugging, which would orphan existing baselines and silently re-approve peers the
+    owner had removed: the exact bug this module exists to prevent. Not worth it.
+    """
+    p = profile if isinstance(profile, dict) else {}
+    p = p.get("profile", p) if isinstance(p.get("profile"), dict) else p
+    for key in ("website", "url", "canonical_url"):
+        v = p.get(key)
+        v = v.get("value") if isinstance(v, dict) else v
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    # fall back to the homepage recorded in the name field's evidence trail
+    name = p.get("name")
+    if isinstance(name, dict):
+        for ev in (name.get("evidence") or []):
+            if isinstance(ev, dict) and str(ev.get("page_url") or "").strip():
+                return str(ev["page_url"]).strip()
+        v = name.get("value")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return str(name or "brand")

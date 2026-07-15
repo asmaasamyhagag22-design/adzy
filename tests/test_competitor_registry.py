@@ -6,6 +6,8 @@ First discovery establishes a persisted baseline; later runs DIFF against it
 approved set. Identity changes are the owner's (this module never auto-approves)."""
 from __future__ import annotations
 
+import pytest
+
 from competitor.registry import (
     approved_competitors, competitor_key, diff_competitors, establish_or_diff, load_registry,
 )
@@ -71,3 +73,57 @@ def test_diff_is_pure_no_mutation():
     reg = {"brand_ref": "x", "entries": [{"key": "a.com", "name": "A", "status": "approved"}]}
     diff_competitors(reg, [_c("B", "https://b.com")])
     assert reg["entries"] == [{"key": "a.com", "name": "A", "status": "approved"}]
+
+
+# --------------------------------------------------------------------------------------------
+# P6 #11 — "the fix you believe shipped but didn't"
+# --------------------------------------------------------------------------------------------
+
+def test_rejecting_EVERY_peer_does_not_resurrect_the_raw_pool(tmp_path):
+    """P6 #11(b) — `if approved:` was the bug.
+
+    Remove every competitor via HITL and `approved == []`, which is FALSY, so full_run kept
+    matrix_competitors at its raw-pool value and the rival the owner explicitly rejected
+    reappeared in the next SWOT — under a comment asserting the opposite.
+    """
+    from competitor.registry import save_registry, stable_competitors
+    pool = [_c("Rival A", "https://a.com"), _c("Rival B", "https://b.com")]
+    # a baseline EXISTS and the owner has removed everything in it
+    save_registry({"brand_ref": "acme", "entries": [
+        {"key": competitor_key("Rival A", "https://a.com"), "name": "Rival A",
+         "website": "https://a.com", "status": "removed"},
+        {"key": competitor_key("Rival B", "https://b.com"), "name": "Rival B",
+         "website": "https://b.com", "status": "removed"},
+    ]}, store_dir=str(tmp_path))
+    comps, _diff = stable_competitors("acme", pool, store_dir=str(tmp_path), now="2026-07-15")
+    assert comps == [], "the raw live pool came back after the owner rejected every peer"
+
+
+def test_a_CORRUPT_registry_never_silently_rebaselines_and_auto_approves(tmp_path):
+    """P6 #11(c) — a corrupt file was indistinguishable from a missing one, so establish_or_diff
+    treated it as "first run, trust everything", AUTO-APPROVED every live peer and OVERWROTE the
+    owner's file — the one thing registry.py promises it never does."""
+    from competitor.registry import RegistryCorrupt, registry_path, stable_competitors
+    p = registry_path("acme", store_dir=str(tmp_path))
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text('{"brand_ref": "acme", "entries": [{"key": "rival_a"', encoding="utf-8")  # truncated
+    before = p.read_text(encoding="utf-8")
+    with pytest.raises(RegistryCorrupt):
+        stable_competitors("acme", [_c("Rival A", "https://a.com")], store_dir=str(tmp_path),
+                           now="2026-07-15")
+    assert p.read_text(encoding="utf-8") == before, "a corrupt registry was overwritten"
+
+
+def test_BOTH_entrypoints_route_their_peer_set_through_the_registry():
+    """P6 #11(a) — api/routes/swot.py never called the registry, so the PAID dashboard computed
+    SWOT against the raw live pool while the CLI used the approved baseline. Static check: the
+    two entrypoints must both go through the one helper (a behavioural test would need a live
+    scrape). approved_competitors' own docstring: SWOT computes against the approved baseline,
+    "never the raw live pool"."""
+    import inspect
+
+    import api.routes.swot as api_swot
+    import competitor.full_run as cli
+    for mod in (api_swot, cli):
+        src = inspect.getsource(mod)
+        assert "stable_competitors" in src, f"{mod.__name__} bypasses the competitor registry"

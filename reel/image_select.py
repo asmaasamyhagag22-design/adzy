@@ -154,8 +154,14 @@ def select_brand_photos(
         if d:
             pairs.append((u, d))
     if len(pairs) <= 1:
-        logger.info("image_select: only %d images fetchable; keeping them", len(pairs))
-        return _ret([u for u, _ in pairs] or urls[:max_keep])
+        # FAIL-CLOSED (P6 #8): keep ONLY what we actually fetched. This used to be
+        # `[...] or urls[:max_keep]` — so when EVERY fetch failed (hotlink-protected CDN, 403,
+        # flaky network) the `or` fired and handed back the whole UNCURATED list, bypassing
+        # _fail_closed() entirely. That is the exact "keep everything" fallback FIX-D1 claims to
+        # have killed: logo-walls/QR/banners became the reel's footage on any site that blocks our
+        # fetcher. Nothing fetchable now means no photos — the caller routes to generated b-roll.
+        logger.info("image_select: only %d image(s) fetchable; keeping just those", len(pairs))
+        return _ret([u for u, _ in pairs])
 
     if caller is None:
         try:

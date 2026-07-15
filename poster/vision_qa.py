@@ -118,12 +118,18 @@ def poster_vision_qa(
         f"- {color_line}\n"
         "- candid_violation = true if the imagery looks candid/documentary or flat natural "
         "lighting (amateur/stock) rather than a polished brand campaign.\n"
-        # PRODUCT AUTHENTICITY (additive, 2026-07-12 — the topshoes invented-sneaker class):
+        # PRODUCT AUTHENTICITY (additive, 2026-07-12 — the topshoes invented-sneaker class).
+        # FAIL-CLOSED (P6 #9): ask unless we KNOW real product photos were supplied. This was
+        # `if expect_real_products is False`, but poster/pipeline.py calls QA without the argument
+        # => None => the instruction was OMITTED => invented_product kept its permissive default
+        # => the hard gate could never fire, while the conjunction below still named it and
+        # overall_pass=True certified the poster clean. So the owner-caught fabricated hero sneaker
+        # shipped on every classic poster. None (unknown) must ask; only True may skip.
         + ("- invented_product = true if the poster features a SPECIFIC hero product presented "
            "as this brand's merchandise even though NO real product photo was provided — a "
            "fabricated shoe/bottle/device/dish shown as theirs (HARD GATE: a fake product is a "
            "false claim). Generic out-of-focus background objects are fine.\n"
-           if expect_real_products is False else "")
+           if expect_real_products is not True else "")
         + "- third_party_mark = true if ANY other company's logo or trademark appears anywhere "
         "in the scene — a swoosh, an apple mark, any recognizable brand symbol on objects or "
         "clothing (HARD GATE).\n"

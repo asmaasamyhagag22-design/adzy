@@ -20,12 +20,14 @@ Each step degrades safely to today's behavior when its data/key is absent.
 from __future__ import annotations
 
 import dataclasses
+import logging
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class SwotFromProfileRequest(BaseModel):
@@ -106,7 +108,26 @@ def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
         # Failures leave that peer's cells UNKNOWN; never fabricated.
         from competitor.lite_scrape import lite_peer_dims
 
-        matrix = build_matrix(profile, result.competitors, subject_name="You",
+        # REGISTRY (P6 #11a): SWOT computes against the owner-APPROVED baseline, never the raw
+        # live pool — `approved_competitors` says exactly that. This route used to skip the
+        # registry entirely, so the DASHBOARD (the paid deliverable) re-ran discovery on every
+        # call and the run-to-run competitor drift the owner caught on 2026-07-12 stayed live for
+        # the client, while the CLI was stable. Never blocks the deliverable: on any registry
+        # failure we fall back to the raw pool, loudly.
+        peers = result.competitors
+        try:
+            from datetime import datetime, timezone
+
+            from competitor.registry import brand_ref_from_profile, stable_competitors
+            peers, _rdiff = stable_competitors(
+                brand_ref_from_profile(profile), result.competitors,
+                now=datetime.now(timezone.utc).date().isoformat())
+        except Exception as exc:  # noqa: BLE001 — the registry never blocks a run
+            logger.warning("competitor registry skipped (%s) -> raw discovery pool",
+                           type(exc).__name__)
+            peers = result.competitors
+
+        matrix = build_matrix(profile, peers, subject_name="You",
                               subject_places=subject_places,
                               scrape_fn=lite_peer_dims)
 

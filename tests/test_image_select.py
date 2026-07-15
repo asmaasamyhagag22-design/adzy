@@ -103,3 +103,28 @@ def test_single_or_empty_input_passthrough():
     assert select_brand_photos([], business_name="X") == []
     assert select_brand_photos(["https://x.com/only.jpg"], business_name="X") == \
         ["https://x.com/only.jpg"]
+
+
+def test_when_NOTHING_fetches_the_curator_keeps_NOTHING_not_everything():
+    """P6 #8 — FIX-D1's claim that the "keep everything" fallback is dead was one failed HTTP
+    request away from false.
+
+    `if len(pairs) <= 1: return _ret([u for u, _ in pairs] or urls[:max_keep])` — when every fetch
+    fails (a hotlink-protected CDN, a 403, a flaky network) `pairs` is empty, the `or` fires, and
+    the ENTIRE UNCURATED list is returned. _fail_closed() is never reached, so partner logo-walls,
+    QR codes and text banners become the reel's footage on any site that blocks our fetcher. Every
+    other test in this file injects a WORKING fetch, which is why nothing caught it.
+    """
+    urls = ["https://cdn/a.jpg", "https://cdn/b.jpg", "https://cdn/c.jpg"]
+    out = select_brand_photos(urls, business_name="X", caller=None,
+                              fetch=lambda u: None)          # every fetch fails
+    assert out == [], "the uncurated URL list leaked through the 'or' fallback"
+
+
+def test_a_single_fetchable_image_is_still_kept():
+    # the <=1 branch must still return what it COULD fetch — fail-closed, not fail-empty.
+    ok = b"\xff\xd8\xff" + b"0" * 64
+    out = select_brand_photos(["https://cdn/a.jpg", "https://cdn/b.jpg"], business_name="X",
+                              caller=None,
+                              fetch=lambda u: ok if u.endswith("a.jpg") else None)
+    assert out == ["https://cdn/a.jpg"]

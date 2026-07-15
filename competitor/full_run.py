@@ -272,20 +272,17 @@ def main():
     matrix_competitors = result.competitors
     try:
         from datetime import datetime, timezone
-        from competitor.registry import approved_competitors, establish_or_diff
+        from competitor.registry import stable_competitors
         _now = datetime.now(timezone.utc).date().isoformat()
-        _reg = establish_or_diff(args.url, result.competitors, now=_now)
-        registry_diff = _reg["diff"]
-        if _reg["established"]:
-            say("   registry: baseline established with %d approved competitor(s)"
-                % len(_reg["approved_keys"]))
-        else:
-            d = registry_diff
-            say("   registry: %d present, %d disappeared, %d new pending owner approval"
-                % (len(d["still_present"]), len(d["disappeared"]), len(d["new_pending"])))
-            approved = approved_competitors(result.competitors, _reg["approved_keys"])
-            if approved:                       # SWOT on the approved baseline (stable)
-                matrix_competitors = approved
+        # SWOT computes against the APPROVED baseline, never the raw live pool — and the approved
+        # set is authoritative EVEN WHEN EMPTY. This was `if approved:` (P6 #11b): rejecting every
+        # peer via HITL yields [], which is falsy, so matrix_competitors silently kept the raw pool
+        # and the rival the owner explicitly removed came back in the next SWOT.
+        matrix_competitors, registry_diff = stable_competitors(args.url, result.competitors,
+                                                               now=_now)
+        d = registry_diff
+        say("   registry: %d present, %d disappeared, %d new pending owner approval"
+            % (len(d["still_present"]), len(d["disappeared"]), len(d["new_pending"])))
     except Exception as exc:  # noqa: BLE001 — registry never blocks a run
         say("   registry skipped (%s)" % type(exc).__name__)
 

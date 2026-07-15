@@ -82,3 +82,43 @@ def test_vision_qa_hard_gates_invented_product_and_marks():
     assert PosterQAVerdict().invented_product is False and _QAResponse(
         has_latin_text=False, cta_clipped=False, on_brand_color=True,
         candid_violation=False, overall_pass=True, reason="").third_party_mark is False
+
+
+def test_the_invented_product_question_is_ASKED_when_realness_is_unknown():
+    """P6 #9 — the hard gate the model was never asked about on the classic path.
+
+    The instruction was emitted only `if expect_real_products is False`. poster/pipeline.py calls
+    QA WITHOUT that argument => None => `None is False` is False => the instruction was omitted =>
+    invented_product kept its permissive default => the gate could never fire. So the owner-caught
+    topshoes failure (a fabricated hero sneaker presented as the brand's merchandise — a false
+    product claim invisible to every text gate) shipped on EVERY classic poster while
+    overall_pass=True certified it clean. The existing tests pass because the stub SETS the field;
+    they never exercise the prompt assembly that decides whether it can be set at all.
+
+    Fail-closed: ask unless we KNOW real product photos were supplied.
+    """
+    from poster.vision_qa import poster_vision_qa
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+
+    def _capture(box):
+        def _caller(system, user, model, group_name="", images=None):
+            box["system"] = system
+            return model(), None
+        return _caller
+
+    # NB: the token "invented_product" appears in the response SCHEMA regardless, so its presence
+    # proves nothing. Assert on the distinctive INSTRUCTION text — the thing that actually asks.
+    ASK = "fabricated shoe/bottle/device/dish"
+
+    seen: dict = {}
+    poster_vision_qa(png, caller=_capture(seen))                              # the classic path
+    assert ASK in seen["system"], (
+        "the hard gate is never ASKED when realness is unknown -> it can never fire")
+
+    seen_false: dict = {}
+    poster_vision_qa(png, caller=_capture(seen_false), expect_real_products=False)
+    assert ASK in seen_false["system"]                                         # unchanged
+
+    seen_true: dict = {}
+    poster_vision_qa(png, caller=_capture(seen_true), expect_real_products=True)
+    assert ASK not in seen_true["system"]                  # real photos supplied -> hero IS theirs
