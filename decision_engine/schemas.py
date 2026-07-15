@@ -29,13 +29,21 @@ class PerformanceSnapshot(BaseModel):
 
 
 class DecisionKind(str, Enum):
+    # Currently UNREACHABLE by design: every path that actually JUDGES returns SCALE / REDUCE /
+    # KILL, and a path that cannot judge now ABSTAINS instead of endorsing. Kept for forward
+    # compatibility with future rungs that could legitimately endorse "carry on".
     KEEP = "keep"
     WATCH = "watch"
     REDUCE_BUDGET = "reduce_budget"
     SCALE = "scale"
     ROTATE_CREATIVE = "rotate_creative"
     KILL_AND_REPLACE = "kill_and_replace"
-    NO_DECISION = "no_decision"           # not enough signal yet (guardrail) — the honest default
+    NO_DECISION = "no_decision"           # not enough signal YET (guardrail) — come back later
+    # Enough data, but nothing to judge it AGAINST (no numeric KPI target, or a metric the ladder
+    # has no rung for). Distinct from NO_DECISION: more waiting will not help — a human must supply
+    # a target from real performance data. Refusing to invent that target is the honest position;
+    # reporting KEEP ("keep running") while never having judged the ad set was not.
+    ABSTAIN_NO_TARGET = "abstain_no_target"
 
 
 class CampaignPolicy(BaseModel):

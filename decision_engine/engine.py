@@ -94,6 +94,17 @@ def evaluate(policy: CampaignPolicy, snapshots: List[PerformanceSnapshot]) -> De
                         reasons=[f"CPL {overall_cpl:.1f} above target {target:.1f} but within "
                                  f"{_KILL_CPL_MULTIPLE}x — trim budget and watch"])
 
-    # Non-cost target (reach/roas/ctr) or no numeric target: nothing crossed a threshold.
-    return Decision(kind=DecisionKind.KEEP, triggered_rules=["no_trigger"],
-                    reasons=["learning exited and no rule crossed a threshold — keep running"])
+    # We have the data, but nothing to judge it AGAINST — a non-cost metric the ladder has no rung
+    # for, or no numeric target. That is an ABSTENTION, not an endorsement (P6-5, owner ruling).
+    # This used to return KEEP / "keep running": a POSITIVE recommendation to keep spending on an
+    # ad set the engine had never judged. And it was the ONLY reachable verdict in the shipped
+    # config, because media_plan/config.py ships target_value=None (correctly — it refuses to
+    # fabricate a KPI target), which also disables _learning_floor and the min-spend guardrail.
+    # Refusing to invent the target is right; calling that refusal "keep running" was not.
+    why = ("no numeric KPI target is set — config ships target_value=None rather than fabricate one"
+           if target is None else
+           f"the ladder has no rule for the non-cost metric '{kpi.metric}'")
+    return Decision(kind=DecisionKind.ABSTAIN_NO_TARGET, triggered_rules=["no_target_to_judge"],
+                    reasons=[f"cannot decide: {why}. Supply a KPI target from real performance "
+                             f"data and re-run; this engine will not endorse an ad set it has "
+                             f"never judged."])

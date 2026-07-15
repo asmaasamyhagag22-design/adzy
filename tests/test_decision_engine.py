@@ -86,10 +86,23 @@ def test_fatigue_rotates_creative_even_with_good_conversions():
     assert d.kind is DecisionKind.ROTATE_CREATIVE and "ctr_drop" in d.triggered_rules
 
 
-def test_non_cost_metric_keeps_when_no_threshold_crossed():
+def test_no_target_to_judge_against_ABSTAINS_rather_than_endorsing():
+    """P6-5 (owner ruling) — KEEP-only is not the defect; saying KEEP is.
+
+    Refusing to fabricate a KPI target is CORRECT (media_plan/config.py:67 ships
+    target_value=None deliberately). But that single None disables _learning_floor, the min-spend
+    guardrail and every rung of the ladder, so the engine fell through to
+    KEEP / "keep running" — a POSITIVE recommendation to keep spending on an ad set it had never
+    judged. In the shipped configuration that was the ONLY reachable verdict: "your engine never
+    kills anything" was a fair hit. The honest verdict for "I have data but no target to judge it
+    against" is an ABSTENTION, and it names the remedy.
+    """
     pol = _policy(kpi=KPITarget(metric="reach", target_value=None, unit="count"))
     d = evaluate(pol, _series(14, conv_per_day=6, cpl=40))
-    assert d.kind is DecisionKind.KEEP                             # no cost target -> ladder can't fire
+    assert d.kind is DecisionKind.ABSTAIN_NO_TARGET
+    assert "no_target_to_judge" in d.triggered_rules
+    assert "cannot decide" in " ".join(d.reasons).lower()
+    assert d.kind is not DecisionKind.KEEP        # never an endorsement we did not earn
 
 
 def test_decision_is_strict_and_serializable():
