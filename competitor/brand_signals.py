@@ -159,12 +159,16 @@ _TREND_THREAT_KEYS = (
 
 
 def opportunities_threats_from_trends(profile: Any, trends: list) -> tuple[list, list]:
-    """Map on-topic market TRENDS to brand-level Opportunities/Threats — the market-shift signal the
-    SWOT never had (why ecommerce brands with no Places peers got empty O/T quadrants). Each line
-    cites the trend URL and is `directional_not_validated` (a single web signal). GROUNDED: a
-    non-reputable/aggregator host is dropped up front, and every line is then Ledger-gated exactly
-    like the rest of the pipeline. Returns (opportunities, threats); ([],[]) when no on-topic trend
-    survives. Pure — the caller fetches trends (best-effort) and passes them in."""
+    """Map on-topic market TRENDS to brand-level Opportunities/Threats (why ecommerce brands with no
+    Places peers got empty O/T quadrants). Each line cites a REAL trend URL (url-less trends are
+    dropped, never cited as a placeholder) and is `directional_not_validated` — a single web signal.
+
+    SCOPE OF THE CLAIM (2026-07-15): an opportunity line asserts only that COVERAGE on the brand's
+    terms exists — NOT that interest is rising. Nothing upstream measures direction: `trends/engine.py`
+    is "no time-series" and the primary Serper source derives `score` from SERP rank with
+    `created_ts=None`. A threat line reads the headwind word out of the title itself. A
+    non-reputable/aggregator host is dropped up front. Returns (opportunities, threats); ([],[]) when
+    no on-topic trend survives. Pure — the caller fetches trends (best-effort) and passes them in."""
     opps: list[SWOTItem] = []
     threats: list[SWOTItem] = []
     if not trends:
@@ -183,13 +187,20 @@ def opportunities_threats_from_trends(profile: Any, trends: list) -> tuple[list,
         terms = [str(x) for x in (getattr(t, "matched_terms", ()) or ()) if x]
         if not title or not terms:
             continue                                     # off-topic / unusable
-        if url and not is_reputable_web_source(url):
+        if not url:
+            continue                                     # no citable source -> no claim (see below)
+        if not is_reputable_web_source(url):
             continue                                     # junk/aggregator host — not proof
         low = title.lower()
         if any(k in low for k in _TREND_THREAT_KEYS):
+            # the headwind word is IN the title -> reading the title's own words, not inferring
             bucket, text = "threats", f"Category headwind on {', '.join(terms)}: {title}"
         else:
-            bucket, text = "opportunities", f"Rising interest in {', '.join(terms)}: {title}"
+            # NOT "Rising interest": nothing here measures rising-ness. `trends/engine.py` is
+            # explicitly "no time-series", and the primary (Serper) source synthesises `score`
+            # from SERP rank position with `created_ts=None` — so direction is unobservable.
+            # The evidence supports exactly one claim: an article on these terms EXISTS. Say that.
+            bucket, text = "opportunities", f"Coverage on {', '.join(terms)}: {title}"
         key = text.strip().lower()
         if key in seen:
             continue
@@ -214,7 +225,9 @@ def opportunities_threats_from_trends(profile: Any, trends: list) -> tuple[list,
     for bucket, text, url in cand:
         if not _gated(ledger, text):
             continue
-        item = SWOTItem(text=text, citation=[url or "market trends"],
+        # citation is ALWAYS a real URL — a url-less trend was dropped above rather than cited as
+        # the literal string "market trends", which rendered as a citation pointing at nothing.
+        item = SWOTItem(text=text, citation=[url],
                         evidence="market trend signal (on-topic)",
                         claim_strength="directional_not_validated")
         (opps if bucket == "opportunities" else threats).append(item)

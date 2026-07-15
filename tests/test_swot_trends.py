@@ -36,9 +36,12 @@ def test_trends_become_grounded_opportunities_and_threats():
     opps, threats = opportunities_threats_from_trends(_profile(), _trends())
     otexts = [o.text for o in opps]
     ttexts = [t.text for t in threats]
-    # a rising-interest opportunity + a headwind threat, both on-topic
-    assert any(t.startswith("Rising interest in") and "skincare" in t for t in otexts)
+    # a COVERAGE opportunity + a headwind threat, both on-topic. NOT "Rising interest": nothing
+    # upstream measures direction (trends/engine.py is "no time-series"), so the line may only
+    # assert that coverage on the brand's terms exists.
+    assert any(t.startswith("Coverage on") and "skincare" in t for t in otexts)
     assert any(t.startswith("Category headwind on") and "cosmetic" in t for t in ttexts)
+    assert not any("Rising interest" in t for t in otexts + ttexts)   # the manufactured claim is gone
     # junk aggregator host (pinterest) dropped; off-topic (no matched_terms) dropped
     assert not any("Junk skincare tips" in t for t in otexts + ttexts)
     assert not any("crypto" in t.lower() for t in otexts + ttexts)
@@ -54,7 +57,20 @@ def test_synthesize_swot_prepends_trend_ot_and_fills_empty_quadrants():
     after = synthesize_swot(m, profile=_profile(), trends=_trends())
     assert len(before.opportunities) == 0 and len(before.threats) == 0     # empty without a feed
     assert len(after.opportunities) >= 1 and len(after.threats) >= 1       # trends fill them
-    assert after.opportunities[0].text.startswith("Rising interest in")    # trends LEAD
+    assert after.opportunities[0].text.startswith("Coverage on")           # trends LEAD
+
+
+def test_a_trend_without_a_url_is_dropped_not_cited_as_a_placeholder():
+    """The citation must always resolve. A url-less trend used to ship with the literal string
+    "market trends" as its citation — a citation that pointed at nothing but RENDERED as one."""
+    urlless = [TrendItem(title="Vegan skincare everywhere", url="", source="web",
+                         matched_terms=("skincare",))]
+    opps, threats = opportunities_threats_from_trends(_profile(), urlless)
+    assert (opps, threats) == ([], [])
+    # and nothing that does survive may carry a non-URL citation
+    all_items = sum(opportunities_threats_from_trends(_profile(), _trends()), [])
+    assert all(it.citation and it.citation[0].startswith("http") for it in all_items)
+    assert not any("market trends" in (it.citation[0] or "") for it in all_items)
 
 
 def test_no_trends_is_regression_safe():
