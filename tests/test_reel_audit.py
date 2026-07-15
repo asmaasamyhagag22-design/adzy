@@ -17,11 +17,13 @@ def test_spoken_audio_verdicts():
     # a fabricated award against an EMPTY profile -> unsourced -> fails
     bad = audit_spoken_audio({}, "حاصلين على جايزة أفضل معهد في مصر 2026")
     assert bad["checked"] and not bad["passes"] and bad["unsourced"]
-    # pure emotive speech passes; silence passes; no-transcript = permissive unchecked
+    # pure emotive speech passes; silence IS checked and passes (nothing said -> nothing unsourced)
     assert audit_spoken_audio({}, "جودة بتفرق معاك")["passes"]
     assert audit_spoken_audio({}, "")["passes"] is True
+    # TRI-STATE (P6): no transcript = NOT_CHECKED. It must NOT read as a pass — the record used to
+    # say `passes: True` about audio it had never heard.
     unchecked = audit_spoken_audio({}, None)
-    assert unchecked["passes"] and not unchecked["checked"]
+    assert unchecked["passes"] is None and not unchecked["checked"]
 
 
 def test_gate_mutes_a_clip_with_rogue_speech(monkeypatch, tmp_path):

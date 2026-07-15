@@ -38,7 +38,11 @@ class PosterQAVerdict(BaseModel):
     invented_product: bool = False  # a fabricated hero product presented as the brand's merchandise
     third_party_mark: bool = False  # any other company's logo/trademark rendered in the scene
     score: int = 7                  # art-director score 1..10
-    overall_pass: bool = True
+    # TRI-STATE (P6, 2026-07-15): True = PASS, False = FAIL, None = NOT_CHECKED.
+    # It used to default to True, so a single Vertex 429 on the QA call silently converted the art
+    # critic from strict to absent while the verdict still said "passed" — "cannot verify" spelled
+    # as "verified". None is falsy, so `if qa.overall_pass` fails CLOSED.
+    overall_pass: Optional[bool] = None
     reason: str = ""
     checked: bool = False           # True only when a vision model actually inspected it
 

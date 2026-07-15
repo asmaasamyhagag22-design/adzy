@@ -36,7 +36,11 @@ class SceneQAVerdict(BaseModel):
     no_junk_generated_text: bool = True       # no garbled pseudo-text rendered INTO the scene
     ad_grade: bool = True                     # a professional brand would actually run this
     setting_faithful: bool = True             # the generated WORLD stays true to the seed photo
-    overall_pass: bool = True
+    # TRI-STATE (P6, 2026-07-15): True = PASS, False = FAIL, None = NOT_CHECKED.
+    # It used to default to True, so a verdict could read `overall_pass=True` next to
+    # `reason='scene QA call failed'` — "cannot verify" spelled as "verified". None is falsy, so
+    # `if v.overall_pass` now fails CLOSED; a caller that ships anyway must say so explicitly.
+    overall_pass: Optional[bool] = None
     reason: str = ""
     checked: bool = False             # True only when a vision model actually inspected the clip
 
@@ -194,7 +198,9 @@ class SeedVerdict(BaseModel):
     ad_grade: bool = True             # a professional brand would run this frame
     no_text: bool = True              # NO readable/pseudo text, signage, labels, logos
     score: int = 7                    # art-director score 1..10
-    overall_pass: bool = True
+    # TRI-STATE (P6): True = PASS, False = FAIL, None = NOT_CHECKED. This gate guards a PAID Veo
+    # render — an unjudged seed must never animate, so NOT_CHECKED cannot read as a pass.
+    overall_pass: Optional[bool] = None
     reason: str = ""
     checked: bool = False
 

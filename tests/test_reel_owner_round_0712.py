@@ -215,9 +215,10 @@ def test_seed_gate_conjunction_threshold_and_degrade(tmp_path):
                                                composition_clean=True, ad_grade=True,
                                                score=5, reason="mediocre"))
     assert weak.checked and not weak.overall_pass
-    # degrade contract
+    # degrade contract (TRI-STATE, P6): no caller -> NOT_CHECKED, which is NOT a pass. The seed
+    # gate guards a paid Veo render, so an unjudged seed must never animate (seed_gen.py).
     skipped = check_seed_frame(img, caller=None)
-    assert not skipped.checked and skipped.overall_pass
+    assert not skipped.checked and skipped.overall_pass is None
 
 
 def test_scene_qa_runs_for_service_brands_with_seed_reference(monkeypatch, tmp_path):

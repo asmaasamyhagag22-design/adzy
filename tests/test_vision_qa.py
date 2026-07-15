@@ -5,9 +5,11 @@ from poster.vision_qa import _QAResponse, poster_vision_qa
 from business_profile.llm.caller import MockCaller
 
 
-def test_qa_no_caller_is_permissive_but_unchecked():
+def test_qa_no_caller_is_not_checked_not_a_pass():
+    # TRI-STATE (P6): "not verified" must not be spellable as "passed".
     v = poster_vision_qa(b"\x89PNG\r\n\x1a\n" + b"0" * 32, caller=None)
-    assert v.checked is False and v.overall_pass is True
+    assert v.checked is False and v.overall_pass is None
+    assert not v.overall_pass                                # falsy -> callers fail closed
 
 
 def test_qa_parses_a_fail_verdict(tmp_path):

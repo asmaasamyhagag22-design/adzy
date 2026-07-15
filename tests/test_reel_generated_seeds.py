@@ -132,3 +132,32 @@ def test_generate_scene_seeds_gate_retry_and_fallback(monkeypatch, tmp_path):
     assert calls["gen"] == 4                # 1 + (corrective retry + plain 3rd) for scene 2
     assert "Natural anatomy" in calls["prompts"][-2]            # corrective retry suffix
     assert "REAL PLACE" not in calls["prompts"][-1]             # 3rd attempt drops conditioning
+
+
+def test_an_UNJUDGED_seed_never_animates(monkeypatch, tmp_path):
+    """P6 #7 — the seed gate guards a PAID Veo render, so NOT_CHECKED must not read as a pass.
+
+    The old code was `if (not v.checked) or v.overall_pass:` — no vision caller, an unreadable
+    PNG, or ONE Gemini timeout (scene_qa returns checked=False on all three) meant the seed was
+    accepted and animated at full render cost, while seed_gen's own docstring promised
+    "Fail-closed". This test fails if that hole ever returns.
+    """
+    import reel.seed_gen as sg
+    from reel.scene_qa import SeedVerdict
+
+    def _fake_gen(prompt, out_path, **kw):
+        Path(out_path).write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 16)
+        return Path(out_path)
+    monkeypatch.setattr("poster.oneshot.generate_oneshot_poster", _fake_gen)
+    monkeypatch.setattr(sg, "_ref_bytes", lambda url: (b"refbytes", "image/jpeg"))
+    # the gate could not run — the exact shape scene_qa returns on no-caller / unreadable / timeout
+    monkeypatch.setattr("reel.scene_qa.check_seed_frame",
+                        lambda p, caller=None, brand_hint="", log=None:
+                        SeedVerdict(checked=False, reason="seed gate call failed (TimeoutError)"))
+
+    out = generate_scene_seeds(_plan(), ["https://x/real0.jpg", "https://x/real1.jpg"],
+                               profile={"name": {"value": "NTI"}}, out_dir=tmp_path,
+                               caller=object())
+    # every scene falls back to the real photo; NOT ONE unjudged seed is handed to Veo
+    assert [s for s, _ in out] == [None, None]
+    assert [r for _, r in out] == ["https://x/real0.jpg", "https://x/real1.jpg"]

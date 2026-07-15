@@ -80,9 +80,12 @@ def transcribe_clip(clip_path: "str | Path", caller: Any = None) -> Optional[str
 
 
 def audit_spoken_audio(profile: dict, transcript: Optional[str]) -> dict:
-    """Ledger verdict on what was SAID. checked=False when there was no transcript to check."""
+    """Ledger verdict on what was SAID. TRI-STATE `passes` (P6): True = PASS, False = FAIL,
+    None = NOT_CHECKED (no transcript / the ledger raised). It used to say `passes: True` about
+    audio it had never heard — "cannot verify" spelled as "verified". `gate_clip_audio` already
+    requires `checked` before acting, so muting behaviour is unchanged; the RECORD is now honest."""
     if transcript is None:
-        return {"checked": False, "passes": True, "transcript": None, "unsourced": []}
+        return {"checked": False, "passes": None, "transcript": None, "unsourced": []}
     if not transcript:
         return {"checked": True, "passes": True, "transcript": "", "unsourced": []}
     try:
@@ -93,7 +96,7 @@ def audit_spoken_audio(profile: dict, transcript: Optional[str]) -> dict:
         return {"checked": True, "passes": not uns, "transcript": transcript,
                 "unsourced": uns}
     except Exception:  # noqa: BLE001 — the ledger is documented never to raise; belt+braces
-        return {"checked": False, "passes": True, "transcript": transcript, "unsourced": []}
+        return {"checked": False, "passes": None, "transcript": transcript, "unsourced": []}
 
 
 def mute_clip(clip_path: "str | Path") -> bool:

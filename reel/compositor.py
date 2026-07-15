@@ -155,7 +155,14 @@ def render_reel(
                             v2 = check_scene(raw, product_hint=qa_product_hint,
                                              reference_image=qa_ref, caller=qa_caller)
                             _v_final = v2
-                            good = (not v2.checked) or v2.overall_pass
+                            # PERMISSIVE, DELIBERATE, TICKETED (P6 #12 — accepted-with-reason,
+                            # not fixed): an unjudged RETRY clip still ships. `is not False` says
+                            # that out loud instead of hiding behind `(not v2.checked) or ...`.
+                            # Known hole: QA already FAILED once here, so preferring an unjudged
+                            # Veo clip over the free faithful KenBurns fallback at :165 is the
+                            # weakest call in this file. Fix = require `is True` (blocked on
+                            # measuring how often vision blips would cost a paid re-render).
+                            good = v2.overall_pass is not False
                         except Exception:  # noqa: BLE001 — a failed retry drops to the fallback
                             good = False
                         if not good:

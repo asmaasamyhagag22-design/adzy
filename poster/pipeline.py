@@ -611,7 +611,12 @@ def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
             )
             if best is None or qa.score > best.qa.score:
                 best = result
-            if qa.overall_pass or not qa.checked:
+            # PERMISSIVE, DELIBERATE (P6 Tier-4 — the tri-state makes it visible, not silent): a
+            # poster whose art-critic could not run still ships rather than blocking the deliverable
+            # on a Vertex blip. `is not False` states that; the old `qa.overall_pass or not
+            # qa.checked` read a fabricated True. qa.overall_pass is None => NOT_CHECKED, and
+            # PosterResult carries `checked` so a caller can tell "clean" from "never looked".
+            if qa.overall_pass is not False:
                 return result
             log(f"[oneshot] attempt {attempt}: art-critic fail (score={qa.score}) "
                 f"{qa.reason[:100]}")
@@ -888,8 +893,12 @@ def generate_poster(
         )
         if best is None or result.qa.score > best.qa.score:
             best = result
-        if no_image or verdict.overall_pass or not verdict.checked:
-            return _emit(result)                # passed (or can't gate) -> ship it
+        # PERMISSIVE, DELIBERATE (P6 Tier-4): `is not False` — ship on PASS or NOT_CHECKED, block
+        # only on an explicit FAIL. Same reasoning as the oneshot branch above; the difference from
+        # the old `verdict.overall_pass or not verdict.checked` is that NOT_CHECKED is now visible
+        # as None instead of masquerading as True.
+        if no_image or verdict.overall_pass is not False:
+            return _emit(result)                # passed, or could not gate -> ship it
         if attempt < max_qa_retries and _qa_image_fixable(verdict):
             log("[qa] FAIL (image-fixable) -> regenerating...")
             continue

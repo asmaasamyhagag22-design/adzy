@@ -15,10 +15,13 @@ from reel.schemas import ReelScene, Storyboard
 # reel.scene_qa.check_scene — the verdict logic
 # --------------------------------------------------------------------------
 
-def test_check_scene_no_caller_is_permissive_pass():
+def test_check_scene_no_caller_is_not_checked_not_a_pass():
+    # TRI-STATE (P6): without vision we did not check — and NOT_CHECKED must be unrepresentable
+    # as a pass. overall_pass is None, which is falsy, so `if v.overall_pass` fails CLOSED.
     from reel.scene_qa import check_scene
     v = check_scene("clip.mp4", caller=None)
-    assert v.checked is False and v.overall_pass is True     # can't gate without vision -> pass
+    assert v.checked is False and v.overall_pass is None
+    assert not v.overall_pass                                # None is falsy -> callers fail closed
 
 
 def test_check_scene_no_frames_makes_no_call(monkeypatch):
@@ -77,7 +80,9 @@ def test_check_scene_caller_error_degrades(monkeypatch):
         def __call__(self, *a, **k):
             raise RuntimeError("vision down")
     v = sq.check_scene("clip.mp4", caller=_C())
-    assert v.checked is False and v.overall_pass is True      # never blocks on infra failure
+    # an infra failure means NOT_CHECKED, never "passed". Callers that choose to ship anyway must
+    # say so explicitly (`v.overall_pass is not False`) rather than read a fabricated True.
+    assert v.checked is False and v.overall_pass is None
 
 
 # --------------------------------------------------------------------------

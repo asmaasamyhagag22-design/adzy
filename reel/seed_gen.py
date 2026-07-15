@@ -130,7 +130,12 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
                     product_images=([ref] if (ref and attempt < 3) else None))
                 stats["generated"] += 1
                 v = check_seed_frame(p, caller=caller, brand_hint=name)
-                if (not v.checked) or v.overall_pass:
+                # FAIL-CLOSED (P6 #7): only an explicit PASS animates. This was
+                # `(not v.checked) or v.overall_pass` — so no vision caller, an unreadable PNG, or
+                # ONE Gemini timeout accepted the seed and spent Veo money on it, which is the
+                # opposite of this module's "Fail-closed" promise. NOT_CHECKED (overall_pass=None)
+                # now falls back to the real photo, exactly like a judged failure.
+                if v.overall_pass is True:
                     seed_path = str(p)
                     break
                 log(f"[seedgen] scene {i + 1} attempt {attempt} rejected ({v.reason})")
