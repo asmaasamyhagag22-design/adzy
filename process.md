@@ -2,8 +2,44 @@
 
 **The single source of truth for this project.** Replaces the historical
 change-log. Read this before acting in this repo. Last full revision: 2026-07-04.
-Test suite: **1595 passed, 2 skipped, 0 failed** (2026-07-15, re-derived live; grew from
+Test suite: **1618 passed, 2 skipped, 0 failed** (2026-07-15, re-derived live; grew from
 880 as each audit fix below shipped with its hermetic regression tests).
+
+**THE FAIL-OPEN SWEEP (P6, 2026-07-15) — the most valuable audit in this project's history.**
+A repo-wide audit of every gate/validator asked one question: *what happens when it CANNOT
+verify?* It found **42 unjustified fail-opens**, and the headline is not 42 — it is that **four
+were PINNED BY TESTS**. Suite-green had been certifying the holes. **It is ONE bug in 42 costumes:
+"cannot verify" encoded as "verified".** The fix was TYPE-LEVEL, not 42 patches.
+
+| # | Hole | Status |
+|---|---|---|
+| — | **TRI-STATE**: `overall_pass: Optional[bool]` — True=PASS, False=FAIL, **None=NOT_CHECKED**, falsy so callers fail CLOSED. A verdict could read `overall_pass=True, reason='scene QA call failed'`. | **CLOSED** `1ca345b` |
+| 1 | An LLM fact with **no source_url** was evidence → sheet printed *"Verified against a sourced web result"*, `source_url: None`. Model output proving model output. | **CLOSED** `de7337f` |
+| 2 | **Empty audit → green PASS** (`all([])` vacuity) in the client deliverable. | **CLOSED** `de7337f` |
+| 3 | Poster headline gate shipped the line it exists to stop (*"Egypt's #1 pharmacy"*) on both triggers. | **CLOSED** `de7337f` |
+| 4 | U4/U6 re-gates returned CLEAN on any ledger error (inverse of the PD-3 they cite). | **CLOSED** `de7337f` |
+| 5 | The **$50 cap's live default was unproven** — conftest raised it to 100000 for every test. | **CLOSED** `7ade8a6` |
+| 6 | A **truncated spend line silently re-opened budget**; the test named for the guarantee corrupted a *non-spend* line. | **CLOSED** `7ade8a6` |
+| 7 | An **unjudged seed animated** — spending Veo money — despite a "Fail-closed" docstring. | **CLOSED** `1ca345b` |
+| 8 | Curator returned the **raw uncurated URL list** when every fetch failed; FIX-D1's "keep-all is dead" was false. | **CLOSED** `d50701a` |
+| 9 | `invented_product` **never asked** on the classic path → the topshoes fabricated-hero-sneaker shipped on every classic poster. | **CLOSED** `d50701a` |
+| 11 | The **PAID dashboard ignored the registry** (raw live pool); `if approved:` resurrected rejected peers; a corrupt registry auto-approved everyone. | **CLOSED** `d50701a` |
+| P1 | The **circular trends gate** (indexed candidates as their own evidence; reject rate structurally zero) + the three false "Ledger-gated" claims it licensed. | **DELETED** `67196d5` |
+| P0 | *"Rising interest"* was an `else` branch over data with **no time-series**. | **CLOSED** `a3c9aa6` |
+| — | `DecisionKind.ABSTAIN_NO_TARGET` — refusing to judge ≠ "keep spending". KEEP was always an abstention wearing an endorsement's name. | **CLOSED** `a7cc698` |
+| 10 | strategy `topic` ungated → becomes the poster headline. | **TICKETED** |
+| 12 | Compositor ships a QA-failed clip if the retry can't be judged (now explicit `is not False`). | **ACCEPTED-WITH-REASON** |
+| — | The C2 subject judge is wired at **1 of 8** ledger sites; the export says `passes: true` either way. | **TICKETED** |
+| — | Remaining rows of the 42. | **TICKETED** |
+
+**Two audit claims did NOT reproduce, and are reported rather than quietly "fixed":** (a) #4's
+`profile=None` is not the trigger — `from_profile(None)` returns an EMPTY ledger, so every hard
+claim is unsourced and it already failed closed (latent, not routine); (b) `gate_active: True` is
+not a lie — `build_poster_audit` builds its ledger UNGUARDED, so a failure raises and no trail is
+emitted. Discipline used throughout: **every pinned-permissive test was FLIPPED FIRST and watched
+go RED** before any code changed. The **SSRF guard was the one artifact that was already
+fail-CLOSED on all five branches** and proved so by defeating the conftest DNS seam — that is the
+template every fix above now follows.
 
 **⚠ CORRECTION — U1 GATE IS NOT CURRENTLY REPRODUCIBLE AT 93/92/92 (re-derived live 2026-07-15).**
 A live `python -m benchmark.grade_u1` today returns **objective 86% (12/14) · destination 83%
@@ -710,7 +746,14 @@ its full description are in the text blocks** — the exact popup from the owner
 Deliverables complete: root cause + universal fix + regression fixture + measured re-scrape.
 
 **DIRECTOR ROUND (2026-07-11 late, holds lifted) — RATIFIED GATE: objective 93% / destination
-92% / combined 92% PASS.** assalam label owner-ratified phone_call→lead_form (truth-tracking,
+92% / combined 92% PASS.** ⚠ **SUPERSEDED 2026-07-15 — do not quote these three numbers; see the
+CORRECTION at the top of this file.** Live today: objective **86%** (raw_african's newest scrape
+dir has no profile → `find_latest_scrape_dir` picks it → scored a miss); destination **83–92%,
+UNSTABLE** (≥4 live runs on frozen inputs returned 83% three times and 92% once — `assalam`'s pick
+oscillates; the deduction is a live Gemini call). The "92%" below was one draw from a distribution
+whose variance was never measured, not a wrong number. Note also this file contradicted itself on
+destination even before the correction: 92% here vs "93%/85%" at the R-SERIES/U7 entries below.
+assalam label owner-ratified phone_call→lead_form (truth-tracking,
 dated note in ground_truth _doc, a6ffaed) → destination 85%→92%; the only miss anywhere is mumm
 (bot wall). TTS listen-test verdict WIRED (951ce39): fusha→Gemini Kore directed, masri→OpenAI
 gpt-audio (REEL_TTS_BACKEND still overrides; dialect+language = user's UI choice). U8c labeling
