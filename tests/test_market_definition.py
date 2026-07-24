@@ -20,6 +20,9 @@ def _clinic_profile():
         "contact_channels": {"physical_addresses": [
             {"value": "12 Tahrir St, Dokki, Giza"}]},
         "service_areas": [{"value": "Egypt"}],
+        # An Egyptian clinic's audience searches in Arabic -> the localized "best …" query seed is
+        # correct here. (P-83: that seed is now keyed on this measured language, not hardcoded.)
+        "languages": [{"code": "ar"}, {"code": "en"}],
     }
 
 

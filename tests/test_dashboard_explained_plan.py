@@ -32,8 +32,9 @@ def test_plan_reads_as_plain_language_not_enums():
     assert "OUTCOME_SALES" not in html                 # the raw enum never leaks
     # the evidence RECEIPT is shown inline (the moat's proof, not a bare tick)
     assert "Sale price LE 440.00" in html and "الدليل من موقعك" in html
-    # confidence surfaced
-    assert "ثقة عالية" in html
+    # confidence surfaced — but labelled as the MODEL's self-estimate, not a measured probability (P-28)
+    assert "تقدير الموديل" in html and "ثقة عالية" in html
+    assert "model self-estimate" in html
 
 
 def test_budget_split_surfaces_channel_weights():

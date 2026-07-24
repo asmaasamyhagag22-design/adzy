@@ -28,9 +28,14 @@ GATED_SURFACES = [
 ]
 
 # Surfaces NOT yet gated — explicitly named so the proof is honest about its limits.
+# P-34: state precisely what the OCR check does. It is copy-FIDELITY only (that the intended
+# headline/CTA rendered, tolerating up to 2 stray lines), one-shot poster path only — it does NOT
+# gate incidental scene text, illegible glyphs, or the classic/reel render paths.
 UNGATED_SURFACES = {
-    "imagery": "generated scenes/backgrounds are design-domain (no per-pixel claim trail); "
-               "text ON images is OCR-gated on the poster path only",
+    "imagery": "generated scenes/backgrounds are design-domain (no per-pixel claim trail); text "
+               "baked into images is only PARTIALLY checked — the one-shot poster path runs a "
+               "copy-fidelity OCR check (intended copy present, ≤2 stray lines tolerated); it does "
+               "NOT gate incidental scene text, illegible glyphs, or the classic/reel paths",
 }
 
 

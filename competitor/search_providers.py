@@ -74,6 +74,16 @@ class SerperProvider:
     def search(self, query, *, num=10, gl=None, hl=None) -> List[SearchHit]:
         if not self.api_key or not query.strip():
             return []
+        # SERPER-UNMETERED (C3 gap closed): the ONLY Serper chokepoint — every caller
+        # (discovery, trends) pays through here. Monthly call cap + jsonl ledger, fail-closed
+        # on a corrupt ledger (an unreadable ledger is an unenforceable cap).
+        from ads_intel.pull_ledger import check_calls, record_call
+        _ledger = os.getenv("SERPER_LEDGER", "runs/serper_calls.jsonl")
+        _cap = int(os.getenv("SERPER_MONTHLY_CALL_CAP", "500"))
+        ok, msg = check_calls(1, ledger=_ledger, monthly_cap=_cap)
+        if not ok:
+            self.last_error = f"refused: {msg}"
+            return []
         payload = {"q": query, "num": max(1, min(num, 20))}
         if gl:
             payload["gl"] = gl
@@ -93,6 +103,7 @@ class SerperProvider:
             if link:
                 out.append(SearchHit(item.get("title", "") or "", link,
                                      item.get("snippet", "") or "", i))
+        record_call(f"serper:{query[:60]}", len(out), ledger=_ledger)
         return out
 
 

@@ -1,0 +1,113 @@
+# Instagram Intelligence Collector - Configuration
+# Every tunable knob lives here. Code should never hardcode these values.
+
+scraping:
+  mode: "no_login"          # "no_login" | "login" | "hybrid"
+  # Cascade order: try each in turn, per method call, until one succeeds.
+  # Default here is "start free" (instaloader) with apify as the paid
+  # fallback for when the free tier gets rate-limited or blocked.
+  provider_priority:
+    - "playwright"
+    - "instaloader"
+    - "apify"
+
+  # Rate limiting - tuned against Instagram's 2026 anonymous throttling.
+  # NOTE: real-world testing on this project showed the safe ceiling is
+  # tighter than initial estimates, especially if the same account/process
+  # gets restarted repeatedly in a short window (Instaloader's own docs
+  # flag this specifically: frequent reinstantiation looks like abuse to
+  # Instagram's rate tracking, independent of actual request volume). If
+  # you're iterating/debugging, prefer looping over multiple usernames in
+  # ONE run rather than restarting the script repeatedly against the same
+  # account.
+  rate_limit:
+    min_delay_seconds: 45
+    max_delay_seconds: 90
+    jitter: true
+    max_requests_per_window: 2
+    window_seconds: 60
+    backoff_on_429:
+      initial_wait_seconds: 120
+      multiplier: 2.0
+      max_wait_seconds: 1800
+      max_retries: 5
+
+  # Volume caps - the actual lever for controlling total scrape time.
+  # See sizing table: small=fast/safe, medium=slower/riskier.
+  volume:
+    posts_per_profile: 30
+    max_competitors: 5
+    full_comment_sample_size: 30   # matches posts_per_profile - covers ALL collected posts,
+                                    # however many that turns out to be (e.g. 12 got you 12/12)
+    comment_sample_strategy: "top_engagement"  # still used as a tiebreak/order, not a filter, now
+    skip_stories: true            # stories need login + are rate-limited hardest
+    skip_highlights: true
+
+  resume:
+    enabled: true
+    checkpoint_dir: "./raw/.checkpoints"
+
+apify:
+  # Fallback provider - only used when instaloader (free) fails or is
+  # unavailable. If APIFY_API_TOKEN isn't set, this provider reports
+  # itself unavailable and the cascade just skips it (no crash).
+  api_token_env: "APIFY_API_TOKEN"
+  actor_posts: "apify/instagram-scraper"
+  actor_comments: "apify/instagram-comment-scraper"
+  timeout_secs: 180
+  cost_safety:
+    # Hard cap per single call, regardless of what's requested - a config
+    # or logic bug elsewhere should never turn into a surprise invoice.
+    # Apify bills ~$1.50/1000 posts, ~$2.30/1000 comments (2026 pricing).
+    max_results_per_call: 100
+
+login:
+  # Only used if scraping.mode is "login" or "hybrid".
+  # Credentials should come from environment variables, never from this file.
+  username_env: "IG_USERNAME"
+  password_env: "IG_PASSWORD"
+  session_file: "./config/.session"
+  # Playwright keeps its own session format (browser storage_state: cookies
+  # + localStorage), separate from Instaloader's session file. Login runs
+  # ONCE (non-headless, so you can solve a checkpoint/2FA prompt manually
+  # if Instagram shows one) and is reused headlessly after that.
+  playwright_storage_state_file: "./config/.playwright_state.json"
+
+output:
+  base_dir: "./instagram_intelligence_output"
+  raw_dir: "raw"
+  processed_dir: "processed"
+  analytics_dir: "analytics"
+  json_dir: "json"
+
+logging:
+  level: "INFO"
+  file: "./logs/collector.log"
+
+nlp:
+  # Seed lexicons are a *starting point* for pattern matching, not a closed
+  # list - they get expanded per-brand via embedding similarity / LLM
+  # classification in the NLP layer. True zero-seed detection isn't
+  # realistic without labeled training data, so we hybridize instead.
+  promotion_seed_terms_path: "./config/lexicons/promotion_seeds.yaml"
+  cta_seed_terms_path: "./config/lexicons/cta_seeds.yaml"
+  min_confidence: 0.6
+
+competitor_scoring:
+  # Hard filters: reject candidates that fail these regardless of soft score
+  hard_filters:
+    - "country_match"
+    - "price_segment_compatible"
+    - "business_model_compatible"
+
+  # Soft weights: must sum to 1.0, validated at load time
+  weights:
+    product_overlap: 0.25
+    audience_overlap: 0.15
+    follower_size_proximity: 0.10
+    content_style_similarity: 0.15
+    shared_hashtags: 0.10
+    geographic_proximity: 0.15
+    pricing_similarity: 0.10
+
+  similarity_threshold: 55  # 0-100, below this a candidate is dropped

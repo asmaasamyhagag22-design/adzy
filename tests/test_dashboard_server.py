@@ -45,11 +45,13 @@ def test_idn_url_slug_is_ascii_and_accepted_by_the_server():
 
 
 def test_landing_page_wires_analyze_over_sse():
+    # The front door wears the SAME lavender War-Room identity as /dashboard (owner: one design).
     html = srv._landing_html()
     assert 'id="url"' in html and 'id="go"' in html                 # URL box + Analyze
-    assert "Baseera" in html and "#B85C7A" in html                  # brand + blush palette
+    assert "Baseera" in html and "#CDB4E4" in html                  # brand + lavender identity
+    assert "#B85C7A" not in html and 'dir="rtl"' in html            # the old blush theme is gone
     assert "/analyze?url=" in html and "EventSource" in html        # SSE to analyze
-    assert "/studio?slug=" in html                                  # then hands off to the studio
+    assert "/dashboard?slug=" in html                               # hands off to the UNIFIED deck
 
 
 @pytest.fixture()
@@ -134,6 +136,35 @@ def test_studio_has_paste_a_product_url_input(live):
     h = body.decode("utf-8")
     assert 'id="purl"' in h and "addByUrl()" in h                      # the paste-a-link UI + handler
     assert "/product_by_url?" in h                                     # JS calls the new route
+
+
+def test_dashboard_route_serves_the_unified_war_room(live):
+    # /dashboard IS the unified paged package now; /classic keeps the legacy single-scroll report.
+    _get(live + "/analyze?url=https://brand.example/")
+    _s, body = _get(live + "/dashboard?slug=brand_example")
+    h = body.decode("utf-8")
+    assert 'id="p10"' in h and 'id="p7"' in h                     # the 10-page deck incl. services
+    assert 'id="svc-poster"' in h and "/hitl/preview" in h        # served services page interactive
+    _s2, body2 = _get(live + "/classic?slug=brand_example")
+    h2 = body2.decode("utf-8")
+    assert "bsr" in h2 and 'id="p1"' not in h2                    # the old light report, not paged
+
+
+def test_war_room_route_serves_the_paged_dashboard(live):
+    # /war_room?slug= builds + serves the paged War Room; served media rides /asset (no base64).
+    _get(live + "/analyze?url=https://brand.example/")                 # seed the artifacts
+    _s, body = _get(live + "/war_room?slug=brand_example")
+    h = body.decode("utf-8")
+    assert _s == 200
+    assert 'id="p1"' in h and 'id="p6"' in h and 'dir="rtl"' in h      # the 6-page deck
+    assert "Awaiting Meta Pull" in h                                   # honest radar (no Meta pull)
+    # bad slug -> 400; unknown brand -> 404
+    for path, want in (("/war_room?slug=../x", 400), ("/war_room?slug=nobrand", 404)):
+        try:
+            s, _ = _get(live + path)
+        except urllib.error.HTTPError as e:
+            s = e.code
+        assert s == want, path
 
 
 def test_product_by_url_scrapes_and_returns_the_product(live, monkeypatch):

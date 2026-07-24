@@ -156,8 +156,14 @@ def test_answer_supported_gates_grounding_but_not_crosslingual():
     supported = aq._answer_supported
     assert supported("Supreme Council accreditation", ["the Supreme Council accreditation"]) is True
     assert supported("founded 1985 by royal decree", ["pricing: 1000 EGP for the program"]) is False
-    # cross-lingual (Arabic answer over English excerpt) shares no tokens -> NOT downgraded
-    assert supported("المعهد حاصل على اعتماد رسمي", ["accreditation by the Supreme Council"]) is True
+    # CS-10 (2026-07-18): cross-script no longer fails OPEN. An Arabic answer over an English excerpt
+    # that shares NO number and NO latin token can't be verified, so it does NOT earn the grounded
+    # badge (the honest "⚠ not fully covered" — a fabricated/injected cross-script answer used to
+    # pass here unconditionally). This line asserted the OLD fail-open; it now correctly downgrades.
+    assert supported("المعهد حاصل على اعتماد رسمي", ["accreditation by the Supreme Council"]) is False
+    # but a genuine cross-script answer with a SHARED ANCHOR (a number, or a latin proper noun) stays supported
+    assert supported("تأسس المعهد سنة 1985", ["The institute was founded in 1985."]) is True
+    assert supported("نقدّم برنامج Supreme للإدارة", ["The Supreme program is our flagship."]) is True
     assert supported("", ["x"]) is True and supported("y", []) is True
 
 

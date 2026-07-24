@@ -42,6 +42,34 @@ _HARD_MARK_RE = re.compile(r"\b(swoosh|golden\s+arches)\b|[®™]", re.I)
 # self-references that mean "the brand's OWN mark" — always allowed
 _SELF_MARK_WORDS = {"brand", "brand's", "your", "our", "the", "its", "own", "company",
                     "company's", "his", "her", "their", "a", "an"}
+# P-23: a scene can name a GLOBAL third-party brand WITHOUT the word "logo" ("Nike shoes", "an
+# iPhone on the desk") — the phrase regex above misses that, so a competitor's trademark renders
+# into the ad. A curated, UNIVERSAL list of unambiguous global marks closes it. DELIBERATELY
+# excludes ordinary-noun brand names (apple/orange/shell/dove/visa) that would false-positive on
+# the fruit/colour/word; the brand's OWN name is always exempt (checked against own_mark below).
+_THIRD_PARTY_BRANDS = frozenset({
+    "nike", "adidas", "puma", "reebok", "gucci", "prada", "rolex", "chanel", "versace",
+    "iphone", "ipad", "macbook", "airpods", "samsung", "huawei", "xiaomi", "playstation",
+    "xbox", "nintendo", "cocacola", "coca-cola", "pepsi", "starbucks", "mcdonalds", "mcdonald's",
+    "kfc", "ferrari", "lamborghini", "porsche", "mercedes", "toyota", "netflix", "spotify",
+})
+_THIRD_PARTY_BRAND_RE = re.compile(
+    r"\b(" + "|".join(sorted((re.escape(b) for b in _THIRD_PARTY_BRANDS), key=len, reverse=True))
+    + r")\b", re.I)
+
+
+# Words that are pure marketing filler in ANY category — a POV built only from these says nothing
+# ("high quality", "جودة عالية", "professional and modern"). Universal, not vertical: none of these
+# names a feeling, a moment, or a thing. The brand's own nouns always survive the filter.
+_POV_FILLER = frozenset({
+    "high", "quality", "premium", "professional", "modern", "best", "great", "good", "amazing",
+    "excellent", "luxury", "luxurious", "elegant", "beautiful", "trust", "trusted", "reliable",
+    "experience", "feel", "feeling", "vibe", "vibes", "brand", "product", "service", "customer",
+    "and", "the", "with", "for", "our", "your", "a", "an", "of", "that", "this", "is", "are",
+    "جودة", "عالية", "عالي", "أفضل", "افضل", "احترافية", "احترافي", "مودرن", "حديث", "فاخر",
+    "فخامة", "ثقة", "موثوق", "ممتاز", "رائع", "جميل", "تجربة", "إحساس", "احساس", "علامة",
+    "منتج", "خدمة", "عميل", "مع", "في", "من", "على", "التي", "الذي",
+})
 
 
 class CoherenceReport(BaseModel):
@@ -60,9 +88,14 @@ def _overlap(a: str, b: str) -> int:
     return len(_tokens(a) & _tokens(b))
 
 
-def coherence_lint(reel: Any, *, profile: Optional[dict] = None,
-                   featured: bool = False) -> CoherenceReport:
-    """Deterministic re-check of the creative contracts on a CreativeReel. Worst-first."""
+def coherence_lint(reel: Any, *, profile: Optional[dict] = None, featured: bool = False,
+                   require_strategy: bool = False) -> CoherenceReport:
+    """Deterministic re-check of the creative contracts on a CreativeReel. Worst-first.
+
+    ``require_strategy`` is set when AUTHORING a plan: a fresh plan must carry the creative
+    strategy (POV / arc / motif), while a plan approved BEFORE that contract existed still lints
+    (advisory) instead of being condemned retroactively.
+    """
     scenes = list(getattr(reel, "scenes", None) or [])
     if not scenes:
         return CoherenceReport(ok=False, score=0, issues=["no scenes in the plan"],
@@ -105,6 +138,14 @@ def coherence_lint(reel: Any, *, profile: Optional[dict] = None,
             if base and base not in _SELF_MARK_WORDS and base not in own_mark:
                 third = tok
                 break
+        if not third:
+            # a NAMED global brand in the frame (no "logo" word needed) — own-brand exempt.
+            bm = _THIRD_PARTY_BRAND_RE.search(v)
+            if bm:
+                tok = bm.group(1).lower()
+                base = re.split(r"[\s\-]", tok)[0]
+                if tok not in own_mark and base not in own_mark:
+                    third = tok
         if third or _HARD_MARK_RE.search(v):
             what = ("a third-party logo/trademark (swoosh / golden arches / ® / ™)"
                     if not third else f"a third-party mark (\"{third}\")")
@@ -186,6 +227,53 @@ def coherence_lint(reel: Any, *, profile: Optional[dict] = None,
             fail("the brand_unique_claim is not grounded in the identity (unsourced) — "
                  "use a real differentiator", 10)
 
+    # 8b) CREATIVE STRATEGY — the owner's ruling (2026-07-20): "Taste ليس له Ground Truth... مستحيل
+    #     تختبره. لكن Strategy يمكن." So NOTHING here judges whether the reel is good. Every check is
+    #     a decidable structural property that a director's plan has and a shot-collector's does not:
+    #     a declared POV, a story arc the scenes actually walk, and a motif that actually recurs.
+    #     Skipped wholesale for pre-contract plans (all three fields empty) so an owner-APPROVED plan
+    #     authored before this contract still lints.
+    pov = (getattr(reel, "creative_pov", "") or "").strip()
+    motif = (getattr(reel, "visual_motif", "") or "").strip()
+    arc = [str(b).strip() for b in (getattr(reel, "narrative_arc", None) or []) if str(b).strip()]
+    if pov or motif or arc or require_strategy:
+        if not pov:
+            fail("no creative_pov — the reel has no point of view: name the ONE feeling the viewer "
+                 "leaves with", 15)
+        elif _is_generic_pov(pov):
+            fail(f"creative_pov \"{pov}\" is generic — every brand claims that; name a SPECIFIC "
+                 f"feeling this reel creates", 12)
+        if len(arc) < 3:
+            fail("narrative_arc needs at least 3 beats — a POV names a feeling but not the STORY "
+                 "(e.g. problem -> discovery -> proof)", 15)
+        elif len(set(_norm(b) for b in arc)) != len(arc):
+            fail("narrative_arc repeats a beat — each beat must move the story somewhere new", 10)
+        else:
+            beat_at = {_norm(b): i for i, b in enumerate(arc)}
+            idx: list[int] = []
+            bad_beat = []
+            for i, s in enumerate(scenes):
+                b = _norm(getattr(s, "arc_beat", "") or "")
+                if b not in beat_at:
+                    bad_beat.append(i + 1)
+                else:
+                    idx.append(beat_at[b])
+            if bad_beat:
+                fail(f"scene(s) {bad_beat} have no arc_beat from the declared narrative_arc "
+                     f"{arc} — every scene must serve a beat", 12)
+            elif idx != sorted(idx):
+                fail(f"the scenes do not walk the narrative_arc in order (beats run {idx}) — "
+                     f"reorder so the story moves forward", 12)
+            elif idx and (idx[0] != 0 or idx[-1] != len(arc) - 1):
+                fail(f"narrative_arc is not walked end to end — scene 1 must open on \"{arc[0]}\" "
+                     f"and the final scene must land on \"{arc[-1]}\"", 10)
+        if not motif:
+            fail("no visual_motif — name the recurring visual thread that ties the scenes together",
+                 10)
+        elif not _motif_recurs(motif, veos):
+            fail(f"visual_motif \"{motif}\" is declared but never written into the scenes — a motif "
+                 f"must actually RECUR (appear in at least 2 scene prompts)", 10)
+
     # 8) FEASIBILITY — no intra-shot cuts / montages crammed into one generated scene.
     for i in range(len(scenes)):
         if _INTRA_CUT_RE.search(veos[i]):
@@ -196,6 +284,26 @@ def coherence_lint(reel: Any, *, profile: Optional[dict] = None,
     score = max(0, score)
     return CoherenceReport(ok=not issues, score=score, issues=issues,
                            fix_note="; ".join(issues[:8]))
+
+
+def _is_generic_pov(pov: str) -> bool:
+    """A POV is generic when, after removing the marketing adjectives EVERY brand uses, nothing
+    specific is left. Deliberately not a taste judgement: it measures whether the sentence carries
+    any content words at all. Bilingual (AR/EN) because the director writes in the brand's language.
+    """
+    words = re.findall(r"[^\W\d_]+", pov.lower(), re.UNICODE)
+    content = [w for w in words if w not in _POV_FILLER and len(w) > 2]
+    return len(content) < 2
+
+
+def _motif_recurs(motif: str, veos: list[str]) -> bool:
+    """The motif's own content tokens must appear in >= 2 scene prompts. This is what makes the
+    motif a THREAD rather than a line in the plan the render never sees."""
+    toks = {t for t in _tokens(motif) if len(t) >= 4 and t not in _POV_FILLER}
+    if not toks:
+        return False
+    hits = sum(1 for v in veos if toks & _tokens(v))
+    return hits >= 2
 
 
 def _claim_grounded(profile: dict, claim: str) -> bool:
@@ -273,11 +381,13 @@ def critic_review(reel: Any, *, profile: Optional[dict] = None, caller: Any = No
 
 
 def evaluate_reel_coherence(reel: Any, *, profile: Optional[dict] = None, featured: bool = False,
-                            critic_caller: Any = None, images: Optional[list] = None) -> CoherenceReport:
+                            critic_caller: Any = None, images: Optional[list] = None,
+                            require_strategy: bool = False) -> CoherenceReport:
     """The full gate: deterministic lint always; the LLM critic when a caller exists. Merges the
     critic's failed axes + fixes into the report. Also folds in the legacy plan_eval stranger/caption
     checks so nothing that gate caught is lost."""
-    rep = coherence_lint(reel, profile=profile, featured=featured)
+    rep = coherence_lint(reel, profile=profile, featured=featured,
+                         require_strategy=require_strategy)
     issues = list(rep.issues)
     try:
         pe = evaluate_reel_plan(reel, profile=profile, featured=featured)
@@ -334,7 +444,8 @@ def plan_reel_gated(profile: dict, photos: list, *, n_scenes: int = 6, language:
                                          issues=["the director could not design a plan"],
                                          fix_note="")
         rep = evaluate_reel_coherence(reel, profile=profile, featured=bool(featured_product),
-                                      critic_caller=critic_caller, images=images)
+                                      critic_caller=critic_caller, images=images,
+                                      require_strategy=True)   # authoring: strategy is mandatory
         if best is None or rep.score > best_rep.score:
             best, best_rep = reel, rep
         if rep.ok:

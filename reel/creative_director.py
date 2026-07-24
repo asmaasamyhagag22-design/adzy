@@ -43,6 +43,7 @@ class CreativeScene(BaseModel):
     caption_role: str = ""                 # "" | name | benefit | proof | cta | layer
     sfx: str = ""                          # SFX cue for this beat: whoosh | impact | chime | ...
     sound_mood: str = ""                   # per-scene mood token in the sound arc
+    arc_beat: str = ""                     # which narrative_arc beat THIS scene serves
 
 
 class CreativeReel(BaseModel):
@@ -58,6 +59,10 @@ class CreativeReel(BaseModel):
     dialect: str = ""                       # locked register/dialect for the whole VO
     sound_design: str = ""                  # the mood-progression arc (Phase C render consumes it)
     brand_unique_claim: str = ""            # the one thing only this brand can say (grounded)
+    # --- creative STRATEGY (2026-07-20 owner ruling: structure is testable, taste is not) ---
+    creative_pov: str = ""                  # the ONE feeling the viewer leaves with
+    narrative_arc: list[str] = Field(default_factory=list)   # >=3 ordered story beats
+    visual_motif: str = ""                  # the recurring visual thread (must appear in >=2 scenes)
 
 
 class _ReelResponse(BaseModel):
@@ -70,6 +75,9 @@ class _ReelResponse(BaseModel):
     dialect: str = ""
     sound_design: str = ""
     brand_unique_claim: str = ""
+    creative_pov: str = ""
+    narrative_arc: list[str] = Field(default_factory=list)
+    visual_motif: str = ""
     scenes: list[CreativeScene] = Field(default_factory=list)
 
 
@@ -254,15 +262,22 @@ _DELIVERY_EG = {
 }
 
 
-def _locked_register(language: str) -> str:
-    """The one dialect/register locked for the whole voice-over ([ONE VOICE]). Universal + config
-    driven: Arabic defaults to Egyptian colloquial (the pilot market), overridable to MSA via
-    REEL_ARABIC_DIALECT=fusha; any other language locks to a conversational register of that language."""
+def _locked_register(language: str, profile: Optional[dict] = None) -> str:
+    """The one dialect/register locked for the whole voice-over ([ONE VOICE]). Universal + evidence
+    driven: the REEL_ARABIC_DIALECT=fusha override wins; otherwise the Arabic register follows the
+    brand's EVIDENCED country (poster.locale) when a profile is given — a Saudi brand locks Khaleeji,
+    not Masri; with no profile it keeps the pilot default (Egyptian colloquial). Any other language
+    locks to a conversational register of that language."""
     lang = (language or "en").lower()
     if lang.startswith("ar"):
         pref = (os.environ.get("REEL_ARABIC_DIALECT") or "").strip().lower()
         if pref in ("fusha", "msa", "standard"):
             return "Modern Standard Arabic (فصحى) — formal, consistent"
+        if profile is not None:
+            from poster.locale import arabic_region_of, arabic_dialect_for
+            reg = arabic_region_of(profile)
+            if reg and reg != "egypt":
+                return f"{arabic_dialect_for(profile)} — natural spoken register, one voice"
         return "Egyptian colloquial (عامية مصرية) — natural spoken Masri"
     return f"conversational {lang.split('-')[0]}"
 
@@ -338,6 +353,30 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         "TikTok pacing. Be OBSESSED with realism: reject visual hallucination and physically-"
         "impossible actions.\n\n"
         + featured_line
+        # OWNER RULING (2026-07-20): the plans were "correct" but had no point of view — scenes
+        # COLLECTED, not directed. The owner also ruled that TASTE has no ground truth and cannot be
+        # tested, while STRATEGY can: so the fix is three STRUCTURAL commitments made BEFORE any
+        # scene exists, each of which the coherence gate re-checks in code (POV present + specific,
+        # arc >= 3 beats walked in order by the scenes, motif actually recurring in >= 2 prompts).
+        + "CREATIVE STRATEGY — decide this BEFORE you write a single scene. A director makes ONE "
+        "creative decision and every shot serves it; a shot-collector writes correct scenes that add "
+        "up to nothing. Commit to all three:\n"
+        "- creative_pov: the ONE feeling a viewer leaves with, in a specific sentence — a moment, "
+        "not an adjective. \"the quiet relief of one bill replacing a drawer of invoices\" is a point "
+        "of view; \"high quality\", \"premium experience\", \"جودة عالية\" are what EVERY brand says "
+        "and will be REJECTED.\n"
+        "- narrative_arc: 3-5 ordered beats — the STORY that carries the feeling, which the POV alone "
+        "cannot say. Use a pattern that fits this brand's truth (problem -> discovery -> "
+        "transformation; expectation -> surprise -> proof; ritual -> reveal -> belonging) or name your "
+        "own beats. Then EVERY scene declares which beat it serves in its arc_beat field, the scenes "
+        "walk the beats IN ORDER (two scenes may share one beat), scene 1 opens on the FIRST beat and "
+        "the final scene lands on the LAST.\n"
+        "- visual_motif: one recurring visual thread (a colour, an object, a gesture, a light "
+        "quality) that WRITE IT INTO the veo_prompt of at least 2 scenes — a motif that exists only "
+        "in this field is not a motif. Derive it from the brand's OWN evidence: its real photos, "
+        "palette and world.\n"
+        "The AD SPINE below is WHAT each scene must communicate; the strategy above is HOW the story "
+        "moves and feels. Every scene serves both at once.\n\n"
         + "You are given a business's identity and its REAL photos (you can see them). Design a "
         f"{n_scenes}-scene reel that ADVERTISES this brand with the proven AD SPINE — the scenes MUST "
         "follow it in order:\n"
@@ -351,6 +390,16 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         "IMAGE BANS (absolute): NEVER select an image that is a text banner, a poster, a screenshot, "
         "a diagram, or a logo collage / partners wall — those are not footage; prefer the real "
         "photographs of the brand's people, space and work.\n"
+        # OWNER-CAUGHT (2026-07-20, nanocare: 'صور ثابتة بتتغير' — the paid reel read as a
+        # slideshow): the Veo-prompt tail already bans slow zooms, but the SCENE DESIGN itself
+        # chose calm concepts ('mesmerizing macro of powder dissolving'), so calm went in and
+        # calm came out. Energy is a DESIGN-time property — demand it here, at the source.
+        "MOTION ENERGY (every scene, non-negotiable): every scene's visual concept must contain a "
+        "VISIBLE PHYSICAL ACTION a viewer can SEE happening — a hand opening/pouring/applying, a "
+        "person turning/reaching/reacting, an object mid-motion. NEVER an ambient still-life, "
+        "NEVER a 'mesmerizing' static macro, NEVER scenery that could pass as a photograph. Test: "
+        "pause the clip at ANY second — something must be caught mid-action. Brand register sets "
+        "the TEMPO of that action (calm≠static: a luxury pour is slow but it still POURS).\n"
         "(2) WHAT IT IS — the STRANGER TEST: by scene 2 the VOICEOVER must make a first-time viewer "
         "understand WHO the brand is, WHAT IT DOES in plain words (the category — 'a tech-training "
         "institute', 'a hair-care brand'), AND the SPECIFIC named product OR service this reel is "
@@ -553,7 +602,7 @@ def design_creative_reel(
             "Design the reel.")
     user = user + note_line + fix_block
 
-    register = _locked_register(lang)
+    register = _locked_register(lang, profile)
     try:
         from poster.contracts import compliance_for
         resp, usage = caller(
@@ -588,6 +637,7 @@ def design_creative_reel(
             caption_role=str(getattr(s, "caption_role", "")).strip(),
             sfx=str(getattr(s, "sfx", "")).strip(),
             sound_mood=str(getattr(s, "sound_mood", "")).strip(),
+            arc_beat=str(getattr(s, "arc_beat", "")).strip(),
         ))
     if not scenes:
         return None
@@ -600,6 +650,10 @@ def design_creative_reel(
         dialect=register or str(getattr(resp, "dialect", "")).strip(),   # code-locked register wins
         sound_design=str(getattr(resp, "sound_design", "")).strip(),
         brand_unique_claim=str(getattr(resp, "brand_unique_claim", "")).strip(),
+        creative_pov=str(getattr(resp, "creative_pov", "")).strip(),
+        narrative_arc=[str(b).strip() for b in (getattr(resp, "narrative_arc", None) or [])
+                       if str(b).strip()],
+        visual_motif=str(getattr(resp, "visual_motif", "")).strip(),
         model=getattr(usage, "model", "") or _DEFAULT_MODEL,
     )
 

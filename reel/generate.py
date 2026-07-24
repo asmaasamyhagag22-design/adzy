@@ -50,13 +50,14 @@ def _voiceover_clause(text: str, profile: dict, language: str = "auto",
     if language == "en":
         return f'Voiceover: {voice}, speaking in English: "{text}".{continuity}'
     if language == "ar" or _AR_RE.search(text):
-        url = ""
+        # Region-aware, universally: the dialect follows the brand's EVIDENCED country
+        # (poster.locale.arabic_dialect_for) — a Saudi brand reads Khaleeji, not a crude ".eg ->
+        # Masri / else generic" split that gave every non-Egyptian Arab brand a flavourless read.
         try:
-            url = str(profile.get("source_url") or "").lower() if isinstance(profile, dict) else ""
+            from poster.locale import arabic_dialect_for
+            dialect = arabic_dialect_for(profile if isinstance(profile, dict) else {})
         except Exception:
-            url = ""
-        dialect = ("natural Egyptian Arabic (Masri)" if ".eg" in url
-                   else "natural, warm conversational Arabic")
+            dialect = "natural, warm conversational Arabic"
         return f'Voiceover: {voice}, speaking in {dialect}: "{text}".{continuity}'
     return f'Voiceover: {voice}, speaking in English: "{text}".{continuity}'
 
@@ -245,10 +246,13 @@ def build_brand_generated_reel(
         # STAGE A — SEED GATE (owner directive 2026-07-12): judge the still BEFORE any Veo
         # spend. Fail -> regenerate the IMAGE once (cents); still bad -> DROP the scene —
         # never animate a bad seed into dollars.
-        from reel.scene_qa import check_seed_frame
+        from reel.scene_qa import check_seed_frame, seed_may_animate
         v = check_seed_frame(p, caller=caller, brand_hint=brief.business_name or "")
-        if v.checked and not v.overall_pass:
-            log(f"[gen] scene {i + 1} seed REJECTED ({v.reason}); regenerating the image once")
+        # FAIL-CLOSED (P-21, matching seed_gen.py:172): only an explicit PASS animates. A
+        # NOT_CHECKED verdict (no caller / unreadable / call failure -> overall_pass=None) must
+        # NOT spend Veo money — it regenerates once, then DROPS, exactly like a judged failure.
+        if not seed_may_animate(v):
+            log(f"[gen] scene {i + 1} seed not a clean PASS ({v.reason}); regenerating the image once")
             try:
                 p = provider.generate(
                     f"{prompt}{dna_style}\n{ctx}\nNatural anatomy, realistic photographic "
@@ -257,9 +261,9 @@ def build_brand_generated_reel(
                 p = None
             v2 = check_seed_frame(p, caller=caller,
                                   brand_hint=brief.business_name or "") if p else None
-            if p is None or (v2 is not None and v2.checked and not v2.overall_pass):
-                log(f"[gen] scene {i + 1} seed still bad -> scene DROPPED "
-                    "(never animate a bad seed)")
+            if p is None or not seed_may_animate(v2):
+                log(f"[gen] scene {i + 1} seed still not a clean PASS -> scene DROPPED "
+                    "(never animate an unvetted seed)")
                 continue
         stills.append((i, str(p)))
         log(f"[gen] scene {i + 1}/{n_scenes} ok")

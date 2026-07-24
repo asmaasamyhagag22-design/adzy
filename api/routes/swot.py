@@ -26,6 +26,8 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from api.auth import enforce_profile_bounds
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -75,6 +77,7 @@ def _items(items) -> List[dict]:
 
 @router.post("/swot/from-profile", response_model=SwotResponse)
 def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
+    enforce_profile_bounds(req.profile)  # P-56: bound the client-supplied profile
     try:
         from competitor import (
             ReviewThemeExtractor, PlacesClient, build_matrix, build_tows,
@@ -87,8 +90,15 @@ def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
 
         # Places client is only used for LOCAL/HYBRID routing; if the key is
         # missing or the business is ECOMMERCE/UNKNOWN, discovery degrades safely.
+        # P-81 (D-8): pass the brand's OWN market (gl/hl from its evidence) instead of the old
+        # hardcoded EG/ar default — a Saudi/Qatari brand's peers must be searched in ITS market.
         try:
-            client = PlacesClient()
+            from poster.locale import search_locale
+            _gl, _hl = search_locale(profile or {})
+        except Exception:  # noqa: BLE001
+            _gl, _hl = "", ""
+        try:
+            client = PlacesClient(region_code=(_gl or "").upper(), language_code=_hl or "")
         except Exception:
             client = None
 
@@ -133,10 +143,12 @@ def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
 
         # Customer voice: grounded review themes from the peers' real Places
         # reviews (never raises; [] without a Gemini caller or enough reviews).
+        # P-79: use the APPROVED registry set (`peers`), not the raw live pool, so themes stay
+        # stable across runs like the matrix does — was `result.competitors` (drifted every run).
         themes = []
         try:
             extractor = ReviewThemeExtractor()
-            themes = extractor(result.competitors)
+            themes = extractor(peers)
         except Exception:
             themes = []
 
@@ -145,8 +157,15 @@ def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
         try:
             from trends import keywords_from_profile, top_trends_bounded
             kws = keywords_from_profile(profile or {})
+            # D-8: the brand's own market reaches the SERP (see competitor/full_run.py's twin).
+            try:
+                from poster.locale import search_locale
+                gl, hl = search_locale(profile or {})
+            except Exception:  # noqa: BLE001
+                gl, hl = "", ""
             if kws:
-                trends = top_trends_bounded(kws, timeout_s=12.0, require_match=True, top_k=6)
+                trends = top_trends_bounded(kws, timeout_s=12.0, require_match=True, top_k=6,
+                                            gl=gl, hl=hl)
         except Exception:
             trends = []
 
@@ -176,8 +195,11 @@ def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
         except Exception:
             tows_dict = None
 
+        # P-79: the client-facing competitor LIST + count come from the APPROVED registry set
+        # (`peers`), not the raw discovery pool — otherwise the owner sees a set that changes every
+        # run while the SWOT math (built on `peers`) stays stable. Now they agree.
         competitors = []
-        for c in result.competitors:
+        for c in peers:
             cand = getattr(c, "candidate", None)
             sel = getattr(c, "selection", None)
             if cand is None:
@@ -199,13 +221,15 @@ def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
             opportunities=_items(swot.opportunities),
             threats=_items(swot.threats),
             notes=list(swot.notes),
-            competitor_count=len(result.competitors),
+            competitor_count=len(peers),   # P-79: approved set, consistent with the list above
             competitors=competitors,
             tows=tows_dict,
         )
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
+        # P-58: log server-side, return a generic message (don't leak internal strings/paths).
+        logger.exception("SWOT generation failed")
         raise HTTPException(
-            status_code=500, detail=f"SWOT generation failed: {exc}"
+            status_code=500, detail="SWOT generation failed."
         ) from exc

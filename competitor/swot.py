@@ -62,6 +62,109 @@ class SWOT:
     mode: str = "competitive"           # "competitive" | "standalone"
 
 
+
+# ---------------------------------------------------------------------------
+# Derived threats + per-quadrant honesty (owner ruling, 2026-07-21)
+# ---------------------------------------------------------------------------
+
+# Signals that the CATEGORY is drawing money and attention — which means new entrants, whoever
+# writes the headline and in whatever language. Deliberately not another English keyword list:
+# `_TREND_THREAT_KEYS` is 16 English words, so "Qatar Catering Services Market Size" (a real
+# growth signal) was filed as an Opportunity and the Threats quadrant shipped empty.
+_GROWTH_SIGNALS = ("market size", "market share", "forecast", "growth", "boom", "expansion",
+                   "fastest growing", "opens", "opening", "new branch", "investment", "funding",
+                   "نمو", "توسع", "استثمار", "افتتاح", "حجم السوق")
+
+# COMMODITIZATION — the moat closing. MEASURED (nanocare, 2026-07-21): the brand's entire
+# positioning is Liposomal delivery, and the run filed "Why Liposomal Technology Is Becoming the
+# Standard" and "finally replacing traditional tablets" as OPPORTUNITIES. When the thing that makes
+# a brand special becomes the default, the differentiator stops differentiating — the single most
+# consequential fact in that whole analysis, shipped in the wrong box. Distinct from growth
+# signals: growth means more rivals, commoditization means less advantage.
+_COMMODITIZATION_SIGNALS = ("becoming the standard", "the new standard", "becomes standard",
+                            "now standard", "mainstream", "widely adopted", "replacing",
+                            "replaces", "everyone is", "commodity", "ubiquitous",
+                            "المعيار", "معيار جديد", "أصبحت شائعة", "يحل محل", "بديلاً عن")
+
+_INFERRED = "directional_not_validated"
+
+
+def derived_threats(*, trends=None, weaknesses=None, maturity=None) -> List[SWOTItem]:
+    # `weaknesses` is accepted and intentionally UNUSED — see the note below.
+    """Threats from the evidence a thin run DOES have — each labelled as inferred.
+
+    MEASURED (Volume Qatar): every one of the four real generators needs a scrapable peer or a
+    peer complaint, and with none of those the quadrant shipped empty next to five untouched market
+    signals. The owner's ruling is to derive from weaker evidence and SAY SO, so each item here
+    carries `claim_strength="directional_not_validated"` (the existing epistemic ladder, not a new
+    field) and text that names the inference out loud. Nothing is emitted without a source.
+    """
+    out: List[SWOTItem] = []
+
+    seen_kinds: set = set()
+    for t in (trends or []):
+        title = str(getattr(t, "title", "") or "").strip()
+        if not title:
+            continue
+        low = title.lower()
+        if any(sig in low for sig in _COMMODITIZATION_SIGNALS):
+            kind, text = "moat", ("اللي بيميّزك بقى معياراً في السوق — ميزتك التنافسية بتتآكل؛ "
+                                  "استنتاج من إشارة سوق، مش من منافس مقيس")
+        elif any(sig in low for sig in _GROWTH_SIGNALS):
+            kind, text = "growth", ("سوق الفئة بيكبر وبيجذب لاعبين جدد — استنتاج من إشارة سوق، "
+                                    "مش من منافس مقيس")
+        else:
+            continue
+        if kind in seen_kinds:
+            continue               # one threat per KIND; repeating the same point is noise
+        seen_kinds.add(kind)
+        url = str(getattr(t, "url", "") or "")
+        out.append(SWOTItem(text=text,
+                            citation=[u for u in [url] if u] or [title],
+                            evidence=title,
+                            claim_strength=_INFERRED))
+
+    # DELIBERATELY NOT a weakness->threat generator. The first version had one, and the existing
+    # `test_scraped_behind_standalone_emits_no_phantom_threat` caught it immediately: in standalone
+    # mode it turned "No online booking path on-site" into a threat. That breaks the framework
+    # itself — in SWOT a threat is EXTERNAL and a weakness is INTERNAL, so re-labelling your own
+    # gap as a threat is double-counting dressed as insight. Threats here come only from evidence
+    # OUTSIDE the brand: market signals and the brand's standing in its market.
+
+    level = str(getattr(maturity, "level", "") or "")
+    if level == "nascent":
+        out.append(SWOTItem(
+            text=("براند ناشئ في سوق فيه أسماء متعرّفة — خطر ضعف الوعي؛ استنتاج من إشارات النضج"),
+            citation=list(getattr(maturity, "signals", None) or []),
+            evidence=str(getattr(maturity, "disclosure", "") or "nascent brand"),
+            claim_strength=_INFERRED))
+    return out
+
+
+def disclose_empty_quadrants(swot: "SWOT", *, n_peers: int, scrapable_peers: int = 0) -> None:
+    """Say WHY a quadrant is empty — per quadrant, not for the SWOT as a whole.
+
+    MEASURED: `competitive_empty` at :190 is computed across all four quadrants, so Volume's single
+    incidental review-count strength made it False and the "Opportunities/Threats need market
+    comparison" note never fired. The deck then rendered a `0` badge and an em-dash with no
+    explanation. An empty box a client cannot interpret is not honesty, it is silence.
+    """
+    reasons = {
+        "الفرص": "الفرص محتاجة مقارنة سوق أو أصوات عملاء",
+        "التهديدات": "التهديدات محتاجة قرين له موقع قابل للفحص، أو شكاوى عملاء، أو إشارة سوق",
+        "نقاط القوة": "نقاط القوة محتاجة أبعاد مقارنة من موقعك أو من الأقران",
+        "نقاط الضعف": "نقاط الضعف محتاجة أبعاد مقارنة من موقعك أو من الأقران",
+    }
+    quads = (("نقاط القوة", swot.strengths), ("نقاط الضعف", swot.weaknesses),
+             ("الفرص", swot.opportunities), ("التهديدات", swot.threats))
+    for label, items in quads:
+        if items:
+            continue
+        swot.notes.append(
+            f"{label}: فاضية — {reasons[label]}. المتاح في التشغيلة دي: "
+            f"{n_peers} قرين، منهم {scrapable_peers} بموقع قابل للفحص."
+        )
+
 STANDALONE_LABEL = "Standalone Strategic Analysis (No Competitors Found)"
 STANDALONE_THIN_LABEL = "Standalone Strategic Analysis (competitor comparison too thin)"
 
@@ -244,7 +347,20 @@ def synthesize_swot(
             from grounding import EvidenceLedger
 
             from competitor.brand_signals import strengths_from_profile, weaknesses_from_readiness
-            _ledger = EvidenceLedger.from_profile(profile)
+            # P-24: wire the SUBJECT JUDGE so a disjoint-subject superlative ("The best coffee"
+            # sourced by "Best regards") is REJECTED, not leniently accepted. Without it the ledger
+            # runs in its documented lenient mode (`ledger.py:685` accepts a disjoint subject when
+            # judge is None), so the SWOT/compliance path certified fabricated superlatives.
+            # Degrades safely by construction: default_caller()->None offline, make_subject_judge(
+            # None)->None, and behaviour is unchanged (a blocked/absent caller yields a lenient gate).
+            _judge = None
+            try:
+                from business_profile.llm import default_caller
+                from grounding.subject_judge import make_subject_judge
+                _judge = make_subject_judge(default_caller(strong=False))
+            except Exception:  # noqa: BLE001
+                _judge = None
+            _ledger = EvidenceLedger.from_profile(profile, subject_judge=_judge)
             brand = strengths_from_profile(profile, _ledger)
             rweak = weaknesses_from_readiness(profile, _ledger)
         except Exception:  # noqa: BLE001 — a signal-mining error must never break the SWOT
@@ -280,6 +396,31 @@ def synthesize_swot(
     if not any([swot.strengths, swot.weaknesses, swot.opportunities, swot.threats]):
         swot.notes.append("No subject dimensions were known either — the scrape "
                           "yielded no comparable signal (all cells UNKNOWN).")
+    # THREATS FROM WEAKER EVIDENCE (owner ruling, 2026-07-21). Runs LAST and only into an EMPTY
+    # quadrant: measured, peer-compared threats always win, and inference never dilutes them.
+    # Volume Qatar shipped `threats: []` beside five untouched Qatar market signals because every
+    # real generator needs a scrapable peer. Each derived item is labelled `directional_not_
+    # validated` and says in its own text that it is an inference.
+    if not swot.threats:
+        try:
+            _maturity = None
+            if profile:
+                from media_plan.maturity import brand_maturity
+                _maturity = brand_maturity(profile)
+            swot.threats.extend(derived_threats(trends=trends, weaknesses=swot.weaknesses,
+                                                maturity=_maturity))
+        except Exception:  # noqa: BLE001 — inference must never break a grounded SWOT
+            pass
+
+    # Say WHY any quadrant is empty — per quadrant. The whole-SWOT check above is silenced by a
+    # single unrelated item, which is exactly how Volume's empty Threats box shipped unexplained.
+    try:
+        _scrapable = sum(1 for c in matrix.competitors
+                         if getattr(c, "has_scrapable_site", False))
+    except Exception:  # noqa: BLE001
+        _scrapable = 0
+    disclose_empty_quadrants(swot, n_peers=n_peers, scrapable_peers=_scrapable)
+
     return swot
 
 

@@ -132,6 +132,24 @@ def test_prompt_requires_an_ad_arc_so_the_reel_says_what_it_advertises():
     assert "SELF-CHECK" in p and "NAMES the brand" in p       # closing verification
 
 
+def test_prompt_demands_a_creative_strategy_before_any_scene():
+    # Owner ruling (2026-07-20): the director produced "correct" plans with no point of view —
+    # scenes collected, not directed. The fix is a STRATEGY decided BEFORE the scenes: one feeling
+    # (POV), the story that carries it (arc), and the thread that ties it (motif). Structural, so
+    # the coherence gate can re-check all three in code.
+    for lang in ("en", "ar"):
+        p = _system_prompt(5, lang, "generic")
+        assert "CREATIVE STRATEGY" in p
+        assert "creative_pov" in p and "narrative_arc" in p and "visual_motif" in p
+        assert "arc_beat" in p                       # each scene declares the beat it serves
+        # the arc is the STORY the POV cannot carry, with concrete universal patterns offered
+        assert "problem" in p and "discovery" in p
+        # the motif must be WRITTEN INTO the scenes, not merely declared
+        assert "at least 2" in p or "at least two" in p
+        # generic POVs are named and refused up front (the gate rejects them anyway)
+        assert "high quality" in p
+
+
 def test_prompt_composes_vertical_first_so_the_product_is_not_cropped():
     # Owner: "الصورة كأنها مقصوصة ... صمم الفريم في الأصل على ريل مش تصغرها". Every reel must be
     # composed for the 9:16 frame from the start so the product is never cut off.

@@ -508,7 +508,15 @@ Brand color palette: {palette}.""".strip()
             f"anywhere in the image. {_calm_zone_instruction(zone)} Keep a clean corner for a logo."
         )
 
-    return f"{concept}\n\n{text_block}\n\nVertical 4:5 poster, centered composition, advertising-campaign style."
+    # CS-02: this static fallback (used when there's no caller / the LLM failed / returned empty)
+    # never carried the ad-safety gate either, so a clinic falling back here shipped ungated. Add
+    # it in the same \n\n-separated style. Empty (compliance_for -> "") for non-regulated categories.
+    from poster.contracts import compliance_for
+    _c = compliance_for(brief.category)
+    tail = "Vertical 4:5 poster, centered composition, advertising-campaign style."
+    if _c:
+        tail = f"{_c}\n\n{tail}"
+    return f"{concept}\n\n{text_block}\n\n{tail}"
 
 
 class _CreativeConceptResponse(BaseModel):
@@ -577,28 +585,17 @@ def _brandbook_style_lines(brand_book: Any) -> str:
     return "\n".join(parts)
 
 
-# ccTLD -> country, so we depict the brand's ACTUAL nationality (owner: "this hijab is
-# Gulf/Arab, not Egyptian"). Generic "Arab" is not specific enough — a .eg brand is Egyptian.
-_CCTLD_COUNTRY = {
-    "eg": "Egypt", "sa": "Saudi Arabia", "ae": "the UAE", "ma": "Morocco",
-    "jo": "Jordan", "kw": "Kuwait", "qa": "Qatar", "lb": "Lebanon", "dz": "Algeria",
-    "tn": "Tunisia", "iq": "Iraq", "om": "Oman", "bh": "Bahrain", "ly": "Libya",
-    "sy": "Syria", "ye": "Yemen", "sd": "Sudan", "ps": "Palestine",
-}
-
-
 def _country(profile: dict[str, Any] | None) -> str:
-    """The brand's country from its source URL ccTLD (most reliable signal)."""
-    url = str((profile or {}).get("source_url") or "")
-    host = ""
+    """The brand's country. CS-13/P-08 (2026-07-18): this used to carry its OWN 18-entry MENA ccTLD
+    table (a subset of poster.locale's 60) and read the ccTLD ONLY — a .com brand lost its region
+    anchor. Route through the SINGLE, richer resolver (ccTLD -> service_areas -> phone e164 -> "")
+    that the oneshot poster engine already trusts, so both engines depict the same nationality and
+    there is one country map to maintain, not two that drift."""
     try:
-        host = urlparse(url if "://" in url else "https://" + url).netloc.lower()
-    except Exception:
-        host = ""
-    for tld, country in _CCTLD_COUNTRY.items():
-        if host.endswith("." + tld):
-            return country
-    return ""
+        from poster.locale import country_of
+        return country_of(profile or {})
+    except Exception:  # noqa: BLE001 — never break generation over a locale lookup
+        return ""
 
 
 def _region_line(brief: PosterBrief, profile: dict[str, Any] | None) -> str:
@@ -864,6 +861,14 @@ def build_llm_concept_prompt(
             + f"{_calm_zone_instruction(zone)} No text, letters, numbers, logos, "
             "or signage anywhere. Vertical 4:5 advertising poster."
         )
+    # CS-02: the ad-safety COMPLIANCE was computed at :788 and injected into the concept LLM's
+    # `user` block (:792) — then this function rebuilt `lead` from scratch and dropped it, so the
+    # prompt that actually reaches the IMAGE MODEL carried no gate (a clinic could ship before/after
+    # imagery). Append it here, AFTER both `lead` branches, so it survives into both returns exactly
+    # once. Empty for non-regulated categories (compliance_for -> "") == no change.
+    if _compliance:
+        lead = f"{lead} {_compliance}"
+
     # NO free-metaphor secondary cue. The LLM's surreal scene was the main WANDER source
     # — it leaked off-brand objects (a clay sculpture on NTI) and pulled toward a generic
     # "bohemian/editorial" look. The grounded lead (real people + the brand's real modern

@@ -1,0 +1,23 @@
+# Seed terms for call-to-action detection. Expanded per-brand via embedding
+# similarity in the NLP layer - see promotion_seeds.yaml for rationale.
+
+link_in_bio:
+  - link in bio
+  - "الرابط في البايو"
+buy_now:
+  - buy now
+  - shop now
+  - order now
+  - "اطلب الآن"
+visit_website:
+  - visit our website
+  - visit website
+  - "زوروا موقعنا"
+subscribe:
+  - subscribe
+  - follow us
+  - "تابعونا"
+dm_us:
+  - dm us
+  - message us
+  - "راسلونا"

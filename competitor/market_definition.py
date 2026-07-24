@@ -97,6 +97,26 @@ def _city_from_addresses(profile: Any) -> tuple[str, List[str]]:
     return "", []
 
 
+def _brand_words(p) -> set:
+    """The brand's own name words + domain label — never a useful competitor-search term."""
+    import re as _re
+    from urllib.parse import urlparse as _up
+    words = set()
+    name = _fv(p, "name")
+    if name:
+        words |= {w.lower() for w in _re.findall(r"[\w؀-ۿ]+", name) if len(w) >= 3}
+    src = _fv(p, "source_url") or _fv(p, "url")
+    host = _up(str(src)).netloc.lower().replace("www.", "")
+    if host:
+        label = host.split(".")[0]
+        if len(label) >= 3:
+            words.add(label)
+            for w in list(words):
+                if w != label and w in label:
+                    words.add(w)
+    return words
+
+
 def build_market_definition(profile: Any) -> MarketDefinition:
     """Project the profile into its market. Pure; never raises; empty fields = honest gaps."""
     p = profile or {}
@@ -129,15 +149,66 @@ def build_market_definition(profile: Any) -> MarketDefinition:
         if len(subs) >= 10:
             break
 
+    # P-83 (D-8): the superlative seed used to be hardcoded Arabic ("أفضل {svc} في {place}") for
+    # EVERY brand — wrong for a US/Turkish/French brand. Key it on the brand's MEASURED language;
+    # the plain "{svc} {place}" seed is universal and always emitted, the localized "best …" seed
+    # is added only for a language we can phrase (else the plain seed alone, never a wrong-language one).
+    def _lang_code(x) -> str:
+        c = getattr(x, "code", None) or (x.get("code") if isinstance(x, dict) else x)
+        return str(c or "").strip().lower()[:2]
+    _langs = _get(p, "languages") or []
+    lang0 = next((_lang_code(x) for x in _langs if _lang_code(x)), "")
+    _BEST_SEED = {
+        "ar": "أفضل {svc} في {place}",
+        "en": "best {svc} in {place}",
+        "fr": "meilleur {svc} à {place}",
+        "tr": "{place} en iyi {svc}",
+        "es": "mejor {svc} en {place}",
+        "de": "beste {svc} in {place}",
+    }
+    best_tmpl = _BEST_SEED.get(lang0, "")
+
     seeds: List[str] = []
-    places = [d for d in districts[:2]] + ([city] if city else [])
     plain_country = country.replace("the ", "")
-    if not places and plain_country:
-        places = [plain_country]
-    for svc in subs[:5] or ([category] if category else []):
+    # MEASURED (Volume Qatar): places used to be districts-then-city, so the lead seed carried the
+    # micro-district "Qanat Quartier" alone — a place Google barely knows. A searchable anchor
+    # (city, else country) leads; the district still follows for precision.
+    places = [p for p in ([city] if city else []) + [d for d in districts[:2]] if p]
+    if plain_country:
+        places.append(plain_country)
+    places = list(dict.fromkeys(places))
+    if city and plain_country and city != plain_country:
+        places.insert(0, f"{city} {plain_country}")     # "Qanat Quartier Qatar" resolves; either alone may not
+
+    # MARKET FIRST. `subs` are raw offering names — for this café, individual dishes; for nanocare,
+    # its own SKUs. Searching them finds nothing (nobody else sells "Volume Catering") and two of
+    # three issued seeds carried the brand's own name. The CATEGORY is what the market is called,
+    # so it leads; the product terms follow for precision, minus anything naming the brand itself.
+    brand_words = _brand_words(p)
+
+    def _clean(term: str) -> str:
+        kept = [w for w in str(term or "").split() if w.lower().strip(".,&") not in brand_words]
+        return " ".join(kept).strip()
+
+    # process.md §8.11: lead a MARKET search with the market. `market_category` is the free-text
+    # "what is sold" ("supplements"); `category` is the coarse label and, for many brands, the
+    # business MODEL ("ecommerce"/"services_b2c") — which finds nobody. Prefer the market; fall
+    # back to `category` for un-migrated profiles. The RADIUS above still keys on `category` (that
+    # is a MODEL question — geography-free ecommerce vs a walk-in — so it stays on the right axis).
+    market_lead = _fv(p, "market_category").strip() or category
+    ordered_terms: List[str] = []
+    if market_lead:
+        ordered_terms.append(market_lead)
+    for svc in subs[:5]:
+        svc = _clean(svc)
+        if svc and svc.lower() not in {t.lower() for t in ordered_terms}:
+            ordered_terms.append(svc)
+
+    for svc in ordered_terms:
         for place in places[:3]:
             seeds.append(f"{svc} {place}")
-            seeds.append(f"أفضل {svc} في {place}")
+            if best_tmpl:
+                seeds.append(best_tmpl.format(svc=svc, place=place))
     seeds = seeds[:20]
 
     return MarketDefinition(

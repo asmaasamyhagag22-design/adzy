@@ -12,7 +12,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .ffmpeg_tools import ffmpeg_exe, run_ffmpeg
 
@@ -38,7 +38,7 @@ _AR_RE = re.compile(r"[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]")
 
 
 def _instructions_for(lines: list[str], delivery: "str | list[str] | None" = "",
-                      tone: str = "") -> str:
+                      tone: str = "", dialect: str = "") -> str:
     """Performance brief for the narration. ONE consistent narrator, warm and expressive but
     controlled — never flat/robotic and never a news reader. Adapts to the brand TONE (a
     luxury brand reads refined & unhurried; a playful one reads bright & energetic) so the
@@ -63,12 +63,20 @@ def _instructions_for(lines: list[str], delivery: "str | list[str] | None" = "",
             mood = ("warm, confident and human — real emotion and gentle energy; "
                     "vary pace and pitch, lean into the key words, sound alive not flat")
         is_ar = bool(_AR_RE.search(" ".join(lines or [])))
-        dialect = ("Authentic EGYPTIAN ARABIC (Cairo dialect / اللهجة المصرية). "
-                   if is_ar else "")
+        # The dialect follows the brand's EVIDENCED region (poster.locale.arabic_dialect_for),
+        # threaded in as `dialect`. NO hardcoded Egyptian: a Saudi/Gulf brand reads Khaleeji, a
+        # Levantine brand reads Shami. With no region evidence, an honest neutral register (never
+        # silently another region's dialect).
+        if is_ar:
+            dialect_clause = (f"Authentic {dialect}. " if dialect else
+                              "Authentic Arabic in the audience's OWN regional register (never "
+                              "defaulting to another region's dialect). ")
+        else:
+            dialect_clause = ""
         base = (
             "You are ONE consistent, professional human voice-over artist narrating a premium "
             f"brand film. Keep the SAME voice, character and energy from the first word to the "
-            f"last — do NOT change persona between lines. {dialect}Perform it {mood}. "
+            f"last — do NOT change persona between lines. {dialect_clause}Perform it {mood}. "
             "Never flat, never robotic, never a news anchor. PACE: measured and clear — a "
             "first-time listener must catch every word; never rush, even when energetic. "
             "PRONUNCIATION: any Latin brand or program name embedded in the Arabic (e.g. "
@@ -199,17 +207,36 @@ def _gemini_segment(client, text: str, out_wav: Path, *, voice: str, model: str,
 # brief is not applied here — the native dialect carries the read.
 # Override the voice via REEL_TTS_VOICE.
 # ---------------------------------------------------------------------
-_EDGE_VOICE_AR = "ar-EG-SalmaNeural"     # Egyptian Arabic, female (warm)
+_EDGE_VOICE_AR = "ar-EG-SalmaNeural"     # Egyptian Arabic, female (warm) — the pilot default
 _EDGE_VOICE_EN = "en-US-AriaNeural"      # default English voice
 _EDGE_RATE = os.environ.get("REEL_TTS_EDGE_RATE", "+0%")
 _EDGE_PITCH = os.environ.get("REEL_TTS_EDGE_PITCH", "+0Hz")
 
+# Native edge-tts Arabic voice PER dialect region (the FREE, keyless fallback). Keyed on the
+# canonical bucket from poster.locale.arabic_region_of so a Saudi brand gets a Gulf voice, not
+# ar-EG-Salma. Best-effort (Microsoft's standard per-locale neural voices); an unknown region
+# degrades to the pilot Egyptian voice rather than going silent.
+_EDGE_VOICE_BY_REGION = {
+    "egypt": "ar-EG-SalmaNeural",
+    "gulf": "ar-SA-ZariyahNeural",
+    "levant": "ar-SY-AmanyNeural",
+    "maghreb": "ar-MA-MounaNeural",
+}
 
-def _edge_voice_for(text: str, override: Optional[str]) -> str:
-    """Pick a native Egyptian voice for Arabic copy, else an English voice."""
+
+def _edge_voice_for(text: str, override: Optional[str], profile: Any = None) -> str:
+    """Pick a native Arabic voice for Arabic copy — REGION-aware (the brand's evidenced country),
+    not a hardcoded Egyptian voice — else an English voice. An explicit override always wins."""
     if override:
         return override
-    return _EDGE_VOICE_AR if _AR_RE.search(text or "") else _EDGE_VOICE_EN
+    if _AR_RE.search(text or ""):
+        try:
+            from poster.locale import arabic_region_of
+            reg = arabic_region_of(profile)
+        except Exception:  # noqa: BLE001
+            reg = ""
+        return _EDGE_VOICE_BY_REGION.get(reg, _EDGE_VOICE_AR)
+    return _EDGE_VOICE_EN
 
 
 def _edge_prosody_for_tone(tone: str) -> tuple[str, str]:
@@ -263,9 +290,30 @@ def narration_lines(storyboard) -> list[str]:
 
 
 _ELEVENLABS_MODEL = "eleven_multilingual_v2"
-# A native Egyptian ElevenLabs library voice id (set once the Creator plan is active). Placeholder
-# empty until the owner supplies it via REEL_ELEVENLABS_VOICE — the free tier can't use library voices.
-_ELEVENLABS_DEFAULT_VOICE = os.environ.get("REEL_ELEVENLABS_VOICE", "")
+# Native ElevenLabs library voice ids PER dialect region (owner-supplied, 2026-07-18). Keyed on the
+# canonical bucket from poster.locale.arabic_region_of so a Saudi brand narrates in a real Gulf voice
+# instead of an Egyptian one. Maghreb / unknown -> "" (no id): a neutral MSA read, never another
+# region's voice. REEL_ELEVENLABS_VOICE overrides all (a single pinned voice for every reel).
+_ELEVENLABS_VOICE_BY_REGION = {
+    "egypt": "QvNF0qyyt1Tuy1YAmnzH",
+    "gulf": "t9akNmCDhz230CEXOYmn",
+    "levant": "Wim44P0dU9HtjyzNnFsv",
+}
+
+
+def _elevenlabs_voice_for(profile: Any = None, override: Optional[str] = None) -> str:
+    """The native ElevenLabs library voice id for the brand's evidenced region. Explicit override >
+    REEL_ELEVENLABS_VOICE env > per-region map > '' (no id -> the segment degrades, as before)."""
+    if override:
+        return override
+    env = os.environ.get("REEL_ELEVENLABS_VOICE")
+    if env:
+        return env
+    try:
+        from poster.locale import arabic_region_of
+        return _ELEVENLABS_VOICE_BY_REGION.get(arabic_region_of(profile), "")
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def _elevenlabs_segment(text: str, out_mp3: Path, *, voice: str, model: str,
@@ -360,6 +408,7 @@ def synth_voiceover(
     api_key: Optional[str] = None,
     backend: Optional[str] = None,
     tone: str = "",
+    profile: Any = None,
 ) -> Optional[Path]:
     """Build ONE continuous narration track for the reel and TIME-FIT it to the footage.
 
@@ -404,11 +453,11 @@ def synth_voiceover(
         _GEMINI_TTS_MODEL if chosen == "gemini"
         else _ELEVENLABS_MODEL if chosen == "elevenlabs" else _DEFAULT_MODEL)
     if chosen == "edge":
-        default_voice = _edge_voice_for(" ".join(lines), None)
+        default_voice = _edge_voice_for(" ".join(lines), None, profile)
     elif chosen == "gemini":
         default_voice = _GEMINI_VOICE
     elif chosen == "elevenlabs":
-        default_voice = _ELEVENLABS_DEFAULT_VOICE
+        default_voice = _elevenlabs_voice_for(profile)
     else:
         default_voice = _DEFAULT_VOICE
     voice = voice or os.environ.get("REEL_TTS_VOICE") or default_voice
@@ -422,7 +471,15 @@ def synth_voiceover(
     joiner = "،  " if is_ar else ".  "
     script = joiner.join(p.rstrip(" ،.!؟?") for p in parts)
     total = sum(max(0.5, float(d)) for d in durations) or 10.0
-    instructions = _instructions_for(lines, list(deliveries or []), tone)
+    # Dialect follows the brand's evidenced region (poster.locale) — not a hardcoded Egyptian read.
+    dialect_name = ""
+    if profile is not None:
+        try:
+            from poster.locale import arabic_dialect_for
+            dialect_name = arabic_dialect_for(profile)
+        except Exception:  # noqa: BLE001
+            dialect_name = ""
+    instructions = _instructions_for(lines, list(deliveries or []), tone, dialect=dialect_name)
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

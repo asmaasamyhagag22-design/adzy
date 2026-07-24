@@ -47,6 +47,35 @@ def test_arabic_concept_passes_and_keeps_arabic_copy():
     assert c.proof_points == ["إنترنت أسرع", "تغطية أوسع"]
 
 
+def test_poster_copy_dialect_follows_the_evidenced_country_not_hardcoded_egyptian():
+    """CS-04 (D-8): the poster copy register must follow the brand's EVIDENCED country, exactly as
+    the content calendar already does (P-04). It used to hardcode 'Egyptian Arabic' for EVERY Arabic
+    brand (concept.py:256), so a Saudi brand's headline/CTA were commissioned in Masri — the same
+    'any Arabic => Egyptian' bug D5 killed in the reel, still live in the poster. Assert on the
+    SYSTEM PROMPT the LLM actually receives."""
+    captured: dict = {}
+
+    class _Rec:
+        def __call__(self, system, user, response_model, group_name="", images=None):
+            captured["system"] = system
+            return _resp(), None
+
+    # Saudi evidence via ccTLD -> country_of -> "Saudi Arabia" -> Gulf/Khaleeji register.
+    saudi = {"name": {"value": "متجر"}, "languages": ["ar"], "source_url": "https://brand.com.sa/",
+             "description": {"value": "متجر سعودي"}, "offerings": [{"name": "عبايات"}]}
+    build_creative_concept(saudi, caller=_Rec(), arabic=True)
+    s = captured["system"]
+    assert "Khaleeji" in s or "خليجية" in s        # the brand's real register reaches the LLM
+    assert "Egyptian" not in s and "مصرية" not in s  # NEVER Egyptian for a Saudi brand
+
+    # And an Egyptian brand still resolves to Egyptian — the map didn't lose Egypt.
+    captured.clear()
+    egy = {"name": {"value": "متجر"}, "languages": ["ar"], "source_url": "https://brand.com.eg/",
+           "description": {"value": "متجر مصري"}, "offerings": [{"name": "منتجات"}]}
+    build_creative_concept(egy, caller=_Rec(), arabic=True)
+    assert "Egyptian" in captured["system"] or "مصرية" in captured["system"]
+
+
 def test_concept_prompt_enforces_the_stranger_test_and_grounds_the_visual():
     # Owner: the poster sold a FEELING ('your unfair advantage') + a generic stock woman, never
     # saying what ITI does. The concept prompt must now force ANCHOR-NAME-PROVE (the stranger test)
@@ -131,10 +160,18 @@ def test_popup_manifest_raw_facts_reach_the_concept_prompt(monkeypatch):
 
 
 def test_concept_prompt_carries_brand_coherence_rule():
-    # Owner caught "بطل مذاكرة، ابدأ شغل" shipped for an EDUCATION institute — a hook that
-    # negates the brand's own category. The system prompt must carry the hard rule.
-    import inspect
-    import poster.concept as c
-    src = inspect.getsource(c)
-    assert "BRAND-COHERENCE" in src
-    assert "never disparages studying" in src
+    # Owner caught "بطل مذاكرة، ابدأ شغل" shipped for an EDUCATION institute — a hook that negates
+    # the brand's own category. CS-120: assert the RUNTIME system prompt actually sent to the LLM
+    # carries the hard rule (not just that the string exists somewhere in the module source — that
+    # certified wording, not that the rule reaches the model).
+    captured: dict = {}
+
+    class _Rec:
+        def __call__(self, system, user, response_model, group_name="", images=None):
+            captured["system"] = system
+            return _resp(), None
+
+    build_creative_concept(_EN, caller=_Rec())
+    sys_prompt = captured.get("system", "")
+    assert "BRAND-COHERENCE" in sys_prompt
+    assert "never disparages studying" in sys_prompt

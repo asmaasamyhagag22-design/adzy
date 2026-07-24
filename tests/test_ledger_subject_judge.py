@@ -52,8 +52,19 @@ def test_no_judge_keeps_lenient_number_grounding():
     assert _num_sourced(_led("We have 100 stores across Egypt"), "Get 100 gifts")
 
 
-def test_no_judge_keeps_lenient_superlative():
-    assert _group_sourced(_led("Best regards from the team"), "The best coffee in town", "best")
+import pytest
+
+
+@pytest.mark.xfail(reason="CS-46 KNOWN OPEN HOLE: with no judge, a disjoint-subject superlative "
+                          "('best coffee' <- 'Best regards') is still certified. The fix needs a "
+                          "subject judge wired into the production ledger build — see "
+                          "logs/OPEN_PROBLEMS.md. This asserts the CORRECT (not-certified) behavior "
+                          "so it flips to a real pass the day CS-46 is fixed, WITHOUT the suite "
+                          "certifying the fail-open in the meantime.",
+                   strict=True)
+def test_no_judge_does_not_certify_a_disjoint_subject_superlative():
+    # measured: this fail-open certifies a fabricated superlative brand-tier on 12/18 real profiles.
+    assert not _group_sourced(_led("Best regards from the team"), "The best coffee in town", "best")
 
 
 # --- with a judge: catch fabrication, preserve synonym / inflection ------------------------

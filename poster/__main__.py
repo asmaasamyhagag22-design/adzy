@@ -120,6 +120,13 @@ def main() -> int:
 
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
 
+    # CS-92: a poster render generates a background image via a PAID model (Gemini/Imagen) and gates
+    # it — it inherently spends. Refuse under a no-spend context (pytest / BASEERA_NO_SPEND) so it
+    # can never bill by accident (the class of bug that caused the grade_u1 spend incident).
+    from spend_tripwire import refuse_if_no_spend
+    refuse_if_no_spend("generates a poster background image via a paid image model and renders it",
+                       alternative="inject a caller / run the hermetic tests instead")
+
     # FEATURE a user-picked product: make it the HERO offering so the concept/art-director centres
     # the poster on it instead of a generic brand creative (engineer's suggestion #1). Grounded —
     # it's a real product the user chose from the scraped catalogue.
@@ -170,7 +177,12 @@ def main() -> int:
     if args.trend and caller is not None:
         try:
             from trends import top_trends, keywords_from_profile
-            hot = top_trends(keywords_from_profile(profile), top_k=5, require_match=True)
+            # D-8 (CS-62): search the BRAND'S market, not Google's US/English default. `profile`
+            # is right here; resolve gl/hl from its own evidence. ("","") when silent -> omitted.
+            from poster.locale import search_locale
+            _gl, _hl = search_locale(profile)
+            hot = top_trends(keywords_from_profile(profile), top_k=5, require_match=True,
+                             gl=_gl, hl=_hl)
             trend_context = "\n".join(f"- {t.title}" for t in hot if getattr(t, "title", ""))
             if trend_context:
                 print(f"[trend] {len(hot)} on-topic trend(s) will inform the concept copy")
@@ -234,7 +246,9 @@ def main() -> int:
             trend_context=trend_context or None, engine=args.engine,
             out_dir=str(Path(args.out).parent or "."),
             product_image=args.product_image,
+            product_name=args.product_name,
             prompt_override=prompt_override,
+            canonical_out=str(Path(args.out)),
         )
     except Exception as exc:  # noqa: BLE001 — the studio shows the log TAIL: make it readable
         print(f"[X] poster failed: {_fail_reason(exc)}", file=sys.stderr)

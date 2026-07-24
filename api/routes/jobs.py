@@ -15,33 +15,58 @@ from sse_starlette.sse import EventSourceResponse
 
 from ..jobs.store import STREAM_CLOSE, Job
 from ..schemas import (
-    JobResultResponse, JobStatus, JobStatusResponse, StageEvent,
+    JobResultResponse, JobStatus, Stage, StageEvent,
 )
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Progress % + human step label per pipeline stage — the AdArchitect frontend renders a progress bar
+# and a rotating status line off these (its 7 cosmetic stages are driven purely by `progress`).
+_STAGE_PROGRESS: dict[Stage, tuple[int, str]] = {
+    Stage.SCRAPE: (15, "Crawling the website"),
+    Stage.RULES: (35, "Extracting brand facts"),
+    Stage.EVIDENCE_PACK: (50, "Assembling evidence"),
+    Stage.LLM: (75, "Understanding the brand"),
+    Stage.VALIDATE: (85, "Verifying against sources"),
+    Stage.MERGE: (92, "Building the profile"),
+    Stage.FINAL: (100, "Done"),
+}
 
-def _to_status_response(job: Job) -> JobStatusResponse:
-    return JobStatusResponse(
-        job_id=job.job_id,
-        status=job.status,
-        current_stage=job.current_stage,
-        created_at=job.created_at,
-        updated_at=job.updated_at,
-        error=job.error,
-        events=list(job.events),
-        manifest_path=job.manifest_path,
-        profile_path=job.profile_path,
-    )
+# The frontend polls until status is one of these; anything else means "keep polling".
+_STATUS_MAP = {
+    JobStatus.QUEUED: "running",
+    JobStatus.RUNNING: "running",
+    JobStatus.SUCCEEDED: "done",
+    JobStatus.FAILED: "error",
+}
 
 
-@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
-async def get_job(job_id: str, request: Request) -> JobStatusResponse:
+def _webapp_job_view(job: Job) -> dict:
+    """The shape the frontend expects: status ∈ {running,done,error} + progress/step/domain_key."""
+    status = _STATUS_MAP.get(job.status, "running")
+    progress, step = _STAGE_PROGRESS.get(job.current_stage or Stage.SCRAPE, (5, "Starting"))
+    if status == "done":
+        progress, step = 100, "Done"
+    elif status == "error":
+        step = "Failed"
+    return {
+        "job_id": job.job_id,
+        "status": status,
+        "progress": progress,
+        "step": step,
+        "domain_key": job.domain_key,
+        "warning": job.warning,
+        "error": job.error,
+    }
+
+
+@router.get("/jobs/{job_id}")
+async def get_job(job_id: str, request: Request) -> dict:
     job = request.app.state.store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"job '{job_id}' not found")
-    return _to_status_response(job)
+    return _webapp_job_view(job)
 
 
 @router.get("/jobs/{job_id}/result", response_model=JobResultResponse)
@@ -98,40 +123,48 @@ async def stream_job(job_id: str, request: Request):
     async def event_gen() -> AsyncIterator[dict]:
         sent_keys: set[str] = set()
 
-        # Replay snapshot of events known at connect time.
-        for ev in list(job.events):
-            key = _event_key(ev)
-            if key in sent_keys:
-                continue
-            sent_keys.add(key)
-            yield {"event": "stage", "data": ev.model_dump_json()}
-
-        if job.is_terminal():
-            return
-
-        # Live tail.
-        while True:
-            if await request.is_disconnected():
-                logger.debug("Client disconnected from stream %s", job_id)
-                break
-            try:
-                item = await asyncio.wait_for(job.queue.get(), timeout=15.0)
-            except asyncio.TimeoutError:
-                # Heartbeat to keep the connection open across proxies.
-                yield {"event": "ping", "data": "{}"}
-                continue
-            if item is STREAM_CLOSE:
-                break
-            # item is a StageEvent
-            try:
-                key = _event_key(item)
+        # CS-82: SUBSCRIBE before replaying the snapshot so an event emitted in the gap between
+        # snapshot and live-tail lands on THIS connection's OWN queue (dedup below drops any overlap
+        # with the replay). Every concurrent viewer gets its own queue — no split, no orphaned close.
+        queue = store.subscribe(job_id)
+        try:
+            # Replay snapshot of events known at connect time.
+            for ev in list(job.events):
+                key = _event_key(ev)
                 if key in sent_keys:
-                    # Already replayed; skip to avoid duplication.
                     continue
                 sent_keys.add(key)
-                yield {"event": "stage", "data": item.model_dump_json()}
-            except Exception as e:  # noqa: BLE001
-                logger.exception("Stream serialization failed: %s", e)
-                break
+                yield {"event": "stage", "data": ev.model_dump_json()}
+
+            if job.is_terminal() or queue is None:
+                return
+
+            # Live tail — reads THIS connection's own queue.
+            while True:
+                if await request.is_disconnected():
+                    logger.debug("Client disconnected from stream %s", job_id)
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    # Heartbeat to keep the connection open across proxies.
+                    yield {"event": "ping", "data": "{}"}
+                    continue
+                if item is STREAM_CLOSE:
+                    break
+                # item is a StageEvent
+                try:
+                    key = _event_key(item)
+                    if key in sent_keys:
+                        # Already replayed; skip to avoid duplication.
+                        continue
+                    sent_keys.add(key)
+                    yield {"event": "stage", "data": item.model_dump_json()}
+                except Exception as e:  # noqa: BLE001
+                    logger.exception("Stream serialization failed: %s", e)
+                    break
+        finally:
+            if queue is not None:
+                store.unsubscribe(job_id, queue)
 
     return EventSourceResponse(event_gen())

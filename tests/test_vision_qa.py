@@ -36,6 +36,20 @@ def test_qa_parses_a_pass_verdict(tmp_path):
     assert v.checked is True and v.overall_pass is True
 
 
+def test_low_score_fails_even_when_model_says_pass(tmp_path):
+    # P-25: the prompt promises "overall_pass ... AND score >= 7", but the code re-ANDed only some
+    # gates, not the score. A model returning overall_pass=true with score=5 must still FAIL (PD-1:
+    # the verdict is recomputed in code, never trusted from the model).
+    p = tmp_path / "poster.png"
+    p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+    resp = _QAResponse(
+        has_latin_text=False, cta_clipped=False, on_brand_color=True, candid_violation=False,
+        overall_pass=True, score=5, reason="pretty but mediocre",
+    )
+    v = poster_vision_qa(str(p), caller=MockCaller({"poster_vision_qa": resp}))
+    assert v.overall_pass is False, "a sub-7 score must not pass, whatever the model claims"
+
+
 def test_malformed_arabic_fails_even_with_no_latin(tmp_path):
     # Batch 2 fix: a poster with NO Latin but broken/disconnected Arabic (script_wellformed=False)
     # must FAIL, even if the model over-optimistically returned overall_pass=True. The character-

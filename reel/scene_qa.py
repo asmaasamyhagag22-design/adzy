@@ -34,6 +34,7 @@ class SceneQAVerdict(BaseModel):
     faces_intact_across_motion: bool = True   # no warped/melted faces, no identity morphing
     no_morphing_artifacts: bool = True        # limbs/objects keep structure across frames
     no_junk_generated_text: bool = True       # no garbled pseudo-text rendered INTO the scene
+    no_third_party_marks: bool = True         # P-23: no competitor logo/trademark/branded product in frame
     ad_grade: bool = True                     # a professional brand would actually run this
     setting_faithful: bool = True             # the generated WORLD stays true to the seed photo
     # TRI-STATE (P6, 2026-07-15): True = PASS, False = FAIL, None = NOT_CHECKED.
@@ -52,6 +53,7 @@ class _QAResponse(BaseModel):
     faces_intact_across_motion: bool = True   # additive (permissive default until calibrated)
     no_morphing_artifacts: bool = True
     no_junk_generated_text: bool = True
+    no_third_party_marks: bool = True         # P-23 (additive, permissive default)
     ad_grade: bool = True
     setting_faithful: bool = True
     overall_pass: bool
@@ -143,6 +145,10 @@ def check_scene(
         "- no_junk_generated_text: the scene itself contains NO garbled pseudo-text or gibberish "
         "lettering (on signs, screens, packaging, walls). Clean DESIGNED caption overlays are "
         "allowed — judge only text rendered INTO the scene.\n"
+        "- no_third_party_marks: the frame shows NO third-party brand's logo, trademark or clearly "
+        "branded product (a competitor's swoosh, an Apple/Nike/Coca-Cola mark, a recognisable "
+        "rival product). false when any brand OTHER than the advertised one is visibly marked. "
+        "Only the advertised brand's OWN mark is allowed.\n"
         "- ad_grade: would a professional brand actually run footage of this visual quality — a "
         "coherent, believable, real-looking setting for this brand, no uncanny artifacts, no "
         "decayed/implausible environment presented as the brand's real premises? Be strict.\n"
@@ -167,6 +173,7 @@ def check_scene(
         faces_intact_across_motion=bool(resp.faces_intact_across_motion),
         no_morphing_artifacts=bool(resp.no_morphing_artifacts),
         no_junk_generated_text=bool(resp.no_junk_generated_text),
+        no_third_party_marks=bool(resp.no_third_party_marks),
         ad_grade=bool(resp.ad_grade),
         setting_faithful=bool(resp.setting_faithful),
         # COMPOUND GATE COMPUTED IN CODE (owner directive: the model never self-passes) —
@@ -174,8 +181,8 @@ def check_scene(
         overall_pass=bool(resp.overall_pass) and bool(resp.product_faithful)
         and bool(resp.product_persists) and bool(resp.action_plausible)
         and bool(resp.faces_intact_across_motion) and bool(resp.no_morphing_artifacts)
-        and bool(resp.no_junk_generated_text) and bool(resp.ad_grade)
-        and bool(resp.setting_faithful),
+        and bool(resp.no_junk_generated_text) and bool(resp.no_third_party_marks)
+        and bool(resp.ad_grade) and bool(resp.setting_faithful),
         reason=str(resp.reason or "")[:200],
         checked=True,
     )
@@ -263,3 +270,14 @@ def check_seed_frame(image: "str | Path | bytes", *, caller: Any = None,
                        ad_grade=bool(resp.ad_grade), no_text=bool(resp.no_text),
                        score=score, overall_pass=ok,
                        reason=str(resp.reason or "")[:200], checked=True)
+
+
+def seed_may_animate(verdict: Any) -> bool:
+    """The ONE fail-CLOSED rule for spending a (paid) Veo render on a seed/clip: only an explicit
+    PASS proceeds. A NOT_CHECKED verdict (no caller, unreadable frames, or a call timeout —
+    `overall_pass=None`) and an explicit FAIL (`overall_pass=False`) both return False, so an
+    UNVETTED seed never costs Veo money (P-21 / P6 #7). This is the law seed_gen.py:172 already
+    applies inline; generate.py and compositor.py route through THIS predicate so the three
+    seed/scene gates can never drift back into a fail-OPEN reading (`if v.checked and not
+    v.overall_pass`, which skipped a NOT_CHECKED verdict and animated it). `None` -> False."""
+    return getattr(verdict, "overall_pass", None) is True

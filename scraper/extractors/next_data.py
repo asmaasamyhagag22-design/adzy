@@ -405,6 +405,7 @@ class _Walker:
             anchor_text=slug,
             page_url=self.page_url,
             category=LinkCategory.INTERNAL,
+            inferred=True,          # CS-56: recorded in the inventory but NEVER crawled
         ))
 
     def _maybe_infer_category_url(self, slug: str) -> None:
@@ -419,6 +420,7 @@ class _Walker:
             anchor_text=slug,
             page_url=self.page_url,
             category=LinkCategory.INTERNAL,
+            inferred=True,          # CS-56: recorded in the inventory but NEVER crawled
         ))
 
 
@@ -426,19 +428,35 @@ class _Walker:
 # Shape detectors
 # ---------------------------------------------------------------------
 
+# A priced node whose NAME is one of these is a checkout line-item (shipping/fee/tax/tip/…), NOT a
+# menu item / offering (P-69). Without this, "Express Shipping" @ 50 or "VAT" @ 14 became a brand
+# "offering". Bilingual (EN + AR) — the scope is any brand, any country.
+_NON_OFFERING_NAME_RE = re.compile(
+    r"\b(shipping|delivery|freight|handling|postage|surcharge|"
+    r"tax|vat|gst|fee|fees|tip|gratuity|service\s*charge|"
+    r"discount|coupon|voucher|deposit|gift\s*wrap|gift\s*card|packaging)\b"
+    r"|شحن|توصيل|رسوم|ضريبة|ضرائب|خدمة|بقشيش|خصم|كوبون|تغليف|عربون",
+    re.IGNORECASE,
+)
+
+
 def _looks_like_menu_item(node: dict) -> bool:
-    """A dict is a menu item if it has a title/name AND a price-like
-    field. Avoids false positives on, e.g., a category object that
-    happens to have a 'name' but no 'price'."""
-    has_title = any(
-        isinstance(node.get(k), str) and node[k].strip()
-        for k in ("title", "name")
-    )
+    """A dict is a menu item if it has a title/name AND a price-like field — EXCEPT a priced
+    checkout line-item (shipping / fee / tax / …), which has a name and a price but is not an
+    offering (P-69). Also still avoids category objects that have a name but no price."""
+    title = next((node[k] for k in ("title", "name")
+                  if isinstance(node.get(k), str) and node[k].strip()), None)
+    if not title:
+        return False
     has_price = any(
         isinstance(node.get(k), (int, float))
         for k in ("total_price", "price", "net_price")
     )
-    return has_title and has_price
+    if not has_price:
+        return False
+    if _NON_OFFERING_NAME_RE.search(title):
+        return False
+    return True
 
 
 def _looks_like_menu_category(node: dict) -> bool:

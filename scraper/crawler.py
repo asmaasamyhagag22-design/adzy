@@ -160,6 +160,8 @@ def _select_subpages_to_fetch(
     tier_rank = {PageTier.HIGH: 0, PageTier.MEDIUM: 1, PageTier.LOW: 2, PageTier.SKIP: 99}
 
     for link in homepage_links:
+        if getattr(link, "inferred", False):
+            continue                        # CS-56: synthesised next_data URL — inventory only, never fetched
         if link.category not in (LinkCategory.INTERNAL, LinkCategory.CTA):
             continue
         if not same_registrable_host(link.href, site_url):
@@ -256,6 +258,8 @@ def _bfs_new_candidates(
     for link in (sub_links or []):
         if len(out) >= max_new:
             break
+        if getattr(link, "inferred", False):
+            continue                        # CS-56: synthesised next_data URL — inventory only, never fetched
         if getattr(link, "category", None) not in (LinkCategory.INTERNAL, LinkCategory.CTA):
             continue
         href = getattr(link, "href", "") or ""
@@ -263,9 +267,10 @@ def _bfs_new_candidates(
             continue
         try:
             norm = normalize_url(href)
-        except Exception:
-            continue
-        if norm in frontier_norms:
+            key = dedup_key(href)          # CS-94: dedup on the SAME scheme/slash-insensitive key
+        except Exception:                  # `_select_subpages_to_fetch` uses (was normalize_url here,
+            continue                       # so http/https + trailing-slash twins slipped back in)
+        if key in frontier_norms:
             continue
         try:
             pt, tier = classify_url(href, getattr(link, "anchor_text", "") or "")
@@ -273,7 +278,7 @@ def _bfs_new_candidates(
             continue
         if tier not in tier_rank:
             continue
-        frontier_norms.add(norm)
+        frontier_norms.add(key)
         out.append((norm, pt, tier, getattr(link, "anchor_text", "") or ""))
     out.sort(key=lambda c: (0 if is_leaf_detail(c[0]) else 1, tier_rank[c[2]]))
     return out
@@ -371,10 +376,11 @@ def _register_fetched_or_skip(final_url: str, fetched_final_norms: set[str]) -> 
     Returns True if this page's FINAL (post-redirect) url normalizes to one we already
     fetched — the caller then skips it WITHOUT counting it as a kept page (it is
     duplicate content that would waste a budget slot and double-count in the evidence
-    pack). Otherwise records it and returns False. Normalizing via `normalize_url`
-    collapses http/https, trailing-slash and redirect variants onto one key. Pure so the
-    crawl-loop guard is hermetically testable (MEASURED: daturial fetched its homepage
-    5x; 12/110 corpus manifests carried duplicate final urls)."""
+    pack). Otherwise records it and returns False. CS-125: `normalize_url` delivers ONE
+    canonical form (host lower-cased, default port + fragment + trailing slash dropped);
+    the REDIRECT collapse comes from keying on the FINAL url, not from the normalizer. It
+    does NOT fold http↔https — that is `dedup_key`'s job (used by the fetch frontier). Pure,
+    so this guard is hermetically testable (MEASURED: daturial fetched its homepage 5x)."""
     key = normalize_url(final_url or "")
     if key in fetched_final_norms:
         return True
@@ -906,7 +912,11 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
                 # course (catID=205 -> 2631.html) died on the cap with 140s of budget unused.
                 # The time budget remains the real bound.
                 _AJAX_MAX = 120
-                frontier_norms = {normalize_url(s[0]) for s in subpages}
+                # CS-94: the runtime frontier de-dupes on the SAME scheme/slash-insensitive key as
+                # `_select_subpages_to_fetch` (dedup_key), not normalize_url — otherwise a URL that
+                # collapses under dedup_key but differs under normalize_url (http/https, trailing
+                # slash) re-entered the frontier via the BFS/ajax feeds and was fetched twice.
+                frontier_norms = {dedup_key(s[0]) for s in subpages}
                 # FIX-A: depth per frontier URL (homepage=0, its links=1). Links found on a
                 # depth-d page re-seed the frontier at d+1, up to MAX_CRAWL_DEPTH.
                 depth_by_norm = {normalize_url(s[0]): 1 for s in subpages}
@@ -925,7 +935,14 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
                         from .ajax_details import discover_ajax_details
                         pos = insert_at
                         for du in discover_ajax_details(page_html, page_final_url, fetch=_cached_js):
-                            ndu = normalize_url(du)
+                            # CS-49→CS-79: the Ajax feed must enforce the SAME same-host guard the
+                            # three other frontier feeds do (crawler.py:165,183,262) — otherwise an
+                            # Ajax-discovered off-site URL gets crawled and its content attributed to
+                            # this brand. `_same_origin` inside discover_* is netloc-exact; use the
+                            # registrable-host check the rest of the crawler trusts.
+                            if not same_registrable_host(du, normalized):
+                                continue
+                            ndu = dedup_key(du)          # CS-94: one frontier key everywhere
                             if ndu in frontier_norms:
                                 continue
                             frontier_norms.add(ndu)

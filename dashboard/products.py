@@ -24,18 +24,30 @@ _IMG_SKIP = ("banner", "slide", "logo", "icon", "sprite", "payment", "visa", "ma
 
 
 def _titleize(slug: str) -> str:
-    """'shop-hair-care' -> 'Hair Care'; '/collections/b2g1-eid-offer' -> 'B2G1 Eid Offer'."""
-    s = re.sub(r"[-_]+", " ", slug).strip()
+    """'shop-hair-care' -> 'Hair Care'; '/collections/b2g1-eid-offer' -> 'B2G1 Eid Offer'.
+    1.6 (owner-caught on nanocare): Arabic slugs arrive percent-encoded — unquote FIRST, or the
+    'name' is a 151-char '%D9%86...' string that overflows every card."""
+    from urllib.parse import unquote
+    s = re.sub(r"[-_]+", " ", unquote(slug)).strip()
     s = re.sub(r"\b(shop|collection|collections|all|the)\b", "", s, flags=re.I).strip()
     return " ".join(w.upper() if (w.isupper() or re.fullmatch(r"[a-z]?\d.*", w)) else w.capitalize()
                     for w in s.split()) or slug
 
 
 def _line_name_from_url(url: str) -> str | None:
-    """A product-LINE name from a Shopify-style /collections/<slug> or /products/<slug> URL."""
+    """A product-LINE name from a Shopify-style /collections/<slug> or /products/<slug> URL.
+    None for a decoded slug that is still >80 chars — that is a sentence, not a name."""
     path = urlparse(url).path.rstrip("/")
     m = re.search(r"/(?:collections|products|product-category|shop)/([^/]+)$", path)
-    return _titleize(m.group(1)) if m else None
+    if not m:
+        return None
+    name = _titleize(m.group(1))
+    return name if len(name) <= 80 else None
+
+
+def _norm_key(name: str) -> str:
+    """Dedup key: same product however punctuated/spaced/encoded ('D3 / (MK7) K2' == 'D3 Mk7 K2')."""
+    return re.sub(r"[\W_]+", "", str(name or ""), flags=re.UNICODE).casefold()
 
 
 def _content_images(manifest: dict) -> list[dict]:
@@ -103,13 +115,15 @@ def _offering_products(profile: dict | None, images: list[dict], used: set, seen
         if isinstance(name, dict):
             name = name.get("value")
         name = str(name or "").strip()
-        if not name or name.lower() in seen:
+        key = _norm_key(name)
+        if not name or key in seen:
             continue
-        seen.add(name.lower())
         price = o.get("price_text")
-        out.append({"name": name[:90], "url": str(o.get("page_url") or ""),
-                    "image": _best_image(name, images, used, str(o.get("page_url") or "")),
-                    "price_text": price if isinstance(price, str) and price.strip() else None})
+        entry = {"name": name[:90], "url": str(o.get("page_url") or ""),
+                 "image": _best_image(name, images, used, str(o.get("page_url") or "")),
+                 "price_text": price if isinstance(price, str) and price.strip() else None}
+        seen[key] = entry
+        out.append(entry)
         if len(out) >= limit:
             break
     return out
@@ -124,7 +138,7 @@ def products_from_manifest(manifest: dict, *, limit: int = 12,
       2. manifest pages of an offering type that are LEAF items, named by their own h1/h2;
       3. the Shopify-style URL-slug rule (existing behavior, kept as the fallback)."""
     images = _content_images(manifest)
-    seen: set[str] = set()
+    seen: dict[str, dict] = {}          # norm-key -> the entry (for merge/enrich)
     used: set[str] = set()
     out: list[dict] = _offering_products(profile, images, used, seen, limit)
 
@@ -147,20 +161,34 @@ def products_from_manifest(manifest: dict, *, limit: int = 12,
             if pt not in _OFFERING_PAGE_TYPES and not (pt == "other" and _first_heading(page)):
                 continue
             name = _first_heading(page) or _line_name_from_url(url) or ""
-            if not name or name.lower() in seen:
+            if not name:
                 continue
-            seen.add(name.lower())
-            out.append({"name": name, "url": url, "image": _best_image(name, images, used, url)})
+            key = _norm_key(name)
+            if key in seen:
+                prev = seen[key]                 # same product from the offerings — ENRICH it
+                prev["url"] = prev["url"] or url
+                prev["image"] = prev["image"] or _best_image(prev["name"], images, used, url)
+                continue
+            entry = {"name": name, "url": url, "image": _best_image(name, images, used, url)}
+            seen[key] = entry
+            out.append(entry)
 
     for page in (manifest.get("pages") or []):
         if len(out) >= limit:
             break
         url = page.get("final_url") or page.get("url") or ""
         name = _line_name_from_url(url)
-        if not name or name.lower() in seen:
+        if not name:
             continue
-        seen.add(name.lower())
-        out.append({"name": name, "url": url, "image": _best_image(name, images, used, url)})
+        key = _norm_key(name)
+        if key in seen:
+            prev = seen[key]                     # duplicate of a priced offering — ENRICH it
+            prev["url"] = prev["url"] or url
+            prev["image"] = prev["image"] or _best_image(prev["name"], images, used, url)
+            continue
+        entry = {"name": name, "url": url, "image": _best_image(name, images, used, url)}
+        seen[key] = entry
+        out.append(entry)
     return out
 
 
@@ -295,7 +323,7 @@ _QA_NOTE_KEYS = ("ajax_modal", "e-commerce", "ecommerce", "product", "budget", "
                  "root_anchor", "deep", "readiness")
 
 
-def scrape_qa_for_slug(slug: str, *, scrapes_dir: str = "scrapes") -> dict | None:
+def scrape_qa_for_slug(slug: str, *, scrapes_dir: str = "scrapes", out_dir: str = "outputs") -> dict | None:
     """A compact QUALITY summary of a brand's freshest scrape — so the owner can verify the scraper
     at a glance (pages, products, images, text coverage, readiness, and the notable notes such as the
     url-less-modal resolution). None when there is no manifest. Never raises."""
@@ -311,7 +339,12 @@ def scrape_qa_for_slug(slug: str, *, scrapes_dir: str = "scrapes") -> dict | Non
     pages = m.get("pages") or []
     notes = [n for n in (m.get("notes") or []) if isinstance(n, str)]
     text_blocks = sum(len(p.get("text_blocks") or []) for p in pages if isinstance(p, dict))
-    products = products_from_manifest(m, limit=100)
+    # CS-104: the QA "Products" count MUST use the SAME rule as the studio picker
+    # (`products_for_slug` :203 passes the profile). Without the profile this count ignored the
+    # profile's extracted OFFERINGS (source #1), so education/services/clinic brands with no Shopify
+    # URL slugs reported 0 products while the picker offered 12-13 (22/90 brands, incl. KFC/topshoes).
+    products = products_from_manifest(m, limit=100,
+                                      profile=_profile_for_slug(slug, scrapes_dir, out_dir))
     # AGGREGATE the per-category ajax_modal_details lines (owner 2026-07-12: 10 stacked pink
     # URL rows = "عبث بصري") into ONE human summary; the raw lines stay available under
     # ajax_detail_lines for a details toggle. Other notable notes pass through unchanged.

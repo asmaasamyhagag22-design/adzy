@@ -100,6 +100,11 @@ def main(
         pack_summary = "n/a"
         diag_summary = "n/a"
     else:
+        # CS-92: LLM extraction makes live billed calls. Refuse under a no-spend context
+        # (pytest / BASEERA_NO_SPEND); --no-llm is the free rules-only path.
+        from spend_tripwire import refuse_if_no_spend
+        refuse_if_no_spend("live LLM extraction calls (identity/offerings/positioning/trust)",
+                           alternative="run with --no-llm for the rules-only profile")
         caller = _make_caller(provider, model)
         console.print(f"[cyan]Building (rules + {type(caller).__name__})[/cyan] {manifest_path}")
         result: BuildResult = build_profile(
@@ -129,9 +134,9 @@ def main(
     # logo instead of a wordmark. Best-effort + gated (a logo that would render blank is
     # rejected -> the wordmark stands); never blocks the build.
     try:
-        from scraper.inline_svg_logo import enrich_profile_logo
-        raw_home = manifest_path.parent / "raw" / "00_homepage.html"
-        if enrich_profile_logo(out_path, raw_home):
+        from scraper.inline_svg_logo import enrich_profile_logo, resolve_raw_homepage
+        raw_home = resolve_raw_homepage(manifest_path.parent / "raw")
+        if raw_home is not None and enrich_profile_logo(out_path, raw_home):
             console.print("[green]Rasterized inline-svg brand logo into the profile.[/green]")
     except Exception as exc:  # never let logo enrichment break the build
         logging.getLogger(__name__).debug("inline-svg logo enrichment skipped: %s", exc)

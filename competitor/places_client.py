@@ -72,7 +72,12 @@ def _load_dotenv() -> None:
 class PlacesClient:
     def __init__(self, api_key: Optional[str] = None, *,
                  timeout: int = 15, max_retries: int = 3,
-                 language_code: str = "ar", region_code: str = "EG"):
+                 language_code: str = "", region_code: str = ""):
+        # P-81 (D-8): defaults are NEUTRAL now, not "ar"/"EG". The old defaults meant every
+        # competitor search for a Saudi/Qatari/US brand was run in the EGYPTIAN market in Arabic
+        # (both live entrypoints used PlacesClient() with no args). The caller passes the brand's
+        # OWN evidenced market (poster.locale.search_locale); when unknown, empty -> omitted from
+        # the request -> Google's own default, never a guessed (wrong) market.
         if not api_key:
             _load_dotenv()
         self.api_key = api_key or os.environ.get("GOOGLE_MAPS_API_KEY") \
@@ -92,6 +97,16 @@ class PlacesClient:
         self.region_code = region_code
         self.last_geocode_error: Optional[str] = None
         self._session = requests.Session()
+
+    def _locale_body(self) -> dict:
+        """languageCode/regionCode for a request body, OMITTED when empty (P-81) — an empty market
+        is 'no bias', never a wrong one, byte-identical to a pre-D-8 request that guessed nothing."""
+        out: dict = {}
+        if self.language_code:
+            out["languageCode"] = self.language_code
+        if self.region_code:
+            out["regionCode"] = self.region_code
+        return out
 
     # -- low-level POST with simple backoff on 429/5xx --
     def _post(self, url: str, body: dict, field_mask: str) -> dict:
@@ -132,11 +147,7 @@ class PlacesClient:
         enabled, not the separate Geocoding API. We just need an approximate
         center point for the nearby search, so the first match is good enough.
         """
-        body = {
-            "textQuery": query,
-            "languageCode": self.language_code,
-            "regionCode": self.region_code,
-        }
+        body = {"textQuery": query, **self._locale_body()}
         data = self._post(f"{_PLACES_BASE}/places:searchText", body,
                           "places.location,places.formattedAddress,places.displayName")
         places = data.get("places") or []
@@ -151,7 +162,9 @@ class PlacesClient:
         """Address string -> (lat, lng) via the (separate) Geocoding API. Returns
         None on failure and stores the reason in self.last_geocode_error so the
         caller can tell 'API not enabled' apart from 'no results'."""
-        params = {"address": address, "key": self.api_key, "region": self.region_code}
+        params = {"address": address, "key": self.api_key}
+        if self.region_code:                                   # P-81: omit when no evidenced market
+            params["region"] = self.region_code
         data = self._get(_GEOCODE_URL, params, field_mask=None)
         status = data.get("status")
         if status == "OK" and data.get("results"):
@@ -188,8 +201,7 @@ class PlacesClient:
             "includedTypes": included_types,
             "maxResultCount": min(max_results, 20),  # Nearby Search caps at 20
             "rankPreference": rank,                  # "POPULARITY" or "DISTANCE"
-            "languageCode": self.language_code,
-            "regionCode": self.region_code,
+            **self._locale_body(),                   # P-81: brand's market, omitted when unknown
             "locationRestriction": {
                 "circle": {"center": {"latitude": lat, "longitude": lng}, "radius": radius_m}
             },
@@ -202,11 +214,7 @@ class PlacesClient:
                     radius_m: float = 5000, max_results: int = 20) -> List[Candidate]:
         """For online-only businesses (no useful location) or category text search.
         Supports nextPageToken pagination up to `max_results`."""
-        body: Dict = {
-            "textQuery": text_query,
-            "languageCode": self.language_code,
-            "regionCode": self.region_code,
-        }
+        body: Dict = {"textQuery": text_query, **self._locale_body()}
         if included_type:
             body["includedType"] = included_type
         if lat is not None and lng is not None:
@@ -231,8 +239,8 @@ class PlacesClient:
     def get_reviews(self, place_id: str) -> List[Review]:
         """Up to 5 reviews for a place (Google's hard cap)."""
         url = f"{_PLACES_BASE}/places/{place_id}"
-        data = self._get(url, params={"languageCode": self.language_code},
-                         field_mask=_REVIEWS_FIELD_MASK)
+        params = {"languageCode": self.language_code} if self.language_code else {}  # P-81
+        data = self._get(url, params=params, field_mask=_REVIEWS_FIELD_MASK)
         reviews: List[Review] = []
         for r in (data.get("reviews") or []):
             text = (r.get("text") or {}).get("text") \

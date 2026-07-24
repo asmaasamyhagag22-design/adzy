@@ -94,7 +94,11 @@ def test_dashboard_embeds_the_reel_video(tmp_path):
                           out_path=str(tmp_path / "d.html"))
     h = Path(out).read_text(encoding="utf-8")
     assert "<video" in h and "data:video/mp4;base64," in h        # the reel plays in-page
-    assert "كارت نهاية بلوجو البراند" in h                        # the creative note mentions it (bilingual copy)
+    # CS-08 (2026-07-18): this reel has NO audit sidecar, so the creative section shows the honest
+    # NEUTRAL caption — the strong "every hard claim traces to real evidence" guarantee (and the
+    # logo/end-card promise) is gated on a passing audit, not on the file merely existing.
+    assert "Creatives tied to your strategy" in h                 # neutral caption present
+    assert "Every hard claim traces to real evidence" not in h    # strong guarantee NOT shown without an audit
     assert "http://" not in h.replace("http://www.w3.org", "")    # still self-contained
 
 

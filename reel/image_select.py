@@ -101,10 +101,14 @@ def _fail_closed(pairs: list[tuple[str, bytes]], max_keep: int) -> list[str]:
     """FIX-D1: the no-caller / call-failure fallback. The old 'keep all' fallback is what
     let banners + logo-walls through for the whole all-Gemini era (the curator hard-required
     the now-empty OPENAI_API_KEY and silently became a no-op). With no model verdict we now
-    keep only images that pass the DETERMINISTIC suspicious screens (collage/logo-grid ban);
-    the technical size/ratio gate runs separately in image_quality.filter_usable_photos."""
-    from reel.image_quality import is_collage_bytes
-    return [u for u, d in pairs if not is_collage_bytes(d)][:max_keep]
+    keep only images that pass the DETERMINISTIC suspicious screens (collage/logo-grid AND
+    QR/matrix-code ban — P-90); the technical size/ratio gate runs separately in
+    image_quality.filter_usable_photos. A single partner logo / screenshot still needs the vision
+    caller — deterministically separating those from a real photo isn't reliable, so they are
+    dropped only when the caller runs (this net catches the two shapes we CAN screen without it)."""
+    from reel.image_quality import is_collage_bytes, is_qr_code_bytes
+    return [u for u, d in pairs
+            if not is_collage_bytes(d) and not is_qr_code_bytes(d)][:max_keep]
 
 
 def select_brand_photos(

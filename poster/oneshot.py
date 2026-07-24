@@ -52,16 +52,91 @@ def _norm_text(s: str) -> str:
     return " ".join(s.casefold().split())
 
 
+def _props_rules(n_products: int, n_places: int, product_placement: str = "") -> str:
+    """The REAL-asset rules for the scene: the brand's own product photos as props, its own
+    premises as the place, and — the 2026-07-20 owner fix — the PHYSICS of where the product sits.
+
+    Owner: "البوستر بيحط علبة الدوا في أي مكان وبأي شكل مش مهتم هو ده مكان منطقي ولا لأ." The old
+    text said only "place them naturally", which is not a rule, so a floating/mis-scaled/shadowless
+    box passed. The placement rules below are phrased for ANY category (owner's D-8 correction: a
+    box rests on a counter, but shoes sit on the ground, a car on the road, a sofa in a room — the
+    universal is a NATURAL SUPPORT that suits the product's own kind, not "a surface").
+    """
+    parts: list[str] = []
+    if n_products:
+        # The owner's radical fix: real assets composite correctly (proven by the
+        # logo) — so the products in the scene are the brand's REAL product PHOTOS,
+        # with their REAL labels, not model-invented packaging.
+        parts.append(
+            f"REAL PRODUCT PROPS: the {n_products} image(s) attached AFTER the logo are "
+            "the brand's REAL products, photographed from its own store. "
+            # البند 3: the FIRST prop is THE featured product (the user picked it) — the model
+            # used to be free to feature "one or two", so a secondary photo became the hero
+            # and the poster showed the WRONG product.
+            "The FIRST attached product is THE featured product — it must be the visible "
+            "hero prop in the scene; any additional attached product is background support "
+            "only. Place them naturally as physical props — packaging shape, "
+            "label text, colors and proportions EXACTLY as photographed; do NOT redraw, "
+            "restyle, relabel, translate or 'improve' them. NO other products, boxes or "
+            "packaging may appear in the scene."
+        )
+        parts.append(
+            "PRODUCT PLACEMENT (physics — the product must belong in the scene, not be pasted "
+            "onto it):\n"
+            "1. NATURAL SUPPORT: the product rests on whatever genuinely carries a product OF ITS "
+            "KIND — a jar or box on a counter or shelf, footwear on the ground or a step, a "
+            "vehicle on a road, furniture standing in a room, a garment worn or hung, a building "
+            "on its own site, a handheld item in a hand mid-use. It NEVER floats, hovers, tilts "
+            "unsupported, or sits on nothing.\n"
+            "2. REALISTIC SCALE: sized correctly against the hand, furniture, person or objects "
+            "beside it — a product larger or smaller than its real self ruins the shot.\n"
+            "3. LIT BY THE SCENE: the SAME light direction, colour and softness as everything "
+            "around it, with a contact shadow where it meets its support and any reflection the "
+            "surface would truly produce.\n"
+            "4. A PLACE WITH MEANING: put it where this kind of product is actually USED, kept or "
+            "displayed in real life — not in a decorative void and not somewhere absurd for its "
+            "category.\n"
+            "5. LABEL TO CAMERA: angled so its real label reads clearly and undistorted; never "
+            "turned away, warped, mirrored or cropped past legibility."
+        )
+        if (product_placement or "").strip():
+            # The concept already decided the spot for THIS scene (poster/concept._placement_rule).
+            # Quote it verbatim so the render obeys one considered decision instead of improvising
+            # a new one per attempt.
+            parts.append(
+                "THE DECIDED PLACEMENT for this scene (follow it exactly, within the physics "
+                f"above): {product_placement.strip()}"
+            )
+    if n_places:
+        # FIX-C2: SERVICE brands (education/clinic/government/...) get their REAL premises
+        # attached as the scene's PLACE instead of desk props — the anchor that stops the
+        # render collapsing into interchangeable stock offices (measured on nti: real campus
+        # photos existed and never reached generation).
+        parts.append(
+            f"REAL PLACE: the {n_places} image(s) attached AFTER the logo are this brand's "
+            "REAL premises/environment, photographed on site. Set THE SCENE inside this real "
+            "place — match its architecture, interiors, equipment, furniture and lighting so "
+            "the poster unmistakably happens THERE. Do NOT invent a different location, and do "
+            "NOT paste the photo as-is — compose a fresh scene that clearly lives in it."
+        )
+    return "\n".join(parts)
+
+
 def build_oneshot_prompt(copy: dict, *, brand_name: str = "", palette_names: str = "",
                          dna_lines: str = "", rtl: bool = False, has_logo: bool = False,
                          heading_font: str = "", body_font: str = "",
                          single_message: str = "", visual_idea: str = "",
+                         product_placement: str = "",
                          n_products: int = 0, n_places: int = 0,
-                         locale_line: str = "") -> str:
+                         locale_line: str = "", category: str = "") -> str:
     """The one-shot design brief. The copy fields are OUR gated text and must be rendered
-    EXACTLY — the prompt forbids inventing, translating or 'improving' any word, and forbids
-    ANY other text in the image (the TrendPulse render lets the model add stray labels;
-    zero-hallucination does not)."""
+    EXACTLY — and they are the ONLY drawable words, fenced between BEGIN TEXT / END TEXT.
+
+    OWNER-CAUGHT (2026-07-19, "في شغل في البرومبت"): the image prompt used to embed the
+    VERBATIM_RENDER_CONTRACT paragraph + quoted field labels — meta-instructions an image model
+    cannot tell apart from copy, so contract words got PAINTED into posters. The contract now
+    lives ONLY in the OCR read-back path; here the fence carries nothing but the copy strings,
+    and role/styling hints stay outside it, unquoted."""
     headline = (copy.get("headline") or "").strip()
     sub = (copy.get("subheadline") or "").strip()
     cta = (copy.get("cta") or "").strip()
@@ -76,9 +151,11 @@ def build_oneshot_prompt(copy: dict, *, brand_name: str = "", palette_names: str
     # ONE IDEA, not a collage (measured: without a concept the model crammed every
     # delivery trope — drone + robot + couch + floating products — into one frame).
     if single_message:
-        parts.append(f"THE CONCEPT — the poster expresses exactly THIS ONE idea: {single_message}.")
+        parts.append("THE CONCEPT (visual direction — never words to draw): the poster expresses "
+                     f"exactly THIS ONE idea: {single_message}.")
     if visual_idea:
-        parts.append(f"THE SCENE: {visual_idea}. Execute THIS scene only.")
+        parts.append(f"THE SCENE (visual direction — never words to draw): {visual_idea}. "
+                     "Execute THIS scene only.")
     parts.append(
         "ART DIRECTION (mandatory): ONE clear focal subject; at most 2-3 supporting "
         "elements; generous calm negative space — 'less is more', never a cluttered "
@@ -88,30 +165,9 @@ def build_oneshot_prompt(copy: dict, *, brand_name: str = "", palette_names: str
         "on a dark calm area or dark text on a light calm area; if needed, design a "
         "soft panel or gradient behind the text; NEVER place text over busy detail."
     )
-    if n_products:
-        # The owner's radical fix: real assets composite correctly (proven by the
-        # logo) — so the products in the scene are the brand's REAL product PHOTOS,
-        # with their REAL labels, not model-invented packaging.
-        parts.append(
-            f"REAL PRODUCT PROPS: the {n_products} image(s) attached AFTER the logo are "
-            "the brand's REAL products, photographed from its own store. Place one or "
-            "two of them naturally in the scene as physical props — packaging shape, "
-            "label text, colors and proportions EXACTLY as photographed; do NOT redraw, "
-            "restyle, relabel, translate or 'improve' them. NO other products, boxes or "
-            "packaging may appear in the scene."
-        )
-    if n_places:
-        # FIX-C2: SERVICE brands (education/clinic/government/...) get their REAL premises
-        # attached as the scene's PLACE instead of desk props — the anchor that stops the
-        # render collapsing into interchangeable stock offices (measured on nti: real campus
-        # photos existed and never reached generation).
-        parts.append(
-            f"REAL PLACE: the {n_places} image(s) attached AFTER the logo are this brand's "
-            "REAL premises/environment, photographed on site. Set THE SCENE inside this real "
-            "place — match its architecture, interiors, equipment, furniture and lighting so "
-            "the poster unmistakably happens THERE. Do NOT invent a different location, and do "
-            "NOT paste the photo as-is — compose a fresh scene that clearly lives in it."
-        )
+    props_rules = _props_rules(n_products, n_places, product_placement)
+    if props_rules:
+        parts.append(props_rules)
     if locale_line:
         # FIX-C3: evidence-derived country/culture primer (poster/locale.brand_locale) — the
         # anchor that stops generic-Western casting for a brand with a known market.
@@ -165,16 +221,31 @@ def build_oneshot_prompt(copy: dict, *, brand_name: str = "", palette_names: str
             f"Brand typography: the website uses '{fonts}' — design the poster's type "
             "in the same typographic character (weight, feel), so it reads as this brand."
         )
-    from poster.contracts import VERBATIM_RENDER_CONTRACT
-    parts.append(VERBATIM_RENDER_CONTRACT)
-    parts.append("RENDER THIS TEXT — EXACTLY, character for character, no word added, removed,")
-    parts.append("translated or 'improved':")
+    # CS-02 residual closed: the ad-safety compliance line (one source: poster/contracts) now
+    # reaches the ONESHOT engine too — a styling directive, outside the drawable-text fence.
+    from poster.contracts import compliance_for
+    _compliance = compliance_for(category)
+    if _compliance:
+        parts.append(_compliance)
+    # Role/typography hints live OUTSIDE the fence and UNQUOTED — quoted labels used to get
+    # painted into the artwork. The order maps 1:1 onto the quoted lines below.
+    roles = []
     if headline:
-        parts.append(f'HEADLINE (dominant, hero typography): "{headline}"')
+        roles.append("the 1st quoted line is the headline — dominant hero typography")
     if sub:
-        parts.append(f'SUBHEADLINE (smaller, supporting): "{sub}"')
+        roles.append("the 2nd quoted line is the subheadline — smaller, supporting")
     if cta:
-        parts.append(f'CALL-TO-ACTION (on a pill button): "{cta}"')
+        roles.append(f"the {'3rd' if headline and sub else 'last'} quoted line is the "
+                     "call-to-action — set on a pill button")
+    if roles:
+        parts.append("TYPOGRAPHY ROLES (styling only): " + "; ".join(roles) + ".")
+    parts.append("TEXT TO RENDER — copy each quoted line below EXACTLY as written, letter for "
+                 "letter, no word added, removed, translated or 'improved':")
+    parts.append("BEGIN TEXT")
+    for line in (headline, sub, cta):
+        if line:
+            parts.append(f'"{line}"')
+    parts.append("END TEXT")
     if rtl:
         parts.append(
             "The text is ARABIC: right-to-left, correctly SHAPED AND CONNECTED letters "
@@ -202,7 +273,8 @@ def build_oneshot_prompt(copy: dict, *, brand_name: str = "", palette_names: str
         )
     parts.append(
         "ABSOLUTELY NO other text, words, letters, numbers, watermarks or invented labels "
-        "anywhere in the image — ONLY the exact lines specified above."
+        "anywhere in the image — the ONLY renderable text is the quoted lines between "
+        "BEGIN TEXT and END TEXT above. Nothing else in this brief is text to draw."
     )
     return "\n".join(parts)
 
@@ -227,6 +299,21 @@ def _is_retryable(e: Exception) -> bool:
     code = getattr(e, "status_code", None) or getattr(e, "code", None)
     s = str(e)
     return code in (429, 500, 503) or "RESOURCE_EXHAUSTED" in s or "UNAVAILABLE" in s
+
+
+# Image models retire underneath us. MEASURED 2026-07-21 on project radiant-octane-501919-v1:
+# every Imagen id AND `gemini-3-pro-image-preview` (what .env pins) return 404 NOT_FOUND, while
+# `gemini-2.5-flash-image` (nano banana) serves normally — so a client's poster died on a retired
+# model id. The configured model is always tried FIRST; a 404 moves to the next one.
+_MODEL_CHAIN = ("gemini-2.5-flash-image", "gemini-3.1-flash-image-preview",
+                "gemini-2.5-flash-image-preview")
+
+
+def _is_missing_model(e: Exception) -> bool:
+    """A retired/unavailable model — retrying it can only waste time; try the next instead."""
+    code = getattr(e, "code", None) or getattr(getattr(e, "response", None), "status_code", None)
+    s = str(e)
+    return code == 404 or "404" in s and "NOT_FOUND" in s
 
 
 def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
@@ -259,19 +346,34 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
     import time as _time
     delays_s = (0, 20, 45, 90)
     resp = None
-    for i, delay_s in enumerate(delays_s):
-        if delay_s:
-            _time.sleep(delay_s)
-        try:
-            resp = cl.models.generate_content(
-                model=model,
-                contents=contents,
-                config=types.GenerateContentConfig(response_modalities=["IMAGE", "TEXT"]),
-            )
+    candidates = [model] + [m for m in _MODEL_CHAIN if m != model]
+    tried: list[str] = []
+    last_exc: Optional[Exception] = None
+    for cand_model in candidates:
+        tried.append(cand_model)
+        for i, delay_s in enumerate(delays_s):
+            if delay_s:
+                _time.sleep(delay_s)
+            try:
+                resp = cl.models.generate_content(
+                    model=cand_model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(response_modalities=["IMAGE", "TEXT"]),
+                )
+                break
+            except Exception as e:  # noqa: BLE001
+                last_exc = e
+                if _is_missing_model(e):
+                    break                    # retired here — the NEXT model, not the same one again
+                if not _is_retryable(e) or i == len(delays_s) - 1:
+                    raise
+        if resp is not None:
+            model = cand_model               # what actually rendered, for the spend record
             break
-        except Exception as e:  # noqa: BLE001
-            if not _is_retryable(e) or i == len(delays_s) - 1:
-                raise
+    if resp is None:
+        raise RuntimeError(
+            f"one-shot poster: no image model available (tried {', '.join(tried)})"
+        ) from last_exc
     for cand in (resp.candidates or []):
         for part in (cand.content.parts or []):
             inline = getattr(part, "inline_data", None)

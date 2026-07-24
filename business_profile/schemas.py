@@ -31,6 +31,27 @@ T = TypeVar("T")
 # Enums
 # ---------------------------------------------------------------------
 
+class BusinessModel(str, Enum):
+    """HOW a business sells — the axis `BusinessCategory` kept conflating with WHAT it sells.
+
+    MEASURED 2026-07-21: one `category` field had to answer both questions, so it flipped between
+    them. `ecommerce` covered an online pharmacy, a jewellery house, a supplements brand and a
+    beauty brand — four unrelated markets — while Coca-Cola came out `services_b2c`. Consumers that
+    need the model (Places types, local/reach routing, search radius) and consumers that need the
+    market (trend seeds, query seeds, peer relevance) were reading the same field and one of them
+    was always wrong.
+
+    This axis stays a CLOSED enum because it genuinely is finite. The market axis is free text
+    (`market_category`) — no closed list survives contact with real markets (D-8).
+    """
+
+    ECOMMERCE = "ecommerce"          # sells online, ships; competes nationally
+    LOCAL = "local"                  # walk-in premises; competes by proximity
+    SERVICE = "service"              # delivers a service, on-site or remote
+    HYBRID = "hybrid"                # a real storefront AND a real online store
+    UNKNOWN = "unknown"              # not enough evidence — never guessed
+
+
 class BusinessCategory(str, Enum):
     RESTAURANT = "restaurant"
     CAFE = "cafe"
@@ -456,6 +477,13 @@ class BusinessProfile(BaseModel):
     tagline: EvidencedField[str] = Field(default_factory=EvidencedField.missing)
     description: EvidencedField[str] = Field(default_factory=EvidencedField.missing)
     category: EvidencedField[BusinessCategory] = Field(default_factory=EvidencedField.missing)
+    # The two axes `category` was conflating. Additive: `category` stays until every consumer has
+    # been moved, so nothing breaks mid-migration.
+    #   market_category — WHAT is sold, in the brand's own words ("مجوهرات يدوية", "liposomal
+    #                     supplements"). FREE TEXT by ruling: a closed list is always too small.
+    #   business_model  — HOW it sells. Closed enum; that axis really is finite.
+    market_category: EvidencedField[str] = Field(default_factory=EvidencedField.missing)
+    business_model: BusinessModel = BusinessModel.UNKNOWN
 
     # --- Offerings ---
     offerings: list[Offering] = Field(default_factory=list)

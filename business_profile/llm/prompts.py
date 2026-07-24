@@ -76,6 +76,17 @@ def build_identity_prompt(pack: EvidencePack) -> str:
         + f"3. category: choose exactly ONE from this fixed list: {', '.join(CATEGORY_VALUES)}. This "
         "label routes downstream specialization, so choose the closest real fit; use 'other' only "
         "when no listed category genuinely applies, never as a shortcut for 'unsure'.\n"
+        # process.md §8.11: `category` conflated two questions, so it flipped between them
+        # (an online pharmacy and a jeweller both landed on 'ecommerce'). These two fields split
+        # the axes: WHAT the business sells (free text — a list is always too small) vs HOW it
+        # sells (a genuinely small closed set).
+        + "4. market_category: WHAT this business sells, in the brand's OWN words as free text — "
+        "NOT from a list. Be specific: 'handmade jewellery', 'liposomal supplements', "
+        "'soft-drink beverages', 'laser skin clinic'. This is the market, and no fixed list can "
+        "hold every market.\n"
+        + "5. business_model: HOW it sells — choose exactly ONE: ecommerce (sells online and ships), "
+        "local (walk-in premises), service (delivers a service, on-site or remote), hybrid (a real "
+        "storefront AND a real online store), unknown (evidence insufficient — never a guess).\n"
         + "\nFor each field, return value, evidence (list of block_id+quote), confidence (high/medium/low/none), and a short reasoning string."
     )
 

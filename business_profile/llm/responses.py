@@ -37,6 +37,17 @@ class IdentityResponse(BaseModel):
     category_confidence: Confidence = Confidence.NONE
     category_reasoning: Optional[str] = None
 
+    # The two axes `category` conflated (process.md §8.11). Optional so responses produced before
+    # the split still parse.
+    #   market_category — WHAT is sold, free text in the brand's words ("handmade jewellery")
+    #   business_model  — HOW it sells, validated against BusinessModel after parse
+    market_category_value: Optional[str] = None
+    market_category_evidence: list[LLMEvidenceRef] = Field(default_factory=list)
+    market_category_confidence: Confidence = Confidence.NONE
+    business_model_value: Optional[str] = None
+    business_model_evidence: list[LLMEvidenceRef] = Field(default_factory=list)
+    business_model_confidence: Confidence = Confidence.NONE
+
 
 # ---------------------------------------------------------------------
 # Group 2: Offerings + pricing posture

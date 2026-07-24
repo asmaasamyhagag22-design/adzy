@@ -51,6 +51,29 @@ def _emit(on_progress, event: str, label: str, msg: str) -> None:
             pass
 
 
+def _profile_is_usable(profile_path: Path) -> bool:
+    """P-43: never generate a poster from an empty/contentless profile — that is how an EMPTY scrape
+    produced a 'Summer Sale' poster for a media agency while a good scrape sat on disk. Require a
+    real brand name OR at least one offering; a bare '{}' (an empty scrape's profile) is refused.
+    The empty scrape itself is now rejected upstream (scraper P-61/P-62); this is the last-line guard
+    at the generation entry, since an empty '{}' file still passes an `is_file()` check."""
+    try:
+        prof = json.loads(profile_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return False
+    if not isinstance(prof, dict) or not prof:
+        return False
+    root = prof.get("profile") if isinstance(prof.get("profile"), dict) else prof
+
+    def _val(key: str) -> str:
+        v = root.get(key)
+        if isinstance(v, dict):
+            v = v.get("value")
+        return str(v or "").strip()
+
+    return bool(_val("name")) or bool(root.get("offerings"))
+
+
 def _run(cmd: list[str], *, timeout: int, label: str, on_progress=None,
          env: dict | None = None) -> tuple[bool, str]:
     """Run one stage; stream a compact status. Returns (ok, tail_of_output)."""
@@ -70,6 +93,59 @@ def _run(cmd: list[str], *, timeout: int, label: str, on_progress=None,
     err = "\n".join((p.stderr or p.stdout or "").strip().splitlines()[-3:])
     _emit(on_progress, "stage_fail", label, f"    [X] {label} failed ({dt:.0f}s): {err[:200]}")
     return False, tail
+
+
+def _maturity_for(profile_dict, slug: str):
+    """Owner ruling 2026-07-20: the maturity verdict (deterministic, disclosed) — computed from
+    the profile + the saved IG snapshot when one exists. None on any failure (single-objective)."""
+    try:
+        import json as _json
+        from media_plan.maturity import brand_maturity
+        snap = None
+        p = Path("runs/social_snapshots") / f"{slug}_ig.json"
+        if p.is_file():
+            snap = _json.loads(p.read_text(encoding="utf-8"))
+        return brand_maturity(profile_dict if isinstance(profile_dict, dict) else {},
+                              ig_snapshot=snap)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def archive_creative(slug: str, out_dir: str = "outputs") -> list[str]:
+    """Clear a brand's generated creative so the studio opens as if for the first time.
+
+    Owner (2026-07-20, NTI): a re-analysis TODAY still showed the poster and reel from July 12 —
+    re-analysing rebuilds the strategy but never touched the creative, so superseded work kept
+    presenting itself as current. She asked to "open it as if it's the first time".
+
+    ARCHIVES, never deletes: everything moves to `outputs/_archive/<slug>/<timestamp>/`, because a
+    render she paid for (a Veo reel is ~$11) must stay recoverable even when she wants it out of the
+    way. Returns the archived paths ([] when there was nothing to clear).
+    """
+    import shutil
+    from datetime import datetime, timezone
+    P = paths(slug, out_dir)
+    out = P["out"]
+    candidates = [
+        P["poster"], P["reel"],
+        out / f"{slug}_reel_plan.json", out / f"{slug}_poster_prompt.txt",
+        out / "reels" / f"{slug}_reel.audit.json", out / "reels" / f"{slug}_reel.vo.m4a",
+        out / f"{slug}_poster_status.json",
+    ]
+    present = [p for p in candidates if p.is_file()]
+    if not present:
+        return []                      # nothing to clear -> leave no empty archive folder behind
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    dest = out / "_archive" / slug / stamp
+    dest.mkdir(parents=True, exist_ok=True)
+    moved: list[str] = []
+    for p in present:
+        try:
+            shutil.move(str(p), str(dest / p.name))
+            moved.append(str(p))
+        except Exception:  # noqa: BLE001 — a locked file must not abort the rest
+            pass
+    return moved
 
 
 def paths(slug: str, out_dir: str = "outputs") -> dict:
@@ -113,8 +189,22 @@ def analyze(url: str, *, out_dir: str = "outputs", on_progress=None) -> str | No
         have_profile = False
 
     if have_profile:
-        _run([py, "-m", "strategy", str(P["profile"]), "--days", "14", "--out", str(P["plan"])],
+        # P-12: ride the brand's CURRENT market trends (--trends) — the calendar was blind to them
+        # even though the studio surfaces a live Market Pulse in the same run. P-14: no --cadence, so
+        # the per-category posting frequency (media_plan.config.cadence_for) applies, not a flat 4/wk.
+        _run([py, "-m", "strategy", str(P["profile"]), "--days", "14", "--trends",
+              "--out", str(P["plan"])],
              timeout=300, label="Content calendar", on_progress=on_progress)
+
+    # Owner rule: every site gets ONE folder holding all of its results (outputs/<slug>/), with an
+    # index saying what each file is — a client-handable deliverable, not a filename-prefix hunt.
+    try:
+        from dashboard.site_folder import collect_site_folder
+        folder = collect_site_folder(slug, out_dir=out_dir)
+        if folder:
+            _emit(on_progress, "stage_ok", "Site folder", f"    [OK] كل النتائج في {folder}")
+    except Exception:  # noqa: BLE001
+        pass
         # U1 on the dashboard (owner directive 2026-07-12): build the grounded MediaPlan
         # (one cheap Gemini text call) so the studio shows objective/KPI/geo at a glance.
         _emit(on_progress, "stage_start", "Media plan", "  -> Media plan (U1) ...")
@@ -123,7 +213,12 @@ def analyze(url: str, *, out_dir: str = "outputs", on_progress=None) -> str | No
             import json as _json
             from media_plan.builder import build_media_plan
             prof = _json.loads(P["profile"].read_text(encoding="utf-8"))
-            mp = build_media_plan(prof, run_id=f"studio_{slug}")
+            from dashboard.owner_inputs import load_owner_inputs
+            mp = build_media_plan(prof, run_id=f"studio_{slug}",
+                                maturity=_maturity_for(prof, slug),
+                                # her vault number, actually spent across the objectives
+                                monthly_budget=load_owner_inputs(slug, str(P["out"]))
+                                .get("monthly_budget"))
             if mp is not None:
                 (P["out"] / f"{slug}_media_plan.json").write_text(
                     mp.model_dump_json(indent=2), encoding="utf-8")
@@ -153,7 +248,10 @@ def generate_poster(slug: str, *, out_dir: str = "outputs", on_progress=None,
     picked product. Returns its path."""
     py = sys.executable
     P = paths(slug, out_dir)
-    if not P["profile"].is_file():
+    if not P["profile"].is_file() or not _profile_is_usable(P["profile"]):
+        # P-43: refuse to fabricate a poster from an empty/thin profile (empty scrape).
+        _emit(on_progress, "failed", "Poster",
+              "[X] no usable profile (empty scrape?) — run Analyze on a reachable URL first")
         return None
     P["poster"].parent.mkdir(parents=True, exist_ok=True)
     # No --research on the studio path (deep web research pushed it past 420s). 900s: the one-shot
@@ -165,8 +263,57 @@ def generate_poster(slug: str, *, out_dir: str = "outputs", on_progress=None,
     pfile = P["out"] / f"{slug}_poster_prompt.txt"
     if use_hitl and pfile.is_file():
         args += ["--prompt-file", str(pfile)]
-    ok, _ = _run(args, timeout=900, label="Poster (one-shot)", on_progress=on_progress)
-    return P["poster"] if (ok and P["poster"].is_file()) else None
+    import time as _time
+    started = _time.time()
+    # 1200s (was 900): oneshot retries + classic fallback + upscale legitimately exceed 900
+    # (MEASURED: rawafrican >600s before the fallback even starts).
+    ok, _ = _run(args, timeout=1200, label="Poster (one-shot)", on_progress=on_progress)
+    # البند 1 (owner-caught "فشل وهو موجود"): success = a poster EXISTS, not exit-0. The
+    # pipeline refreshes the canonical file after every render, so a timeout usually still
+    # left a served poster; adopt a fresh orphan if the canonical is somehow absent.
+    posters_dir = P["poster"].parent
+    if not (ok and P["poster"].is_file()):
+        fresh_canonical = P["poster"].is_file() and P["poster"].stat().st_mtime >= started - 1
+        if not fresh_canonical:
+            orphans = [c for c in posters_dir.glob("poster_*.png")
+                       if c.stat().st_mtime >= started - 1]
+            if orphans:
+                import shutil as _sh
+                _sh.copyfile(max(orphans, key=lambda c: c.stat().st_mtime), P["poster"])
+        if P["poster"].is_file() and P["poster"].stat().st_mtime >= started - 1:
+            _emit(on_progress, "stage", "Poster",
+                  "[!] الرندر خلص بعد المهلة — اتبنّى آخر بوستر ناجح")
+            ok = True
+    # النظافة: fresh drafts that were NOT adopted move out of the root (no orphans to stumble on)
+    try:
+        att = posters_dir / "_attempts" / slug
+        for c in posters_dir.glob("poster_*.png"):
+            if c.stat().st_mtime >= started - 1:
+                att.mkdir(parents=True, exist_ok=True)
+                c.replace(att / c.name)
+    except Exception:  # noqa: BLE001
+        pass
+    if not (ok and P["poster"].is_file()):
+        # البند 6: leave the REASON on disk so p8/الاستوديو can say more than "Pending".
+        try:
+            import json as _json
+            (P["out"] / f"{slug}_poster.status.json").write_text(_json.dumps({
+                "status": "failed", "at": _time.strftime("%Y-%m-%d %H:%M"),
+                "reason": "لم يُنتَج أي رندر — راجعي آخر سطر [X] في لوج التوليد",
+            }, ensure_ascii=False), encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+    try:  # a fresh success clears any stale failure note
+        (P["out"] / f"{slug}_poster.status.json").unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
+    try:  # keep the site's deliverable folder carrying the newest creative
+        from dashboard.site_folder import collect_site_folder
+        collect_site_folder(slug, out_dir=out_dir)
+    except Exception:  # noqa: BLE001
+        pass
+    return P["poster"]
 
 
 def generate_reel(slug: str, *, out_dir: str = "outputs", on_progress=None,
@@ -180,7 +327,11 @@ def generate_reel(slug: str, *, out_dir: str = "outputs", on_progress=None,
     import os
     py = sys.executable
     P = paths(slug, out_dir)
-    if not P["profile"].is_file():
+    if not P["profile"].is_file() or not _profile_is_usable(P["profile"]):
+        # P-37/P-43: refuse to animate a reel from an empty/thin profile (empty scrape) — a bare
+        # '{}' passes is_file() but must never spend a Veo render on a brand we know nothing about.
+        _emit(on_progress, "failed", "Reel",
+              "[X] no usable profile (empty scrape?) — run Analyze on a reachable URL first")
         return None
     P["reel"].parent.mkdir(parents=True, exist_ok=True)
     args = [py, "-m", "reel", str(P["profile"]), "--creative", "--out", str(P["reel"])]
@@ -405,18 +556,43 @@ def hitl_preview(slug: str, kind: str, *, out_dir: str = "outputs",
             except Exception:  # noqa: BLE001
                 return ""
 
-        lines = [f"CONCEPT: {creative.concept}", f"HOOK: {creative.hook}{_flag(creative.hook)}",
-                 f"CTA: {creative.cta}{_flag(creative.cta)}", f"LANGUAGE: {creative.language}", ""]
-        for i, sc in enumerate(creative.scenes, 1):
-            lines += [f"SCENE {i} ({sc.duration_s:.0f}s, photo #{sc.image_index}):",
-                      f"  MOTION: {sc.veo_prompt}",
-                      f"  VOICE-OVER: {sc.voiceover}{_flag(sc.voiceover)}",
-                      f"  CAPTION: {sc.on_screen_text or '—'}", ""]
+        lines = _reel_brief_lines(creative, flag=_flag)
         if crep is not None and not crep.ok and crep.issues:
             lines += ["⚠ نقاط لم تُحسَم تلقائياً · gate could not fully resolve:"]
             lines += [f"  - {it}" for it in crep.issues[:8]]
         text = "\n".join(lines)
     return {"text": text, "arabic": _arabic_rendering(text), "file": str(path)}
+
+
+def _reel_brief_lines(creative, *, flag=lambda s: "") -> list[str]:
+    """The reel brief the owner approves. It leads with the CREATIVE STRATEGY (2026-07-20): the
+    gate now forces a point of view, a narrative arc and a visual motif on every plan — if the
+    brief didn't show them, she'd be approving ~$11 of rendering without seeing the one thing that
+    decides whether the reel has a director behind it. Strategy lines are OMITTED (not printed
+    empty) for plans authored before the contract."""
+    lines: list[str] = []
+    pov = (getattr(creative, "creative_pov", "") or "").strip()
+    arc = [str(b) for b in (getattr(creative, "narrative_arc", None) or []) if str(b).strip()]
+    motif = (getattr(creative, "visual_motif", "") or "").strip()
+    if pov:
+        lines.append(f"وجهة النظر · POV: {pov}")
+    if arc:
+        lines.append("القوس السردي · ARC: " + " ← ".join(arc))
+    if motif:
+        lines.append(f"الموتيف البصري · MOTIF: {motif}")
+    if lines:
+        lines.append("")
+    lines += [f"CONCEPT: {creative.concept}", f"HOOK: {creative.hook}{flag(creative.hook)}",
+              f"CTA: {creative.cta}{flag(creative.cta)}", f"LANGUAGE: {creative.language}", ""]
+    for i, sc in enumerate(creative.scenes, 1):
+        beat = (getattr(sc, "arc_beat", "") or "").strip()
+        head = f"SCENE {i} ({sc.duration_s:.0f}s, photo #{sc.image_index}"
+        head += f", مرحلة: {beat})" if beat else ")"
+        lines += [head + ":",
+                  f"  MOTION: {sc.veo_prompt}",
+                  f"  VOICE-OVER: {sc.voiceover}{flag(sc.voiceover)}",
+                  f"  CAPTION: {sc.on_screen_text or '—'}", ""]
+    return lines
 
 
 def hitl_refine(slug: str, kind: str, instruction: str, *, out_dir: str = "outputs",

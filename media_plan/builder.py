@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
+from enum import Enum
 from typing import Any, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
@@ -59,13 +60,58 @@ def _get(obj: Any, key: str, default: Any = None) -> Any:
     return default if val is None else val
 
 
+# P-29: a client deliverable must never carry a raw Python repr — an `AudienceType.MIXED` enum
+# (str(enum) is the repr on 3.11), an `EvidencedField(value=...)` model repr, or an `<obj at 0x..>`.
+# CS-05: also catch CONTAINER reprs. The first version of this scrubber was scalar-only, so a
+# list-typed field (`service_areas: list[EvidencedField[str]]`) went straight through `str()` and
+# shipped `"serves: [{'value': 'Cairo', 'evidence': [{'page_url': ...}]}]"` — a raw list-of-dicts,
+# evidence internals and all, as a client-facing persona claim.
+_REPR_RE = re.compile(
+    r"<[\w.]+ object at 0x[0-9a-fA-F]+>"   # <Foo object at 0x7ff...>
+    r"|\b[A-Z]\w+\(\w+="                   # EvidencedField(value=...)
+    r"|^\[.*\]$"                           # ['Cairo', 'Giza']  / [{'value': ...}]
+    r"|^\{.*\}$",                          # {'value': 'Cairo'}
+    re.DOTALL,
+)
+
+_LIST_JOIN = "، "   # Arabic comma: these strings are read by Arabic-speaking clients
+
+
+def _clean_value(v: Any) -> str:
+    """Unwrap an EvidencedField / dict / Enum / LIST down to a clean human string for CLIENT-facing
+    text. Returns '' (and warns) rather than leak a Python repr — CS-05: a scrubber that silently
+    passes what it cannot clean IS the failure class, so the fallback drops loudly."""
+    for _ in range(4):  # bounded unwrap of EvidencedField-shaped wrappers
+        if isinstance(v, dict) and "value" in v:
+            v = v.get("value")
+        elif not isinstance(v, (str, int, float, bool, Enum)) and hasattr(v, "value"):
+            v = getattr(v, "value")
+        else:
+            break
+    if isinstance(v, Enum):
+        v = v.value                      # AudienceType.MIXED -> "mixed", never the repr
+    if v is None:
+        return ""
+
+    # CS-05: a list/tuple field (service_areas) — clean each element, keep the human values.
+    if isinstance(v, (list, tuple, set)):
+        parts = [_clean_value(item) for item in v]
+        return _LIST_JOIN.join(p for p in parts if p)
+
+    s = str(v).strip()
+    if not s:
+        return ""
+    if _REPR_RE.search(s):
+        # Loud on purpose: we could not reduce this to human text, so we drop it — but silence here
+        # is how the leak shipped in the first place.
+        logger.warning("media_plan: dropped an un-scrubbable value (Python repr leaked): %.120s", s)
+        return ""
+    return s
+
+
 def _fv(obj: Any, key: str) -> str:
     """A scalar field value, unwrapping EvidencedField (object .value or {"value": ...})."""
-    v = _get(obj, key)
-    if isinstance(v, dict) and "value" in v:
-        v = v.get("value")
-    v = getattr(v, "value", v)
-    return str(v).strip() if v else ""
+    return _clean_value(_get(obj, key))
 
 
 def _offerings(profile: Any) -> List[dict]:
@@ -187,10 +233,21 @@ def conversion_signals(profile: Any, manifest: Any = None) -> List[Tuple[str, De
     if not store_url and priced_on_site >= _PRICED_CATALOG_MIN and first_on_site:
         store_url = first_on_site[0]
         store_quote = f"{priced_on_site} priced offerings on the brand's own site — e.g. {first_on_site[1]}"
-    if store_url or category in _ECOM_CATEGORIES:
+    if store_url:
         out.append(("online_store", Destination.ONLINE_STORE,
-                    _ref("the brand sells products through an online store", store_url or src,
+                    _ref("the brand sells products through an online store", store_url,
                          store_quote or category, "rule:online_store")))
+    elif category in _ECOM_CATEGORIES:
+        # CS-06: the category CLASS alone is a HYPOTHESIS, not proof — no store URL, no priced
+        # catalog, and no ordering link was found. Emit an UNRESOLVED ref (resolved=False) whose
+        # "evidence" is the mere category name, so an objective built on it comes back is_grounded=
+        # False and the advisor flags it to verify — never a fact whose evidence is its own claim.
+        out.append(("online_store", Destination.ONLINE_STORE,
+                    EvidenceRef(claim="the brand's category suggests it may sell products online",
+                                resolved=False,
+                                evidence=[EvidenceItem(page_url=src or "",
+                                                       quote=(category or None),
+                                                       extractor="rule:category_class")])))
     else:
         # FIX-2c: no on-site store — an order-intent outbound link on the brand's own page is
         # still structural proof the brand takes online orders (evidence = the brand's page + the
@@ -316,12 +373,10 @@ def _field_ref(profile: Any, key: str, claim: str) -> Optional[EvidenceRef]:
     p = _root(profile)
     v = _get(p, key)
     if isinstance(v, dict):
-        value = v.get("value")
         ev = v.get("evidence") or []
     else:
-        value = getattr(v, "value", v)
         ev = list(getattr(v, "evidence", None) or [])
-    value = str(value).strip() if value else ""
+    value = _clean_value(v)   # P-29: enum/EvidencedField -> clean string, never a leaked repr
     if not value:
         return None
     items = []
@@ -376,19 +431,80 @@ def build_geo(profile: Any) -> GeoTargeting:
             addr_ref = EvidenceRef(claim=f"physical location: {addr}"[:300],
                                    resolved=True, evidence=items)
             break
+    # CS-84: name the brand's country on EVERY geo (root of P-51). '' -> None (no guess).
+    try:
+        from poster.locale import country_of
+        country = country_of(profile) or None
+    except Exception:  # noqa: BLE001
+        country = None
     if addr:
         from competitor.market_definition import build_market_definition
         md = build_market_definition(p)
-        return GeoTargeting(mode=GeoMode.RADIUS, center_address=addr,
-                            radius_km=md.geo.radius_km or 15.0, address_ref=addr_ref)
-    return GeoTargeting(mode=GeoMode.NATIONAL)
+        # CS-20: MarketDefinition sets radius_km per CATEGORY — None means national reach (e.g.
+        # e-commerce). Respect that even when the brand has an HQ address; do NOT fabricate a 15km
+        # radius around a warehouse. Only a category with a real local radius becomes RADIUS.
+        if md.geo.radius_km is not None:
+            return GeoTargeting(mode=GeoMode.RADIUS, center_address=addr,
+                                radius_km=md.geo.radius_km, address_ref=addr_ref, country=country)
+        return GeoTargeting(mode=GeoMode.NATIONAL, country=country)
+    return GeoTargeting(mode=GeoMode.NATIONAL, country=country)
+
+
+def _apply_owner_budget(objectives: list, monthly_budget: Any) -> list:
+    """Spend the owner's OWN monthly number across the objectives she already has.
+
+    Owner (2026-07-20): "حساب التكلفة بكتب مش بيحسب غير الديفلت بس" — she typed a budget in the
+    vault and every surface still said "مطلوب رقمك", because `test_budget` was never set anywhere.
+
+    Nothing is invented here: the month's budget is split by the funnel allocation the plan itself
+    computed, so the parts sum to HER number. An objective whose share cannot buy a readable test
+    (below the learning floor — 3 x target cost x ad sets, enforced by CampaignObjective) keeps
+    test_budget=None and SAYS why, instead of shipping a number that can't be judged or raising.
+    """
+    try:
+        budget = float(monthly_budget)
+    except (TypeError, ValueError):
+        return objectives
+    if budget <= 0:
+        return objectives
+
+    out = []
+    for o in objectives:
+        share = budget * float(o.budget_allocation_pct or 0.0) / 100.0
+        if share <= 0:
+            out.append(o)
+            continue
+        note = (f"ميزانيتك الشهرية ({budget:,.0f}) × حصة هذا الهدف "
+                f"{o.budget_allocation_pct:g}٪ = {share:,.0f}")
+        try:
+            # model_validate, NOT model_copy: copy does not re-run validators, so a share below
+            # the learning floor would slip through silently — exactly what the floor exists to stop.
+            out.append(type(o).model_validate(
+                {**o.model_dump(), "test_budget": share, "budget_note": note}))
+        except Exception:      # the learning-floor validator refused it — say so, don't crash
+            kpi = getattr(o, "kpi_target", None)
+            tv = getattr(kpi, "target_value", None)
+            floor = 3.0 * float(tv) * int(o.num_ad_sets or 1) if tv else None
+            out.append(o.model_copy(update={
+                "test_budget": None,
+                "budget_note": (f"حصة هذا الهدف من ميزانيتك ({share:,.0f}) تحت أرضية التعلّم"
+                                + (f" ({floor:,.0f} = 3 × التكلفة المستهدفة {float(tv):,.0f} × "
+                                   f"{int(o.num_ad_sets or 1)} مجموعة إعلانية)" if floor else "")
+                                + " — الاختبار مش هيقرا نتيجة، ارفعي الميزانية أو قللي المجموعات"),
+            }))
+    return out
 
 
 def build_media_plan(profile: Any, caller: Any = None, manifest: Any = None,
-                     run_id: str = "") -> Optional["MediaPlan"]:
-    """U1's final artifact: ONE grounded MediaPlan — the deduced single objective (with its
-    category KPI prior), the evidence-backed persona, the address-anchored geo, and the
-    MarketDefinition reference. None on honest-degrade (no objective could be grounded)."""
+                     run_id: str = "", maturity: Any = None,
+                     monthly_budget: Any = None) -> Optional["MediaPlan"]:
+    """U1's final artifact: ONE grounded MediaPlan. Default = the deduced single objective (with
+    its category KPI prior). Owner ruling (2026-07-20, automatic-by-evidence): a NASCENT brand
+    (media_plan.maturity verdict, ≥2 disclosed signals) gets a FUNNEL plan instead — a TOFU
+    Awareness objective (rationale = the maturity disclosure, kpi=cpm with NO invented target)
+    on top of the deduced conversion objective, split per config.funnel_split_for. Established/
+    unknown maturity keeps today's single-objective plan byte-identical.
+    None on honest-degrade (no objective could be grounded)."""
     from media_plan.schemas import MediaPlan
     obj = build_campaign_objective(profile, caller=caller, manifest=manifest)
     if obj is None:
@@ -396,6 +512,29 @@ def build_media_plan(profile: Any, caller: Any = None, manifest: Any = None,
     from media_plan.config import default_kpi
     p = _root(profile)
     obj = obj.model_copy(update={"kpi_target": default_kpi(obj.objective, _fv(p, "category"))})
+
+    objectives = [obj]
+    level = str(getattr(maturity, "level", "") or "")
+    if level == "nascent" and obj.objective != MetaObjective.AWARENESS:
+        from media_plan.config import funnel_split_for
+        from media_plan.schemas import Destination, FunnelStage, KPITarget
+        split = funnel_split_for(level)
+        tofu_pct = float(split.get("tofu", 0.3)) * 100.0
+        awareness = CampaignObjective(
+            objective=MetaObjective.AWARENESS,
+            destination=Destination.WEBSITE,      # the always-existing grounded surface (:264)
+            funnel_stage=FunnelStage.TOFU,
+            rationale=str(getattr(maturity, "disclosure", "") or "براند ناشئ — بناء وعي أولاً"),
+            budget_allocation_pct=round(tofu_pct, 1),
+            kpi_target=KPITarget(metric="cpm", target_value=None, unit=""),
+            confidence=obj.confidence,
+        )
+        objectives = [awareness,
+                      obj.model_copy(update={
+                          "budget_allocation_pct": round(100.0 - tofu_pct, 1)})]
+
+    objectives = _apply_owner_budget(objectives, monthly_budget)
+
     from competitor.market_definition import build_market_definition
     md = build_market_definition(p)
     rid = run_id
@@ -405,7 +544,7 @@ def build_media_plan(profile: Any, caller: Any = None, manifest: Any = None,
     return MediaPlan(
         run_id=rid,
         market_definition_ref=md.brand_ref or _fv(p, "source_url") or "unknown",
-        objectives=[obj],
+        objectives=objectives,
         base_persona=build_persona(p),
         base_geo=build_geo(p),
     )

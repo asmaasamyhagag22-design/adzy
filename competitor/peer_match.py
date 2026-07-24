@@ -209,13 +209,30 @@ def score_proximity(cand: Candidate, crit: MatchCriteria,
     return round(1.0 - (cand.distance_m - d_min) / (d_max - d_min), 4)
 
 
+# A median needs a real distribution behind it. Below this many survivors the "pool median" is
+# just one of the candidates being compared to itself (MEASURED: a pool of 1 scored a free 1.0).
+_MIN_POOL_FOR_MEDIAN = 3
+
+
 def score_size_similarity(cand: Candidate, crit: MatchCriteria,
-                         pool_median_reviews: Optional[float]) -> float:
+                         pool_median_reviews: Optional[float],
+                         pool_size: Optional[int] = None) -> Optional[float]:
     """Log-ratio similarity of review counts. 1.0 when equal, decays with
     orders-of-magnitude divergence. Compares to the subject's own count, or to
-    the pool median when the subject has no/too-few reviews."""
-    ref = crit.review_count_self if (crit.review_count_self and crit.review_count_self > 0) \
-        else pool_median_reviews
+    the pool median when the subject has no/too-few reviews.
+
+    Returns None (dropped, weight redistributed) when the median is the ONLY reference and the
+    pool is too small for a median to mean anything. MEASURED (Volume Qatar): with one survivor
+    the median IS that survivor's own review count, so it scored a free 1.0 and a catering company
+    cleared the café peer floor at 0.73. `crit.review_count_self` reads a field absent from
+    `BusinessProfile`, so the median path is the only one that ever runs — making the
+    self-reference the norm, not an edge case. A number derived from nothing must vanish rather
+    than turn into confidence.
+    """
+    own = crit.review_count_self if (crit.review_count_self and crit.review_count_self > 0) else None
+    if own is None and pool_size is not None and pool_size < _MIN_POOL_FOR_MEDIAN:
+        return None
+    ref = own if own is not None else pool_median_reviews
     if not ref or ref <= 0 or not cand.review_count or cand.review_count <= 0:
         return SIZE_NEUTRAL
     r = cand.review_count / ref
@@ -305,11 +322,13 @@ def _aggregate(subscores: Dict[str, Optional[float]]) -> PeerFitBreakdown:
 def score_candidate(cand: Candidate, crit: MatchCriteria, *,
                    d_min: float, d_max: float,
                    pool_median_reviews: Optional[float],
+                   pool_size: Optional[int] = None,
                    review_langs: Optional[List[str]] = None) -> PeerFitBreakdown:
     subs: Dict[str, Optional[float]] = {
         "sub_vertical": score_sub_vertical(cand, crit),
         "proximity": score_proximity(cand, crit, d_min, d_max),
-        "size_similarity": score_size_similarity(cand, crit, pool_median_reviews),
+        "size_similarity": score_size_similarity(cand, crit, pool_median_reviews,
+                                                 pool_size=pool_size),
         "audience_tier": score_audience_tier(cand, crit),
         "language": score_language(cand, crit, review_langs),
     }
@@ -389,7 +408,7 @@ def select_peers(
     for c in survivors:
         bd = score_candidate(
             c, crit, d_min=d_min, d_max=d_max,
-            pool_median_reviews=pool_median,
+            pool_median_reviews=pool_median, pool_size=len(survivors),
             review_langs=review_langs_by_place.get(c.place_id),
         )
         rec = SelectionRecord(

@@ -205,7 +205,10 @@ def test_runner_scrape_error_propagates():
     store, job_id = asyncio.run(run_test())
     job = store.get(job_id)
     assert job.status == JobStatus.FAILED
-    assert "network unreachable" in (job.error or "")
+    # CS-80: the client-facing error names the STAGE + exception CLASS, but NOT the raw exception
+    # message (the /jobs/{id} route is unauthenticated — a raw message can leak paths/secrets).
+    assert "scrape" in (job.error or "").lower() and "RuntimeError" in (job.error or "")
+    assert "network unreachable" not in (job.error or "")
     # Last event must be a scrape ERROR
     last = job.events[-1]
     assert last.stage == Stage.SCRAPE

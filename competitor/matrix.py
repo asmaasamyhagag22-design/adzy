@@ -402,6 +402,12 @@ def _bool_gap(dim, s_val, comp_vals) -> DimensionGap:
 
 
 def _numeric_gap(dim, s_val, comp_vals) -> DimensionGap:
+    # CS-101 (DISCLOSED, not silently fixed): for count dims like cta_count/social_count the SUBJECT's
+    # value comes from a FULL crawl+LLM while each PEER's value is a single-homepage anchor count —
+    # different measurement methods, so an "ahead/behind" verdict on the raw counts is only
+    # directional, not commensurable. Normalising the two would need a peer full-crawl (a cost/scope
+    # decision for the owner — logged in logs/NEEDS_OWNER.md). Presence dims (_presence_gap) are not
+    # affected. Kept as-is deliberately; the verdict wording stays advisory.
     vals = list(comp_vals.values())
     avg = sum(vals) / len(vals)
     n = len(vals)

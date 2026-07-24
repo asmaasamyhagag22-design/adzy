@@ -31,9 +31,15 @@ R = TypeVar("R", bound=BaseModel)
 
 @dataclass
 class Usage:
-    """Token counts and cost from one LLM call."""
+    """Token counts and cost from one LLM call.
+
+    `output_tokens` is the VISIBLE completion (candidates); `thoughts_tokens` is the reasoning
+    ('thinking') tokens a Gemini 2.5 model spends internally (P-01). Thinking tokens are billed at
+    the output rate but are NOT part of candidates_token_count, so `cost_usd` must count both —
+    otherwise every cost estimate for a thinking model is understated ~3.5–6x."""
     input_tokens: int = 0
     output_tokens: int = 0
+    thoughts_tokens: int = 0
     cost_usd: float = 0.0
     duration_ms: int = 0
     model: str = ""
@@ -317,17 +323,31 @@ class GeminiCaller:
                 um = getattr(resp, "usage_metadata", None)
                 in_tok = getattr(um, "prompt_token_count", 0) or 0
                 out_tok = getattr(um, "candidates_token_count", 0) or 0
+                # P-01: thinking/reasoning tokens are billed at the OUTPUT rate but are NOT in
+                # candidates_token_count. Count them in cost (both output-rate) or every 2.5-model
+                # estimate is understated ~3.5–6x. Surface them separately for telemetry honesty.
+                thoughts_tok = getattr(um, "thoughts_token_count", 0) or 0
+                # P-74: read the REAL finish reason (MAX_TOKENS / SAFETY / RECITATION), not a
+                # hardcoded "stop" — a truncated or safety-blocked completion used to look clean.
+                try:
+                    _cand0 = (getattr(resp, "candidates", None) or [None])[0]
+                    _fr = getattr(_cand0, "finish_reason", None)
+                    finish_reason = getattr(_fr, "name", None) or (str(_fr) if _fr is not None else "stop")
+                except Exception:  # noqa: BLE001
+                    finish_reason = "stop"
                 usage = Usage(
                     input_tokens=in_tok,
                     output_tokens=out_tok,
-                    cost_usd=_cost_for(self.model, in_tok, out_tok),
+                    thoughts_tokens=thoughts_tok,
+                    cost_usd=_cost_for(self.model, in_tok, out_tok + thoughts_tok),
                     duration_ms=int((time.monotonic() - started) * 1000),
                     model=self.model,
-                    finish_reason="stop",
+                    finish_reason=finish_reason,
                 )
                 logger.info(
-                    "Gemini call ok group=%s model=%s in=%d out=%d cost=$%.4f ms=%d",
-                    group_name, self.model, in_tok, out_tok, usage.cost_usd, usage.duration_ms,
+                    "Gemini call ok group=%s model=%s in=%d out=%d think=%d cost=$%.4f ms=%d fr=%s",
+                    group_name, self.model, in_tok, out_tok, thoughts_tok, usage.cost_usd,
+                    usage.duration_ms, finish_reason,
                 )
                 return parsed, usage
             except Exception as e:

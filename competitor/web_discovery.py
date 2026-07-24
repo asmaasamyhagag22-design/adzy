@@ -18,6 +18,7 @@ result yields [] and the SWOT layer degrades to a grounded standalone analysis.
 from __future__ import annotations
 
 import logging
+import re
 from typing import List, Optional
 from urllib.parse import urlparse
 
@@ -109,6 +110,54 @@ def _is_aggregator(host: Optional[str]) -> bool:
     return bool(reg) and (reg in _AGGREGATOR_HOSTS or reg in _MEDIA_LISTICLE_HOSTS)
 
 
+_DROP_ITEMS = ["listicles/rankings", "directories", "news/media", "universities/courses",
+               "software or tools FOR that industry", "marketplaces"]
+_SELF_KIND = {
+    # subject-kind key -> (the DROP clause that names its own kind, the KEEP line replacing it)
+    "education": ("universities/courses",
+                  "The subject IS an education/training brand — institutes, academies, course "
+                  "platforms and training providers ARE its direct competitors: KEEP them. "),
+    "software": ("software or tools FOR that industry",
+                 "The subject IS a software/tech brand — software products and tools serving "
+                 "the same users ARE its direct competitors: KEEP them. "),
+}
+_KIND_WORDS = {
+    "education": ("education", "training", "academy", "institute", "school", "course"),
+    "software": ("software", "saas", "tech", "it service", "app", "platform"),
+}
+
+
+def _self_kind_key(category) -> Optional[str]:
+    """Which DROP clause names the subject's OWN kind ('' -> None). 1.2 (D-8): a filter tuned to
+    reject schools backfires when the subject IS a school — same for software; the exclusion has
+    to travel with the subject's category, not live hardcoded in the prompt."""
+    cat = str(category or "").lower()
+    for key, words in _KIND_WORDS.items():
+        if any(w in cat for w in words):
+            return key
+    return None
+
+
+def _judge_system_prompt(category) -> str:
+    """The relevance judge's system prompt, with the DROP list built dynamically: the clause
+    naming the subject's own kind is lifted (and replaced by an explicit KEEP line). Every other
+    category reproduces the legacy prompt BYTE-IDENTICAL (pinned by test)."""
+    items = list(_DROP_ITEMS)
+    keep_line = ""
+    kind = _self_kind_key(category)
+    if kind:
+        clause, keep_line = _SELF_KIND[kind]
+        items.remove(clause)
+    return (
+        "You filter competitor candidates for a business-comparison report. Keep ONLY "
+        "candidates that are plausibly a DIRECT COMPETITOR — an actual operating business "
+        "of the SAME KIND as the subject, in or serving the subject's market. DROP: "
+        + ", ".join(items) + ", and anything unrelated. " + keep_line
+        + "When unsure, DROP "
+        "(a wrong competitor is worse than a missing one). Never add anything."
+    )
+
+
 def _subject_registrable(profile) -> Optional[str]:
     for key in ("final_url", "source_url", "website", "url"):
         val = _get(profile, key)
@@ -117,15 +166,42 @@ def _subject_registrable(profile) -> Optional[str]:
     return None
 
 
+_TITLE_SEPS = (" | ", " - ", " – ", " — ", ": ")
+
+
 def _clean_title(title: str, host: Optional[str]) -> str:
-    """A short brand-ish name: text before the first separator, else the host."""
+    """The competitor's BRAND name — not the SEO phrase that happened to rank.
+
+    MEASURED (nanocare, 2026-07-21): taking the text before the first separator listed real
+    businesses as "أفضل مكمل غذائي في مصر 2026" (inshapesupplements.com) and "متجر مكملات غذائية
+    في مصر" (beseha.com). On an SEO-optimised page the first segment IS the keyword phrase; the
+    brand sits after the separator, or only in the domain.
+
+    Keyed on the DOMAIN rather than a banned-words list, so it holds in any language: prefer the
+    title segment that shares a token with the registrable domain, else prettify the domain.
+    """
+    reg = _registrable(host) or ""
+    label = reg.split(".")[0] if reg else ""
+    squashed = re.sub(r"[^a-z0-9]", "", label.lower())
+
+    segments = [title]
     if title:
-        for sep in (" | ", " - ", " – ", " — ", ": "):
+        for sep in _TITLE_SEPS:
             if sep in title:
-                title = title.split(sep)[0]
+                segments = [s.strip() for s in title.split(sep)]
                 break
-        title = title.strip()
-    return title or (_registrable(host) or "competitor")
+    segments = [s for s in (x.strip() for x in segments) if s]
+
+    if squashed:
+        for seg in segments:
+            if re.sub(r"[^a-z0-9]", "", seg.lower()) and \
+                    (squashed in re.sub(r"[^a-z0-9]", "", seg.lower())
+                     or re.sub(r"[^a-z0-9]", "", seg.lower()) in squashed):
+                return seg                      # this segment names the brand the domain belongs to
+        # No segment matches the domain -> the title is pure SEO copy. The domain is the only
+        # honest brand signal we have: "inshapesupplements" -> "Inshapesupplements".
+        return label.replace("-", " ").strip().title() or (reg or "competitor")
+    return (segments[0] if segments else "") or (reg or "competitor")
 
 
 def _identity_terms(profile) -> List[str]:
@@ -384,6 +460,11 @@ class SerpWebDiscoveryEngine:
         gate = {t for t in expand_bilingual(_identity_terms(profile))}
         if plan and plan["identity_terms"]:
             gate |= set(expand_bilingual(plan["identity_terms"]))
+        # 1.2: a REACH self-kind subject (education/software) with a THIN identity gate (<2
+        # terms) was losing real institute/tool results to a single-token echo test — the
+        # LLM judge downstream is the real filter there, so don't pre-drop on a thin gate.
+        if len(gate) < 2 and _self_kind_key(_field_text(profile, "category")):
+            gate = set()
         seen: set[str] = set()
         peers: List[CompetitorProfile] = []
 
@@ -404,6 +485,10 @@ class SerpWebDiscoveryEngine:
         return peers[: self.max_peers]
 
     def _judge_relevance(self, profile, peers: List[CompetitorProfile]) -> List[CompetitorProfile]:
+        # NOTE: the system prompt is built by the module-level _judge_system_prompt(category)
+        # (1.2): the DROP list lifts the clause naming the subject's OWN kind, so an education
+        # subject keeps institutes and a software subject keeps tools. Other categories get the
+        # legacy prompt byte-identical (pinned by test).
         """LLM reject-only filter: keep candidates that are plausibly DIRECT competitors
         (an actual business of the subject's kind) — drop listicles, directories,
         software-for-the-industry, schools, news. Never adds/invents; on no caller or
@@ -426,14 +511,7 @@ class SerpWebDiscoveryEngine:
             lines = "\n".join(
                 f"[{i}] {p.candidate.name} | {p.candidate.website} | {p.selection.why_selected}"
                 for i, p in enumerate(peers))
-            system = (
-                "You filter competitor candidates for a business-comparison report. Keep ONLY "
-                "candidates that are plausibly a DIRECT COMPETITOR — an actual operating business "
-                "of the SAME KIND as the subject, in or serving the subject's market. DROP: "
-                "listicles/rankings, directories, news/media, universities/courses, software or "
-                "tools FOR that industry, marketplaces, and anything unrelated. When unsure, DROP "
-                "(a wrong competitor is worse than a missing one). Never add anything."
-            )
+            system = _judge_system_prompt(category)
             user = (f"Subject: {name} — category: {category}.\n{desc}\n\n"
                     f"Candidates:\n{lines}\n\nReturn keep_indices (subset of the shown indices).")
             resp, _u = self.judge_caller(system, user, _Kept, group_name="peer_relevance")
@@ -471,7 +549,14 @@ class SerpWebDiscoveryEngine:
         home = f"{parsed.scheme or 'https'}://{parsed.netloc}/"
 
         name = _clean_title(hit.title, host)
-        why = f"web search peer (rank {hit.rank}) for query: {query!r}"
+        # P-80: a web/SERP peer has NO Places data (no rating/address/types/price), so the 5 fit
+        # sub-dimensions (sub_vertical/proximity/size/audience/language) genuinely CANNOT be
+        # computed here — unlike the Places path (peer_match._aggregate). So we score by SERP rank
+        # and label it HONESTLY as `basis="search_rank"` rather than emitting a 1.0 "fit" with an
+        # all-null breakdown that downstream reads as a measured/validated fit (the P-30 artifact).
+        rank_score = round(1.0 / hit.rank, 3) if hit.rank else 0.0
+        why = (f"web search peer (rank {hit.rank}) for query: {query!r} "
+               f"— score is SERP rank, not a measured fit")
         candidate = Candidate(
             place_id="",                # no Places id for a web-sourced peer
             name=name,
@@ -482,8 +567,8 @@ class SerpWebDiscoveryEngine:
             place_id="",
             name=name,
             website=home,
-            peer_fit_score=round(1.0 / hit.rank, 3) if hit.rank else 0.0,
-            breakdown=PeerFitBreakdown(total=round(1.0 / hit.rank, 3) if hit.rank else 0.0),
+            peer_fit_score=rank_score,
+            breakdown=PeerFitBreakdown(total=rank_score, basis="search_rank"),
             why_selected=why,
         )
         return CompetitorProfile(

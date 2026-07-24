@@ -52,11 +52,22 @@ def test_brief_is_tone_aware_and_one_narrator():
     assert "one consistent" in lux or "same voice" in lux
 
 
-def test_brief_detects_arabic_and_asks_for_egyptian():
+def test_brief_detects_arabic_and_follows_the_region_not_hardcoded_egyptian():
+    # P-87/88/05/89: an Arabic script triggers an Arabic dialect clause, but with NO region
+    # evidence (no `dialect` passed) it is a NEUTRAL regional register — NOT a hardcoded Egyptian
+    # read for every Arabic brand. The region is threaded via `dialect` from arabic_dialect_for.
     ar = _instructions_for(["روّاد التحول الرقمي"], tone="luxury")
-    assert "EGYPTIAN" in ar or "المصرية" in ar
+    assert "Authentic Arabic" in ar and "EGYPTIAN" not in ar.upper()
+    # a Gulf-evidenced dialect steers the clause to Khaleeji; an Egyptian one to Egyptian
+    gulf = _instructions_for(["روّاد التحول الرقمي"], tone="luxury",
+                             dialect="Gulf/Khaleeji Arabic (لهجة خليجية)")
+    assert "Khaleeji" in gulf and "EGYPTIAN" not in gulf.upper()
+    eg = _instructions_for(["روّاد التحول الرقمي"], tone="luxury",
+                           dialect="Egyptian Arabic (عامية مصرية)")
+    assert "Egyptian" in eg
+    # a non-Arabic script gets NO Arabic dialect clause at all
     en = _instructions_for(["An enduring symbol"], tone="luxury")
-    assert "EGYPTIAN" not in en
+    assert "EGYPTIAN" not in en and "Authentic Arabic" not in en
 
 
 # --- the CLI reel path (textlayer._scene_html) must ALSO honour the theme ------------

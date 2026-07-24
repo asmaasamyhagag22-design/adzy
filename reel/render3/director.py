@@ -266,7 +266,16 @@ def _locale_of(p: dict, override: str) -> str:
     if override:
         return override
     loc = _val(p.get("locale")) or _val(p.get("country"))
-    return loc or "Egypt"
+    if loc:
+        return loc
+    # P-07 (D-8): prefer the brand's EVIDENCED country (ccTLD / service area / phone) over a
+    # hardcoded "Egypt". Only a profile with NO locale field AND no country evidence falls back to
+    # the pilot default — a Saudi/Moroccan brand's render3 locale is now its real country.
+    try:
+        from poster.locale import country_of
+        return country_of(p) or "Egypt"
+    except Exception:  # noqa: BLE001
+        return "Egypt"
 
 
 def _audience_signals(p: dict) -> str:

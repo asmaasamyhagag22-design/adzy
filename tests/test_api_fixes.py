@@ -43,62 +43,47 @@ def test_sse_dedup_event_key_helper():
     assert stream_job is not None
 
 
-def test_sse_no_duplicates_when_event_in_both_replay_and_queue():
-    """Manually wedge an event into both job.events and job.queue, then
-    open the stream. The event must appear exactly once."""
+def test_sse_dedups_a_duplicate_event_in_the_snapshot():
+    """CS-82 refactor: the SSE route now dedups via a per-connection sent_keys set (the same set
+    spans replay AND the live tail). Wedge the SAME event twice into the replay snapshot and open
+    the stream on a TERMINAL job (replay-only path); the dedup must yield it exactly once."""
     from datetime import datetime, timezone
 
-    async def run_test():
-        with TestClient(app) as client:
-            client.get("/api/health")  # warm up
-            store: JobStore = app.state.store
-            job = store.create()
-            store.attach_loop(job.job_id, asyncio.get_running_loop())
+    with TestClient(app) as client:
+        client.get("/api/health")  # warm up
+        store: JobStore = app.state.store
+        job = store.create()
+        ev = StageEvent(
+            job_id=job.job_id,
+            stage=Stage.SCRAPE,
+            status=StageStatus.STARTED,
+            timestamp=datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        )
+        # the SAME event twice in the snapshot (the replay side of the race); terminal so the route
+        # replays the snapshot then returns (no live tail needed to exercise the shared dedup set).
+        job.events.append(ev)
+        job.events.append(ev)
+        job.status = JobStatus.SUCCEEDED
 
-            # Forge an event and put it in BOTH places, mimicking the race.
-            ev = StageEvent(
-                job_id=job.job_id,
-                stage=Stage.SCRAPE,
-                status=StageStatus.STARTED,
-                timestamp=datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
-            )
-            job.events.append(ev)
-            await job.queue.put(ev)
-            # Push a close sentinel so the live tail returns
-            await job.queue.put(STREAM_CLOSE)
-            # Mark job as running so the stream loop actually runs
-            job.status = JobStatus.RUNNING
+        with client.stream("GET", f"/api/jobs/{job.job_id}/stream") as resp:
+            assert resp.status_code == 200
+            raw = b""
+            for chunk in resp.iter_bytes():
+                raw += chunk
+                if len(raw) > 50_000:
+                    break
 
-            # Connect and read everything
-            with client.stream("GET", f"/api/jobs/{job.job_id}/stream") as resp:
-                assert resp.status_code == 200
-                raw = b""
-                for chunk in resp.iter_bytes():
-                    raw += chunk
-                    if len(raw) > 50_000:
-                        break
-
-            text = raw.decode("utf-8", errors="replace")
-            data_lines = [
-                line for line in text.splitlines()
-                if line.startswith("data: ")
-            ]
-            # Parse and filter for the scrape:started event
-            scrape_started = []
-            for line in data_lines:
-                try:
-                    obj = json.loads(line[len("data: "):])
-                except json.JSONDecodeError:
-                    continue
-                if obj.get("stage") == "scrape" and obj.get("status") == "started":
-                    scrape_started.append(obj)
-            # The duplicate scenario forced both replay AND queue to have it.
-            # Dedup must yield it exactly once.
-            assert len(scrape_started) == 1, (
-                f"expected 1 scrape:started event, got {len(scrape_started)}"
-            )
-
-    asyncio.run(run_test())
+        text = raw.decode("utf-8", errors="replace")
+        data_lines = [line for line in text.splitlines() if line.startswith("data: ")]
+        scrape_started = []
+        for line in data_lines:
+            try:
+                obj = json.loads(line[len("data: "):])
+            except json.JSONDecodeError:
+                continue
+            if obj.get("stage") == "scrape" and obj.get("status") == "started":
+                scrape_started.append(obj)
+        assert len(scrape_started) == 1, f"expected 1 scrape:started event, got {len(scrape_started)}"
 
 
 def test_sse_full_pipeline_no_duplicates():

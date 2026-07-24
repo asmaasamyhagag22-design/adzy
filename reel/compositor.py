@@ -153,7 +153,7 @@ def render_reel(
                 # ships. Service brands too: with no product reference, the scene's OWN
                 # real-photo seed is the reference.
                 if qa_caller is not None:
-                    from .scene_qa import check_scene
+                    from .scene_qa import check_scene, seed_may_animate
                     _v_final = None
                     qa_ref = qa_reference_image
                     # owner ruling 2026-07-12: generated seeds — the judge compares the
@@ -169,8 +169,12 @@ def render_reel(
                     v = check_scene(raw, product_hint=qa_product_hint,
                                     reference_image=qa_ref, caller=qa_caller)
                     _v_final = v
-                    if v.checked and not v.overall_pass:
-                        print(f"[reel] scene {i} QA fail ({v.reason}); regenerating once",
+                    # FAIL-CLOSED (P-22): regenerate/fall back on anything that is NOT an explicit
+                    # PASS. This was `if v.checked and not v.overall_pass`, which shipped a
+                    # NOT_CHECKED clip (unreadable frames / a QA-call timeout -> overall_pass=None)
+                    # straight through — the same fail-open hole seed_gen.py:172 already closed.
+                    if not seed_may_animate(v):
+                        print(f"[reel] scene {i} QA not a clean PASS ({v.reason}); regenerating once",
                               file=sys.stderr)
                         good = False
                         try:
@@ -178,14 +182,11 @@ def render_reel(
                             v2 = check_scene(raw, product_hint=qa_product_hint,
                                              reference_image=qa_ref, caller=qa_caller)
                             _v_final = v2
-                            # PERMISSIVE, DELIBERATE, TICKETED (P6 #12 — accepted-with-reason,
-                            # not fixed): an unjudged RETRY clip still ships. `is not False` says
-                            # that out loud instead of hiding behind `(not v2.checked) or ...`.
-                            # Known hole: QA already FAILED once here, so preferring an unjudged
-                            # Veo clip over the free faithful KenBurns fallback at :165 is the
-                            # weakest call in this file. Fix = require `is True` (blocked on
-                            # measuring how often vision blips would cost a paid re-render).
-                            good = v2.overall_pass is not False
+                            # FAIL-CLOSED (P-22): the retry clip ships ONLY on an explicit PASS.
+                            # This scene ALREADY failed QA once, so an unjudged retry (overall_pass
+                            # in {None}) must lose to the FREE faithful KenBurns fallback below —
+                            # never prefer an unvetted Veo clip over the grounded real-photo pass.
+                            good = seed_may_animate(v2)
                         except Exception:  # noqa: BLE001 — a failed retry drops to the fallback
                             good = False
                         if not good:

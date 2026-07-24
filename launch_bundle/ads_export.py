@@ -1,6 +1,10 @@
-"""Ads-Manager import export. openpyxl isn't bundled, so this emits a CSV in Ads-Manager column order
-(Ads Manager imports CSV as well as xlsx); the JSON stays the load-bearing artifact. Upgrading to a
-true .xlsx is a follow-up once openpyxl is available."""
+"""Campaign-plan CSV export. Emits one row per Ad in a CONVENTIONAL bulk-import column order.
+
+⚠ P-49 (honesty): these columns are a reasonable media-buying layout, but they are NOT verified
+against a live Meta Ads Manager bulk-import template — some (Funnel Stage, Placement, Asset Refs, KPI
+Metric/Target) are our own planning fields, not guaranteed Meta import headers. Treat this as a
+buyer-facing PLANNING sheet to map by hand, not a guaranteed one-click import, until the columns are
+reconciled with a real Ads Manager template. The JSON stays the load-bearing artifact."""
 from __future__ import annotations
 
 import csv
@@ -12,6 +16,16 @@ COLUMNS = ["Campaign Name", "Campaign Objective", "Campaign Status", "Ad Set Nam
            "Destination", "Placement", "Budget Allocation %", "Geo Mode", "Geo Detail",
            "Audience", "KPI Metric", "KPI Target", "Ad Headline", "Ad Primary Text", "Ad CTA",
            "Asset Refs"]
+
+
+def _csv_safe(v: Any) -> str:
+    """P-53: neutralize CSV/formula injection. Excel & Sheets EXECUTE a cell that starts with
+    = + - @ (or a tab/CR), so a headline like '=cmd|...' becomes a live formula on import. Prefix
+    such a cell with a guard apostrophe (the standard OWASP mitigation) so it renders as text."""
+    s = "" if v is None else str(v)
+    if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + s
+    return s
 
 
 def _geo_detail(g: Any) -> str:
@@ -28,7 +42,9 @@ def campaign_plan_to_csv(plan: Any) -> str:
     for c in plan.campaigns:
         for aset in c.ad_sets:
             for ad in (aset.ads or [None]):
-                w.writerow({
+                # every value passes through _csv_safe (P-53) — the copy fields especially, since
+                # a headline/primary-text is attacker-influenceable scraped/LLM text.
+                w.writerow({k: _csv_safe(val) for k, val in {
                     "Campaign Name": c.name, "Campaign Objective": c.objective,
                     "Campaign Status": c.status, "Ad Set Name": aset.name,
                     "Funnel Stage": aset.funnel_stage, "Destination": aset.destination,
@@ -40,5 +56,5 @@ def campaign_plan_to_csv(plan: Any) -> str:
                     "Ad Primary Text": getattr(ad, "primary_text", ""),
                     "Ad CTA": getattr(ad, "cta", ""),
                     "Asset Refs": ", ".join(getattr(ad, "asset_refs", []) or []),
-                })
+                }.items()})
     return buf.getvalue()

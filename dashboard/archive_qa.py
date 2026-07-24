@@ -431,6 +431,28 @@ def _answer_supported(answer: str, cited_texts: list[str]) -> bool:
     if len(a_tok & c_tok) >= 2:
         return True                                     # real lexical support
     joined = " ".join(cited_texts)
+    # CS-10/18: cross-script no longer fails OPEN. When the answer and its excerpts are in different
+    # scripts (Arabic answer over a Latin excerpt — the dominant path), fall back to a SCRIPT-AGNOSTIC
+    # signal: shared numbers/years/prices (previously invisible to the word tokenizer) or shared
+    # latin tokens (proper nouns, product names) embedded in the Arabic answer. Support requires at
+    # least one such shared anchor; none -> unsupported (a fabricated/injected answer citing an
+    # unrelated chunk no longer earns the badge just because the scripts differ).
     if _dominant_script(answer) != _dominant_script(joined):
-        return True                                     # cross-lingual -> can't judge lexically
+        a_nums, c_nums = _numeric_tokens(answer), _numeric_tokens(joined)
+        if a_nums & c_nums:
+            return True                                 # a shared number/year/price is real support
+        a_lat, c_lat = _latin_tokens(answer), _latin_tokens(joined)
+        if len(a_lat & c_lat) >= 1:
+            return True                                 # a shared latin proper noun crosses scripts
+        return False                                    # cross-script AND no shared anchor -> unsupported
     return False                                        # same script, ~no overlap -> unsupported
+
+
+def _numeric_tokens(s: str) -> set[str]:
+    """Digit runs of length >= 2 (years, counts, prices) — a script-agnostic support anchor."""
+    return {n for n in re.findall(r"\d{2,}", s or "")}
+
+
+def _latin_tokens(s: str) -> set[str]:
+    """Latin word tokens length >= 3 (product/proper nouns) embedded in any-script text."""
+    return {w.lower() for w in re.findall(r"[A-Za-z]{3,}", s or "")}

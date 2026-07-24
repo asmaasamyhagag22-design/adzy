@@ -11,10 +11,12 @@ shape is unchanged, so the existing frontend (poster-studio-card) keeps working.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+from api.auth import enforce_profile_bounds
 from poster.pipeline import _FALLBACK_MODEL, generate_poster
 from poster.schemas import (
     BackgroundImageResult,
@@ -25,12 +27,14 @@ from poster.schemas import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/poster/from-profile", response_model=PosterFromProfileResponse)
 def create_poster_from_profile(
     request: PosterFromProfileRequest,
 ) -> PosterFromProfileResponse:
+    enforce_profile_bounds(request.profile)  # P-56: bound the client-supplied profile
     try:
         # Gemini drives the whole pipeline (concept + design + image + QA). None -> the
         # pipeline degrades to deterministic fallbacks.
@@ -102,6 +106,8 @@ def create_poster_from_profile(
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
+        # P-58: log the detail server-side; return a generic message (no internal paths/strings).
+        logger.exception("Poster generation failed")
         raise HTTPException(
-            status_code=500, detail=f"Poster generation failed: {exc}",
+            status_code=500, detail="Poster generation failed.",
         ) from exc

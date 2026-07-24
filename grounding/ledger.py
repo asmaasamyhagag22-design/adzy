@@ -136,6 +136,13 @@ _RAW_GROUPS: dict[str, set[str]] = {
         "free", "complimentary", "no cost", "gratis", "مجانا", "مجاناً", "مجاني",
         "مجانية", "ببلاش", "بلاش", "هدية",
     },
+    # CS-122 CLOSED (owner ruling 2026-07-19): a discount/offer is a FACT that needs grounding —
+    # the system must never invent a promo for the client. Same two-truth-domains line as ever:
+    # the LLM may DESIGN around a documented offer; it may not CREATE one.
+    "sale": {
+        "sale", "discount", "% off", "offer", "promo", "promotion", "deal",
+        "خصم", "خصومات", "تخفيض", "تخفيضات", "عرض", "عروض", "أوفر", "اوفر", "تنزيلات",
+    },
     # Credentials split by KIND so evidence of one cannot source a claim of another (an
     # award won is NOT proof of an ISO certification — a precision the brand-safety bar needs).
     "award": {
@@ -305,10 +312,18 @@ def _subject_stems_after(norm_text: str, digit: str, window: int = 2) -> set[str
     return stems
 
 
-# The ranking/superlative groups whose SUBJECT matters ("best COFFEE", "largest NETWORK",
-# "الرواد الرقميون"). award/certification/guarantee/free assert the credential/offer itself,
-# not a subject, so they are NOT subject-gated.
-_SUBJECT_GROUPS = frozenset({"first", "only", "best", "largest", "superlative"})
+# The groups whose SUBJECT matters. "best COFFEE" / "largest NETWORK" / "accredited by HARVARD" /
+# "won the CANNES prize" all name a specific subject (the thing, the issuer, the awarder), so a
+# disjoint subject is a mismatch to be judged — NOT auto-verified.
+#
+# CS-75 (owner ruling 2026-07-18): certification & award ARE subject-gated — "معتمد من هارفارد" must
+# not resolve against "معتمد من المجلس المحلي" (a DIFFERENT issuer). This is SAFE without a judge:
+# the disjoint-subject path stays LENIENT when `subject_judge is None` (a bare "نحن معتمدون" with no
+# issuer named has an empty subject and skips the check entirely), so it only bites in production
+# once the judge is wired (poster/concept.py + poster/audit.py). `guarantee` stays out (a bare
+# "guaranteed" rarely names a distinct subject; its numbers are gated by the number path).
+_SUBJECT_GROUPS = frozenset({"first", "only", "best", "largest", "superlative",
+                             "certification", "award"})
 
 
 def _content_stems(norm_text: str, exclude: frozenset = frozenset()) -> set[str]:
@@ -481,6 +496,13 @@ class EvidenceLedger:
             profile = profile["profile"]
         entries: list[LedgerEntry] = []
         p = profile or {}
+        # 1.5 (owner ask, 2026-07-19): brand-tier evidence (contacts, own fields) used to carry
+        # source_url="" — the evidence page then showed the verbatim quote with NO clickable
+        # origin. The brand's own homepage IS the original source for profile-tier facts, so it
+        # becomes the default. Web-tier evidence keeps its strict URL requirement (fail-closed).
+        _src = p.get("source_url")
+        brand_home = str((_src.get("value") if isinstance(_src, dict) else _src)
+                         or p.get("final_url") or "").strip()
 
         def add(raw: str, url: str, stype: str, conf: str = "unknown") -> None:
             if raw and str(raw).strip():
@@ -499,6 +521,8 @@ class EvidenceLedger:
                 is_web = not str(stype).startswith("profile")
                 if is_web and (not url or not is_reputable_web_source(url)):
                     return
+                if not url and not is_web:
+                    url = brand_home        # 1.5: profile-tier facts originate on the brand site
                 entries.append(LedgerEntry(raw=str(raw), source_url=url or "",
                                            source_type=stype, confidence=conf))
 
@@ -685,6 +709,17 @@ class EvidenceLedger:
             if subj_gate and claim_subj:
                 ev_subj = _content_stems(e.norm, member_stems)
                 if ev_subj and claim_subj.isdisjoint(ev_subj):
+                    # CS-46 — KNOWN OPEN HOLE (measured: a fabricated "أفضل قهوة في المدينة" is
+                    # certified brand-tier on 12/18 real profiles, matching incidental words like a
+                    # "Best Sellers" nav item). The clean fix is hard: with no judge you cannot tell
+                    # a FABRICATION ("best coffee" ← "Best Sellers") from a legitimate PARAPHRASE
+                    # ("الأسرع في السوق" ← "الأسرع في توصيل الطرود") — both are subject-disjoint. A
+                    # blanket fail-closed, and a char-similarity heuristic, each broke legitimate
+                    # grounded-copy tests (false negatives on the moat, worse than the hole). The real
+                    # fix is to WIRE a subject judge into the production ledger build (today every
+                    # path passes judge=None) — a semantics + spend decision for the owner. Tracked in
+                    # logs/OPEN_PROBLEMS.md as the #1 open moat item. Behaviour here is UNCHANGED
+                    # (lenient) pending that decision — documented, not silently accepted.
                     if (self._subject_judge is not None
                             and self._ask_subject_judge(claim.text, e.raw, group) is False):
                         continue

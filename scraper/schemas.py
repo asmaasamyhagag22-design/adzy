@@ -134,6 +134,10 @@ class LinkRecord(BaseModel):
     category: LinkCategory
     # For social links, the platform name (facebook, instagram, ...)
     platform: Optional[str] = None
+    # CS-56: a SYNTHESISED URL (inferred from a next_data slug template), NOT a real discovered
+    # anchor. The contract is "recorded but NOT fetched" — it stays in the link INVENTORY but the
+    # crawl frontier must SKIP it (the URL may not exist; the template can be brand-specific).
+    inferred: bool = False
 
 
 # ---------------------------------------------------------------------
@@ -479,6 +483,7 @@ class ScrapeManifest(BaseModel):
     # PR-1: optional diagnostics counts. Older manifests load with this as None.
     scrape_diagnostics: Optional[ScrapeDiagnostics] = None
     # Tier-3 Deep Search fallback (secondary evidence). None on a normal scrape;
-    # populated only when the direct scrape was blocked/empty. Supplementary —
-    # it does NOT make the scrape 'ready_for_extraction'.
+    # populated only when the direct scrape was blocked/empty. A deep_search recovery IS an
+    # independent readiness path (readiness.compute_readiness) — business_profile then builds a
+    # SECONDARY, SERP-grounded profile from it (rules/from_deep_search), cited to the source URLs.
     deep_search: Optional[DeepSearchResult] = None

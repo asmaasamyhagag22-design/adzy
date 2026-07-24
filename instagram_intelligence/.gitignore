@@ -1,0 +1,15 @@
+# Secrets - never commit real API keys/credentials
+.env
+config/.session
+config/.playwright_state.json
+
+# Runtime output / working data - regenerated on each run, not source code
+instagram_intelligence_output/
+raw/.checkpoints/
+logs/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/

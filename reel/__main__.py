@@ -108,6 +108,13 @@ def main() -> int:
     if not profile_path.is_file():
         print(f"!! profile not found: {profile_path}", file=sys.stderr)
         return 2
+
+    # CS-92: a reel render spends the MOST (paid Veo video + vision selection + TTS). Refuse under a
+    # no-spend context (pytest / BASEERA_NO_SPEND) so a reel can never render by accident — this is
+    # also the owner's standing rule ("رندر الريل بإيدها"): only a real human CLI run may spend.
+    from spend_tripwire import refuse_if_no_spend
+    refuse_if_no_spend("renders a reel via paid Veo video + vision/TTS calls",
+                       alternative="use the hermetic reel tests (MockCaller + fake TTS)")
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
 
     # LLM art-director: the scene is derived from the brand persona. Falls back to
@@ -215,16 +222,41 @@ def main() -> int:
                       file=sys.stderr)
             except Exception as exc:
                 print(f"[creative] could not read --plan-file: {type(exc).__name__}", file=sys.stderr)
-        result, creative = render_creative_reel(
-            profile, brief, photos, provider=provider, out_path=out,
-            n_scenes=max(3, args.frames), scale=args.scale,
-            language=args.language,
-            include_logo=not args.no_logo, music_path=args.music,
-            with_voiceover=not args.no_voiceover,
-            featured_product=args.product_name,
-            plan_override=plan_override,
-            photo_subjects=photo_subjects or None,
-        )
+        try:
+            result, creative = render_creative_reel(
+                profile, brief, photos, provider=provider, out_path=out,
+                n_scenes=max(3, args.frames), scale=args.scale,
+                language=args.language,
+                include_logo=not args.no_logo, music_path=args.music,
+                with_voiceover=not args.no_voiceover,
+                featured_product=args.product_name,
+                plan_override=plan_override,
+                photo_subjects=photo_subjects or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # البند 5 (spent-but-failed honesty): a failure mid-render may have ALREADY paid for
+            # seeds/TTS/partial Veo. Sweep the scratch (seeds + audio stems) into _failed/ so the
+            # owner can see what her money bought, and say so — never a silent generic failure.
+            import shutil as _sh
+            import time as _t
+            out_dir = Path(out).parent
+            failed_dir = out_dir / "_failed" / f"{Path(out).stem}_{int(_t.time())}"
+            swept = []
+            for scratch in [out_dir / "_genseeds", Path(str(out) + ".vo.m4a"),
+                            Path(str(out) + ".bed.m4a"),
+                            out_dir / (Path(out).stem + ".vo.m4a"),
+                            out_dir / (Path(out).stem + ".bed.m4a")]:
+                try:
+                    if scratch.exists():
+                        failed_dir.mkdir(parents=True, exist_ok=True)
+                        _sh.move(str(scratch), str(failed_dir / scratch.name))
+                        swept.append(scratch.name)
+                except Exception:  # noqa: BLE001
+                    pass
+            note = f" (تم حفظ نواتج جزئية مدفوعة في {failed_dir})" if swept else ""
+            print(f"[X] reel failed: {exc}{note}", file=sys.stderr)
+            print("    الإنفاق الفعلي مسجَّل في runs/vertex_spend.jsonl", file=sys.stderr)
+            return 3
         if result is not None:
             _append_brand_endcard(profile, result.reel_path, enabled=not args.no_logo)
             # per-asset trail (poster parity): copy audit + scene-QA verdicts + the

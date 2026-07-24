@@ -31,6 +31,37 @@ def _esc(s: Any) -> str:
     return html.escape(str(s if s is not None else ""))
 
 
+def _safe_href(url: Any) -> str:
+    """CS-16/23: html.escape does NOT stop scheme-based XSS. A competitor/SERP URL is attacker-
+    influenceable (it comes from a discovered site / a SERP result), so an `href` must only carry a
+    safe scheme. Returns an escaped http(s)/mailto/tel/relative URL, else '#'."""
+    u = str(url or "").strip()
+    if not u:
+        return "#"
+    low = u.lower().lstrip()
+    # explicit scheme -> must be on the allow-list; scheme-relative (//) and dangerous schemes drop
+    if ":" in low.split("/", 1)[0]:
+        if not low.startswith(("http://", "https://", "mailto:", "tel:")):
+            return "#"
+    elif low.startswith("//"):
+        return "#"
+    return _esc(u)
+
+
+def _plain(v: Any) -> str:
+    """CS-17: render a plain value, never a Python repr. Unwraps enums (`.value`) and evidenced
+    fields, and drops anything that still looks like a `ClassName(...)`/`Enum.MEMBER` repr."""
+    v = _val(v)
+    val = getattr(v, "value", v)           # Enum / EvidencedField -> its value
+    s = str(val if val is not None else "").strip()
+    if _REPR_LEAK.match(s):                # e.g. "AudienceType.MIXED", "EvidencedField(value=..."
+        return ""
+    return s
+
+
+_REPR_LEAK = __import__("re").compile(r"^[A-Za-z_][A-Za-z0-9_]*[.(]")
+
+
 def _val(x: Any) -> Any:
     """Unwrap an EvidencedField-shaped {'value': ...} (possibly nested)."""
     if isinstance(x, dict) and "value" in x:
@@ -144,9 +175,28 @@ def _competitor_card(comp: dict) -> str:
     cand = comp.get("candidate") or {}
     name = _esc(sel.get("name") or cand.get("name") or "—")
     site = sel.get("website") or cand.get("website") or ""
-    site_h = f'<a href="{_esc(site)}" class="comp-site">{_esc(site.replace("https://", "").strip("/"))}</a>' if site else ""
+    # CS-16/23: drop the link ENTIRELY for an unsafe scheme (don't even show it as text) — a
+    # javascript:/data: "URL" is never a real competitor site.
+    _safe_site = _safe_href(site)
+    site_h = (f'<a href="{_safe_site}" class="comp-site">{_esc(site.replace("https://", "").strip("/"))}</a>'
+              if site and _safe_site != "#" else "")
+    # CS-09/100: `peer_fit_score` is a real weighted fit ONLY when `basis == "weighted"` (Places
+    # data). For a web peer it's 1/SERP-rank (competitor/models.py) — NOT a measured fit — so
+    # rendering it as "N% · peer fit" misleads. Show the honest rank instead.
     fit = sel.get("peer_fit_score")
-    fit_pct = f"{round(float(fit) * 100)}%" if isinstance(fit, (int, float)) else "—"
+    basis = str(sel.get("basis") or "").strip()
+    if basis == "search_rank":
+        rank = None
+        try:
+            rank = round(1.0 / float(fit)) if fit else None
+        except (TypeError, ZeroDivisionError, ValueError):
+            rank = None
+        fit_val = f"#{rank}" if rank else "—"
+        fit_label = "نتيجة بحث · search result"
+    else:
+        fit_pct = f"{round(float(fit) * 100)}%" if isinstance(fit, (int, float)) else "—"
+        fit_val = fit_pct
+        fit_label = "تطابق · peer fit"
     reasons = _tier_reasons(sel.get("breakdown") or {})
     # WHY matched: prefer the plain tier chips (Places path); else the honest search reason.
     why = "" if reasons else _esc(sel.get("why_selected") or "")
@@ -160,14 +210,26 @@ def _competitor_card(comp: dict) -> str:
       <div class="comp-logo">{_esc(initials)}</div>
       <div class="comp-body"><div class="comp-name">{name} {"".join(tags)}</div>
         {site_h}{reasons}<div class="comp-why">{why}</div></div>
-      <div class="comp-fit"><div class="comp-fit-v">{fit_pct}</div><div class="comp-fit-l">تطابق · peer fit</div></div>
+      <div class="comp-fit"><div class="comp-fit-v">{fit_val}</div><div class="comp-fit-l">{fit_label}</div></div>
     </div>"""
 
 
 _PLAT_ICON = {"instagram": "◎", "tiktok": "♪", "linkedin": "in", "facebook": "f", "youtube": "▶"}
 
 
-def _calendar_row(it: dict) -> str:
+def _seasons_ok_for(prof: dict) -> bool:
+    """P-02 (D-8): the marketing-season calendar (`trends/seasons.py`) is Egypt-only — the single
+    human-ratified table (§4 RULED). Show seasons ONLY for an Egyptian brand; for any other country
+    the ratified calendar is EMPTY, so we omit the season UI rather than ship Egypt's seasons (Gulf
+    summer INVERTS Egypt's, so 'plan for the summer peak' is exactly backwards there)."""
+    try:
+        from poster.locale import country_of
+        return country_of(prof or {}) == "Egypt"
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _calendar_row(it: dict, season_ok: bool = False) -> str:
     plat = str(it.get("platform") or "")
     ctype = str(it.get("content_type") or "").replace("_", " ")   # static_post -> static post
     topic = _esc(it.get("topic") or "")
@@ -182,14 +244,15 @@ def _calendar_row(it: dict) -> str:
     # ROUND-2 A — per-item trend/season attribution: when the post date falls in an Egyptian
     # marketing season, say so ("هذا المحتوى قرب رمضان"). Deterministic from the date.
     season_tag = ""
-    try:
-        from trends.seasons import season_for_date
-        sea = season_for_date(raw_date)
-        if sea:
-            season_tag = (f'<span class="cal-season">🗓️ قرب {_esc(sea["ar"])} · '
-                          f'near {_esc(sea["en"])}</span>')
-    except Exception:  # noqa: BLE001
-        season_tag = ""
+    if season_ok:                                     # P-02: Egyptian brands only
+        try:
+            from trends.seasons import season_for_date
+            sea = season_for_date(raw_date)
+            if sea:
+                season_tag = (f'<span class="cal-season">🗓️ قرب {_esc(sea["ar"])} · '
+                              f'near {_esc(sea["en"])}</span>')
+        except Exception:  # noqa: BLE001
+            season_tag = ""
     return f"""<div class="cal-row">
       <div class="cal-date">{date}</div>
       <div class="cal-plat"><span class="cal-ic">{ic}</span>{_esc(plat)} · {_esc(ctype)}</div>
@@ -375,9 +438,11 @@ def _explained_plan(mp: dict, category: str) -> str:
                     'على الوجهة · needs review: no direct evidence for this destination</div>')
     conf_line = ""
     if conf:
-        cl = {"high": ("ثقة عالية في هذا الاقتراح", "high confidence in this recommendation"),
-              "medium": ("ثقة متوسطة", "medium confidence"),
-              "low": ("اقتراح مبدئي", "tentative")}.get(conf, ("", ""))
+        # P-28: this is the MODEL's own self-grade, not a measured confidence. Label it as such so
+        # the client doesn't read a self-assessment as an evidenced probability.
+        cl = {"high": ("تقدير الموديل: ثقة عالية", "model self-estimate: high"),
+              "medium": ("تقدير الموديل: ثقة متوسطة", "model self-estimate: medium"),
+              "low": ("تقدير الموديل: مبدئي", "model self-estimate: tentative")}.get(conf, ("", ""))
         if cl[0]:
             conf_line = f'<span class="pl-conf">◆ {_esc(cl[0])} · {_esc(cl[1])}</span>'
 
@@ -415,7 +480,8 @@ def _explained_plan(mp: dict, category: str) -> str:
     for axis, lab in (("age_range", "العمر · Age"), ("gender", "النوع · Gender"),
                       ("income_level", "الدخل · Income")):
         v = persona.get(axis)
-        val = (v.get("value") or v.get("claim")) if isinstance(v, dict) else v
+        raw = (v.get("value") or v.get("claim")) if isinstance(v, dict) else v
+        val = _plain(raw)                              # CS-17: never leak an enum/repr to the client
         if val:
             aud_lines.append((f"{lab}: {val}", isinstance(v, dict) and bool(v.get("evidence"))))
     for itx in (persona.get("interests") or [])[:4]:
@@ -438,7 +504,10 @@ def _explained_plan(mp: dict, category: str) -> str:
     tgt = kpi.get("target_value")
     win = kpi.get("window_days") or 7
     if tgt:
-        kpi_val = f'<b>{_esc(str(tgt))} {_esc(str(kpi.get("unit") or "EGP"))}</b>'
+        # P-06 (D-8): no "EGP" fallback — an empty/unknown unit renders the number alone rather
+        # than denominating a non-Egyptian brand's target in Egyptian Pounds.
+        _unit = str(kpi.get("unit") or "").strip()
+        kpi_val = f'<b>{_esc(str(tgt))}{(" " + _esc(_unit)) if _unit else ""}</b>'
     else:
         kpi_val = ('<span class="pl-cal">يُعاير بعد أول أسبوعين تشغيل · calibrated after the '
                    'first two weeks</span>')
@@ -461,7 +530,11 @@ def _explained_plan(mp: dict, category: str) -> str:
                  '<li>جهّزي البوستر والريل (جاهزين في الاستوديو) · Prepare the poster &amp; reel (ready in the studio)</li>'
                  '<li>أطلقي بميزانية اختبار صغيرة وراقبي أول أسبوع · Launch with a small test budget and watch week one</li></ol></div>')
 
-    geo_txt = {"national": "كل مصر · nationwide", "radius": "نطاق محلي · local radius"}.get(
+    # P-03 (D-8): NATIONAL was hardcoded "كل مصر" ("all of Egypt") — shown to a Qatari/Saudi brand
+    # in its own plan. Use a country-NEUTRAL label. (When GeoBlock gains a country field, P-51, this
+    # can name the brand's actual country; today the geo block carries no country to name.)
+    geo_txt = {"national": "على المستوى الوطني · nationwide",
+               "radius": "نطاق محلي · local radius"}.get(
         str(geo.get("mode") or ""), str(geo.get("mode") or ""))
     if geo.get("center_address"):
         geo_txt += f" — {geo.get('center_address')} ({geo.get('radius_km')} كم)"
@@ -551,7 +624,9 @@ def _market_pulse(comp: dict, generated_at: str = "") -> str:
     trends = [t for t in (comp.get("trends") or []) if isinstance(t, dict) and t.get("title")][:8]
     today = (generated_at or comp.get("generated_at") or "")[:10]
     season = None
-    if today:
+    # P-02 (D-8): only surface the upcoming-season panel for an Egyptian brand (the one ratified
+    # calendar). A Gulf/other brand gets the live-trends chips but NOT Egypt's season window.
+    if today and _seasons_ok_for(comp.get("profile") or {}):
         try:
             from trends.seasons import upcoming_season
             season = upcoming_season(today, within_days=120)
@@ -570,12 +645,15 @@ def _market_pulse(comp: dict, generated_at: str = "") -> str:
                        f'<div class="mpz-note">جهّزي محتواك قبلها · plan content ahead of it '
                        f'({_esc(season["start"])} → {_esc(season["end"])})</div></div>')
     chips = "".join(
-        f'<a class="mp-chip" href="{_esc(t.get("url") or "#")}" target="_blank" rel="noopener">'
+        f'<a class="mp-chip" href="{_safe_href(t.get("url"))}" target="_blank" rel="noopener">'
         f'{_esc(str(t.get("title"))[:70])}</a>' for t in trends)
-    chips_html = (f'<div class="mpz"><div class="mpz-h">📈 إشارات السوق الحيّة · Live market signals</div>'
+    # P-27: the source is a rank-only SERP pull (score = search rank, no timestamps / time-series),
+    # so DON'T call it "live" or "trending" — that overstates a signal we cannot measure. Frame it
+    # honestly as recent coverage in the field, a source of inspiration.
+    chips_html = (f'<div class="mpz"><div class="mpz-h">📰 تغطية حديثة في مجالك · Recent coverage in your field</div>'
                   f'<div class="mp-chips">{chips}</div>'
-                  f'<div class="mpz-note">موضوعات رائجة على صلة بمجالك — مصدر إلهام لمحتواك · '
-                  f'trending topics relevant to your field</div></div>' if chips else "")
+                  f'<div class="mpz-note">موضوعات على صلة بمجالك — مصدر إلهام لمحتواك · '
+                  f'topics relevant to your field (search results, not a time-ranked trend feed)</div></div>' if chips else "")
     return f"""<div class="sec"><div class="sec-h"><span class="bar"></span>
       <h2>نبض السوق · Market pulse</h2><span class="cnt">اتجاهات ومواسم · trends &amp; seasons</span></div>
       <div class="card mp">{season_html}{chips_html}</div></div>"""
@@ -627,11 +705,14 @@ def _honesty_surface(comp: dict, mp: dict, prof: dict, n_voice: int) -> str:
         gaps.append(("لم نجمع آراء عملاء بعد — صوت العميل يُضاف بعد ربط تقييمات Google Maps للبراند.",
                      "No customer reviews collected yet — customer voice is added once the "
                      "brand's Google-Maps reviews are connected."))
-    # ad presence (ads_intel) — built but blocked on the Meta identity confirmation
-    gaps.append(("إعلانات المنافسين الجارية غير متاحة بعد — تحتاج تأكيد هوية حساب Meta الإعلاني "
-                 "(خطوة مجانية لمرة واحدة).",
-                 "Competitors' running ads are not available yet — needs the one-time (free) "
-                 "Meta ad-account identity confirmation."))
+    # ad presence (ads_intel) — A8: CONDITIONAL now. This gap shows ONLY when there is no saved
+    # Meta Ad Library snapshot for the run (ads_available=False). Once the owner runs the (free)
+    # pull and a snapshot lands, `ad_presence_for_refs` feeds the SWOT threats and this gap drops.
+    if not comp.get("ads_available"):
+        gaps.append(("إعلانات المنافسين الجارية غير متاحة بعد — تحتاج تأكيد هوية حساب Meta الإعلاني "
+                     "(خطوة مجانية لمرة واحدة).",
+                     "Competitors' running ads are not available yet — needs the one-time (free) "
+                     "Meta ad-account identity confirmation."))
     kpi = obj.get("kpi_target") or {}
     if obj.get("objective") and not kpi.get("target_value"):
         gaps.append(("الرقم المستهدف للتكلفة لم يُحدَّد بعد — لا نخترع رقماً؛ يُعاير من بيانات "
@@ -714,7 +795,7 @@ def _css() -> str:
     .sec-h{{display:flex;align-items:center;gap:10px;margin-bottom:14px;}}
     .sec-h h2{{font-family:var(--serif);font-weight:600;font-size:21px;letter-spacing:-.3px;}}
     .sec-h .bar{{width:5px;height:22px;border-radius:3px;background:linear-gradient(135deg,{c['blush500']},{c['blush700']});}}
-    .sec-h .cnt{{font-size:11.5px;color:{c['muted']};font-weight:600;margin-left:auto;}}
+    .sec-h .cnt{{font-size:11.5px;color:{c['muted']};font-weight:600;margin-inline-start:auto;}}
     .card{{background:{c['surface']};border:1px solid {c['line']};border-radius:16px;padding:20px;
       box-shadow:0 2px 8px rgba(168,69,107,.05);}}
     /* SWOT */
@@ -725,7 +806,7 @@ def _css() -> str:
     .quad-o{{background:linear-gradient(180deg,{c['gold100']}55,#fff);}}
     .quad-t{{background:linear-gradient(180deg,#FDECEC,#fff);}}
     .quad-h{{display:flex;align-items:center;gap:9px;font-family:var(--serif);font-weight:600;font-size:15px;margin-bottom:12px;}}
-    .quad-ic{{font-size:17px;}} .quad-n{{margin-left:auto;font-size:12px;color:{c['muted']};font-family:var(--sans);
+    .quad-ic{{font-size:17px;}} .quad-n{{margin-inline-start:auto;font-size:12px;color:{c['muted']};font-family:var(--sans);
       background:#fff;border:1px solid {c['line']};border-radius:999px;padding:1px 9px;font-weight:700;}}
     .swot-list{{list-style:none;display:flex;flex-direction:column;gap:10px;}}
     .swot-item{{border-bottom:1px dashed {c['line']};padding-bottom:10px;}}
@@ -862,13 +943,19 @@ def _css() -> str:
     .hs-row{{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid {c['line']};align-items:flex-start;}}
     .hs-row:last-child{{border-bottom:none;}}
     .hs-dot{{color:{c['gold']};font-size:18px;line-height:1.2;flex:0 0 auto;}}
-    /* RUBRIC H — the reading arc */
-    .arc{{display:flex;flex-wrap:wrap;align-items:center;gap:6px 4px;margin:6px 2px 2px;
-      padding:11px 16px;background:{c['surface']};border:1px solid {c['line']};border-radius:14px;}}
-    .arc-step{{font-size:11.5px;color:{c['inkSoft']};white-space:nowrap;}}
+    /* RUBRIC H — the reading arc, now a STICKY JUMP NAV (real dashboard, not a long scroll) */
+    .arc{{display:flex;flex-wrap:wrap;align-items:center;gap:6px 4px;margin:6px 2px 20px;
+      padding:11px 16px;background:rgba(255,255,255,.86);backdrop-filter:blur(8px);
+      border:1px solid {c['line']};border-radius:14px;
+      position:sticky;top:8px;z-index:50;box-shadow:0 4px 14px rgba(168,69,107,.08);}}
+    .arc-step{{font-size:11.5px;color:{c['inkSoft']};white-space:nowrap;text-decoration:none;
+      padding:3px 7px;border-radius:8px;transition:background .12s,color .12s;}}
+    .arc-step:hover,.arc-step:focus{{background:{c['blush50']};color:{c['blush700']};}}
     .arc-step b{{display:inline-flex;width:17px;height:17px;border-radius:50%;background:{c['blush100']};
       color:{c['blush700']};font-size:10px;align-items:center;justify-content:center;margin-inline-end:4px;}}
     .arc-sep{{color:{c['muted']};font-size:12px;margin:0 3px;}}
+    /* anchored section groups: keep the heading clear of the sticky nav when jumped to */
+    section[id]{{scroll-margin-top:64px;}}
     /* RUBRIC D — creative tied to strategy */
     .tie{{margin-top:8px;padding:9px 11px;background:{c['blush50']};border-radius:10px;}}
     .tie-h{{font-size:10.5px;font-weight:700;letter-spacing:.04em;color:{c['blush700']};text-transform:uppercase;margin-bottom:6px;}}
@@ -1041,12 +1128,15 @@ def build_dashboard_html(
     # ROUND-2 D — capability census: the dropped selling lines (census strip is built below,
     # once poster/reel presence is known).
     assets_html = _brand_assets(prof)
-    # RUBRIC H — the "start here" reading arc (one scroll, in order).
-    _arc = [("السوق", "Market"), ("الاستراتيجية", "Strategy"), ("الخطة", "Plan"),
-            ("الإبداع", "Creative"), ("التقويم", "Calendar"), ("ما لا نعرفه", "Gaps")]
-    arc_html = ('<div class="arc">' + '<span class="arc-sep">→</span>'.join(
-        f'<span class="arc-step"><b>{i}</b> {_esc(a)} · {_esc(e)}</span>'
-        for i, (a, e) in enumerate(_arc, 1)) + '</div>')
+    # RUBRIC H — the "start here" arc, now a STICKY JUMP NAV (owner 2026-07-18: a real dashboard,
+    # not one long scroll). Each step is an anchor link into its section group; the bar sticks to
+    # the top so it's always reachable. CSS-only (the standalone export forbids <script>).
+    _arc = [("السوق", "Market", "sec-market"), ("الاستراتيجية", "Strategy", "sec-strategy"),
+            ("الخطة", "Plan", "sec-plan"), ("الإبداع", "Creative", "sec-creative"),
+            ("التقويم", "Calendar", "sec-calendar"), ("ما لا نعرفه", "Gaps", "sec-gaps")]
+    arc_html = ('<nav class="arc" aria-label="sections">' + '<span class="arc-sep">→</span>'.join(
+        f'<a class="arc-step" href="#{sid}"><b>{i}</b> {_esc(a)} · {_esc(e)}</a>'
+        for i, (a, e, sid) in enumerate(_arc, 1)) + '</nav>')
 
     actions = (tows.get("priority_actions") or [])[:6]
     actions_html = ""
@@ -1122,10 +1212,26 @@ def build_dashboard_html(
     if items:
         cal_html = f"""<div class="sec"><div class="sec-h"><span class="bar"></span>
           <h2>Content calendar</h2><span class="cnt">{len(items)} posts · grounding-gated hooks</span></div>
-          <div class="card">{''.join(_calendar_row(it) for it in items)}</div></div>"""
+          <div class="card">{''.join(_calendar_row(it, season_ok=_seasons_ok_for(prof)) for it in items)}</div></div>"""
 
     poster_uri = _data_uri(poster_path)
     reel_uri = _data_uri(reel_path)
+    # CS-08: the moat's headline guarantee ("every hard claim traces to real evidence") must be
+    # backed by the poster's AUDIT sidecar, not by the poster file merely existing. 0/10 shipped
+    # posters carried a sidecar, yet the sentence printed for all of them. Now it prints only when
+    # the evidence-ledger gate actually ran on THIS poster (sidecar present + gate_active).
+    audit_ok = False
+    if poster_path:
+        try:
+            from pathlib import Path as _P
+            sc = _P(poster_path).with_suffix(".audit.json")
+            if sc.is_file():
+                _a = json.loads(sc.read_text(encoding="utf-8"))
+                cov = _a.get("coverage") or {}
+                unver = int(cov.get("unverified") or cov.get("claims_unverified") or 0)
+                audit_ok = bool(_a.get("gate_active")) and unver == 0
+        except Exception:  # noqa: BLE001
+            audit_ok = False
     creative_html = ""
     if poster_uri or reel_uri:
         # RUBRIC D — every creative is LABELLED with the strategy line, audience and funnel
@@ -1160,16 +1266,27 @@ def build_dashboard_html(
         if reel_uri:
             media += (f'<div class="media"><video class="reel-vid" src="{reel_uri}" controls playsinline '
                       f'preload="metadata"></video>'
-                      f'<div class="cap">ريل · Reel · Veo 3.1</div>{_tie("الريل · The reel")}</div>')
+                      f'<div class="cap">ريل · Reel</div>{_tie("الريل · The reel")}</div>')
+        # CS-08: the strong guarantee only when an audit sidecar actually backs it; otherwise an
+        # honest neutral caption (the asset predates / lacks the evidence-gate trace).
+        if audit_ok:
+            claim_block = (
+                '<div class="swot-t" style="font-size:15px">كل ادعاء يرجع لدليل حقيقي · Every hard claim traces to real evidence.</div>'
+                f'<p style="font-size:13px;color:{_C["inkSoft"]};margin-top:8px;line-height:1.6">'
+                'العناوين وسطور الإثبات تمرّ ببوابة الأدلة قبل الرندر؛ اللوجو أصل حقيقي مركّب بدقة (لا يُعاد رسمه). '
+                'الريل يحكي نفس القصة المؤسَّسة بصوت متصل وكارت نهاية بلوجو البراند.</p>')
+        else:
+            claim_block = (
+                '<div class="swot-t" style="font-size:15px">تصاميم مربوطة باستراتيجيتك · Creatives tied to your strategy.</div>'
+                f'<p style="font-size:13px;color:{_C["inkSoft"]};margin-top:8px;line-height:1.6">'
+                'كل تصميم يخدم هدفاً من خطتك. (سجلّ تدقيق الأدلة لهذا الأصل غير مرفق — الضمان الكامل يظهر '
+                'حين يُرفق سجلّ التدقيق.)</p>')
         creative_html = f"""<div class="sec"><div class="sec-h"><span class="bar"></span>
           <h2>الإبداع — مربوط باستراتيجيتك · Creative — tied to your strategy</h2>
           <span class="cnt">كل تصميم يخدم هدفاً · every asset serves a goal</span></div>
           <div class="card creative">
             <div class="media-col">{media}</div>
-            <div><div class="swot-t" style="font-size:15px">كل ادعاء يرجع لدليل حقيقي · Every hard claim traces to real evidence.</div>
-              <p style="font-size:13px;color:{_C['inkSoft']};margin-top:8px;line-height:1.6">
-              العناوين وسطور الإثبات تمرّ ببوابة الأدلة قبل الرندر؛ اللوجو أصل حقيقي مركّب بدقة (لا يُعاد رسمه).
-              الريل يحكي نفس القصة المؤسَّسة بصوت متصل وكارت نهاية بلوجو البراند.</p></div>
+            <div>{claim_block}</div>
           </div></div>"""
 
     # ROUND-2 D — the capability-census strip (now poster/reel presence is known).
@@ -1181,7 +1298,7 @@ def build_dashboard_html(
       <div class="top">
         <div class="brand"><div class="brand-badge">{_esc(badge_letter)}</div>
           <div><div class="brand-name">Baseera</div><div class="brand-sub">Marketing Intelligence</div></div></div>
-        <div class="tagpill"><span class="dot"></span> Provable Brand Safety</div>
+        {('<div class="tagpill"><span class="dot"></span> Provable Brand Safety</div>' if audit_ok else '<div class="tagpill"><span class="dot"></span> Evidence-Gated Output</div>')}
       </div>
       <div class="hero"><div class="hero-in">
         <h1 class="serif">{_esc(name)} — <em>a complete campaign, from one URL</em></h1>
@@ -1190,8 +1307,13 @@ def build_dashboard_html(
         <div class="kpis">{kpis}</div>
       </div></div>
       {exec_html}{arc_html}
-      {pulse_html}{assets_html}{swot_html}{comp_html}{registry_html}{voice_html}{tows_html}{actions_html}{mp_html}{creative_html}{cal_html}{honesty_html}{census_html}{qa_html}
-      <div class="foot">Generated by <b>Baseera</b> · {_esc(gen)} · every factual line carries its source (the Evidence Ledger).</div>
+      <section id="sec-market">{pulse_html}{assets_html}{swot_html}{comp_html}{registry_html}{voice_html}</section>
+      <section id="sec-strategy">{tows_html}{actions_html}</section>
+      <section id="sec-plan">{mp_html}</section>
+      <section id="sec-creative">{creative_html}</section>
+      <section id="sec-calendar">{cal_html}</section>
+      <section id="sec-gaps">{honesty_html}{census_html}{qa_html}</section>
+      <div class="foot">Generated by <b>Baseera</b> · {_esc(gen)} · claims are checked against the Evidence Ledger — what fails verification is excluded.</div>
     </div></div>"""
 
     content = _css() + body

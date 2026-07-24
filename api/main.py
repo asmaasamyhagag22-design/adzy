@@ -50,11 +50,23 @@ except ImportError:
     pass
 
 
-from fastapi import FastAPI  # noqa: E402
-from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from pathlib import Path  # noqa: E402
 
+from fastapi import Depends, FastAPI, HTTPException  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+from .auth import require_api_key  # noqa: E402
 from .jobs.store import JobStore  # noqa: E402
-from .routes import health, jobs, poster, reel, run, swot  # noqa: E402
+from .routes import (  # noqa: E402
+    analysis, auth, brands, generate, health, influencer, jobs, poster, reel, run, scrape,
+    showcase, swot,
+)
+from .routes.auth import require_user  # noqa: E402
+
+# The AdArchitect web app (static SPA) served same-origin so no API key ever reaches the browser.
+_FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 logger = logging.getLogger(__name__)
 
@@ -95,12 +107,13 @@ app = FastAPI(
 
 # CORS — allow the Next.js dev server (Day 2) and Vercel deploy (Day 7).
 # CORS_ALLOW_ORIGINS env var overrides; comma-separated list of origins.
+# P-59: no baked-in LAN IP — that was one developer's machine address shipped to every deploy.
+# A specific host belongs in CORS_ALLOW_ORIGINS on that machine, not in the source default.
 _default_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
-    "http://10.2.18.18:3001",
 ]
 
 _env_origins = os.environ.get("CORS_ALLOW_ORIGINS", "")
@@ -122,22 +135,69 @@ app.add_middleware(
 # Route mounts
 # ---------------------------------------------------------------------
 
+def _serve(name: str):
+    """Serve a frontend HTML file, or a JSON hint if the web app isn't present."""
+    f = _FRONTEND_DIR / name
+    if f.is_file():
+        return FileResponse(str(f))
+    return JSONResponse({
+        "status": "ok", "app": "Marketing Strategist API",
+        "hint": "Backend is up; the web app files were not found.",
+        "docs": "/docs", "health": "/api/health",
+    })
+
+
 @app.get("/", include_in_schema=False)
-def root() -> dict:
-    """Friendly landing for anyone opening the API address in a browser (was a bare
-    404 {"detail":"Not Found"}, which reads like an outage)."""
-    return {
-        "status": "ok",
-        "app": "Marketing Strategist API",
-        "hint": "This is the backend. The web app UI runs at http://localhost:3000",
-        "docs": "/docs",
-        "health": "/api/health",
-    }
+def landing():
+    """The marketing landing page (frontend/landing.html)."""
+    return _serve("landing.html")
 
 
+@app.get("/app", include_in_schema=False)
+def webapp():
+    """The AdArchitect SPA (frontend/index.html)."""
+    return _serve("index.html")
+
+
+# Static assets (logos, showcase images) referenced as /assets/... by both HTML files.
+if (_FRONTEND_DIR / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIR / "assets")), name="assets")
+
+
+# ---- API routers ----
+# health + jobs are unauthenticated: they spend nothing (liveness, job status/stream polling).
 app.include_router(health.router, prefix="/api", tags=["health"])
-app.include_router(run.router, prefix="/api", tags=["run"])
 app.include_router(jobs.router, prefix="/api", tags=["jobs"])
-app.include_router(poster.router, prefix="/api", tags=["poster"])
-app.include_router(reel.router, prefix="/api", tags=["reel"])
-app.include_router(swot.router, prefix="/api", tags=["swot"])
+
+# Web-app auth: signup/login must be reachable WITHOUT a token; /auth/me self-gates via Depends.
+# showcase is the public landing gallery. Neither is gated.
+app.include_router(auth.router, prefix="/api", tags=["auth"])
+app.include_router(showcase.router, prefix="/api", tags=["showcase"])
+
+# run / poster / reel / swot each spend real money -> gated behind require_api_key (P-54).
+_paid = [Depends(require_api_key)]
+app.include_router(run.router, prefix="/api", tags=["run"], dependencies=_paid)
+app.include_router(poster.router, prefix="/api", tags=["poster"], dependencies=_paid)
+app.include_router(reel.router, prefix="/api", tags=["reel"], dependencies=_paid)
+app.include_router(swot.router, prefix="/api", tags=["swot"], dependencies=_paid)
+
+# Web-app routers — gated by JWT (require_user), not the API key. Brands are a shared catalog.
+_authed = [Depends(require_user)]
+app.include_router(scrape.router, prefix="/api", tags=["webapp"], dependencies=_authed)
+app.include_router(brands.router, prefix="/api", tags=["webapp"], dependencies=_authed)
+app.include_router(analysis.router, prefix="/api", tags=["webapp"], dependencies=_authed)
+app.include_router(generate.router, prefix="/api", tags=["webapp"], dependencies=_authed)
+app.include_router(influencer.router, prefix="/api", tags=["webapp"], dependencies=_authed)
+# ^ AdArchitect web app fully wired: auth · brands · scrape · analysis · generate · influencer.
+
+
+# Generated images are loaded by <img src="/api/generated/..."> which can't send the Bearer token,
+# so this serving route is PUBLIC (the images aren't secret). Path-sanitized in read_generated_png.
+@app.get("/api/generated/{name}", include_in_schema=False)
+def generated_image(name: str):
+    from fastapi import Response
+    from .webapp_images import read_generated_png
+    png = read_generated_png(name)
+    if png is None:
+        raise HTTPException(status_code=404, detail="Not found.")
+    return Response(content=png, media_type="image/png")

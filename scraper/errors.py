@@ -15,6 +15,7 @@ class ErrorCode(str, Enum):
 
     # Policy
     ROBOTS_DISALLOWED = "ROBOTS_DISALLOWED"
+    BLOCKED_URL = "BLOCKED_URL"  # SSRF guard: target resolved to a non-public (internal/loopback/metadata) IP
 
     # Anti-bot
     CAPTCHA_DETECTED = "CAPTCHA_DETECTED"

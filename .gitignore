@@ -85,3 +85,9 @@ logs/*/
 
 # competitor registry — per-machine baseline state, like runs/
 registry/
+
+# P-92: stray reel sound-bed / TTS scratch artifacts at the repo root (a bare out-path used to
+# leak `x.wav` here). The tests now write under tmp_path; this is a belt-and-suspenders net.
+/x.wav
+/*.bed.m4a
+/*.vo.m4a

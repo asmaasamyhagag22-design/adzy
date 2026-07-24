@@ -1,8 +1,10 @@
+> **تنبيه أمانة (2026-07-19):** هذا الملف لقطة قديمة — الأعداد والأنكورات (#L) فيه غير موثوقة بعد إعادة هيكلة البرومبتات (GROUNDING/CRAFT/VERBATIM contracts + reel/marketing_intel/ads الجديدة غير مُدرجة). المصدر الموثوق هو الكود: `grep -rn "_SYSTEM\|system_prompt\|CONTRACT" --include=*.py`. مولّد أوتوماتيكي للملف = تذكرة مفتوحة.
+
 # Project Prompt Catalog
 
 > **Every LLM / image / vision prompt in this repo, in one place.** Generated from an automated sweep of the codebase, then curated. For each prompt: where it lives (`file:line`, click to open), which model receives it, what kind of prompt it is, what it does, and a short excerpt. **The source file is always the source of truth** — most prompts are *assembled* at call time (f-strings, per-vertical fragments, grounding facts spliced in), so the excerpts below are representative, not byte-exact.
 
-**54 prompts** across **5 subsystems.**
+**the prompts (count varies — see the honesty note)** across **5 subsystems.**
 
 ## How prompting works in this system
 

@@ -21,13 +21,25 @@ from scraper.readiness import _homepage_is_usable
 
 
 def _page(page_type, *, blocks=(), cleaned=None):
-    return SimpleNamespace(page_type=page_type, text_blocks=list(blocks),
-                           cleaned_main_text=cleaned)
+    # Blocks carry real .text now (P-62 measures total visible text, not block COUNT); bare
+    # values are wrapped so the fixtures stay terse.
+    tb = [b if hasattr(b, "text") else SimpleNamespace(text=str(b)) for b in blocks]
+    return SimpleNamespace(page_type=page_type, text_blocks=tb, cleaned_main_text=cleaned)
 
 
 def test_salvaged_homepage_with_text_blocks_is_usable():
-    # nahdi/te.eg shape: HOMEPAGE, real text blocks, only a benign salvage failure.
-    assert _homepage_is_usable(_page(PageType.HOMEPAGE, blocks=[1, 2, 3]))
+    # nahdi/te.eg shape: HOMEPAGE, real text blocks (well over MIN_RENDERED_CHARS), only a
+    # benign salvage failure.
+    assert _homepage_is_usable(_page(PageType.HOMEPAGE, blocks=[
+        "Andalusia Hospitals — trusted care since 1983",
+        "Book an appointment with our specialists today.",
+    ]))
+
+
+def test_homepage_with_only_a_tiny_nav_block_is_not_usable():
+    # P-62: a single boilerplate nav word ('Home') is no longer enough — total visible text must
+    # clear MIN_RENDERED_CHARS. (An empty shell is already blocked earlier at the fetcher, P-61.)
+    assert not _homepage_is_usable(_page(PageType.HOMEPAGE, blocks=["Home"]))
 
 
 def test_salvaged_homepage_with_cleaned_text_only_is_usable():

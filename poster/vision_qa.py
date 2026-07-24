@@ -37,6 +37,9 @@ class PosterQAVerdict(BaseModel):
     # swoosh — a false product claim invisible to every text gate). Additive, hard gates:
     invented_product: bool = False  # a fabricated hero product presented as the brand's merchandise
     third_party_mark: bool = False  # any other company's logo/trademark rendered in the scene
+    # PLACEMENT (owner-caught 2026-07-20: the medicine box landed anywhere, any way, floating and
+    # mis-scaled). Permissive default so old verdicts/models don't retro-fail every poster.
+    placement_logical: bool = True   # the product sits somewhere physically real for its category
     score: int = 7                  # art-director score 1..10
     # TRI-STATE (P6, 2026-07-15): True = PASS, False = FAIL, None = NOT_CHECKED.
     # It used to default to True, so a single Vertex 429 on the QA call silently converted the art
@@ -62,7 +65,54 @@ class _QAResponse(BaseModel):
     script_wellformed: bool = True
     invented_product: bool = False   # additive (permissive default keeps older tests valid)
     third_party_mark: bool = False
+    placement_logical: bool = True   # additive (permissive default keeps older tests valid)
     score: int = 7
+
+
+def _recompute_pass(*, logo_ok: bool, script_wellformed: bool, invented_product: bool,
+                    third_party_mark: bool, score: int, model_pass: bool,
+                    logo_composited: bool = False) -> bool:
+    """PD-1: the verdict is recomputed in CODE, never trusted from the model. `logo_composited`
+    drops `logo_ok` from the conjunction for the same reason the prompt does."""
+    ok = (bool(model_pass) and bool(script_wellformed) and not bool(invented_product)
+          and not bool(third_party_mark) and int(score or 0) >= 7)
+    return ok and (True if logo_composited else bool(logo_ok))
+
+
+def _logo_criterion(composited: bool) -> str:
+    """What `logo_ok` means. When the REAL asset was composited deterministically, the model-garbles-
+    the-logo failure this gate was built for cannot happen — and judging letterforms then rejects the
+    brand's own design (MEASURED on Volume Qatar: an intentionally interlocking wordmark read as
+    "completely garbled" three renders in a row). It becomes a VISIBILITY check instead."""
+    if not composited:
+        return ("- logo_ok = true ONLY if the brand logo/lockup is crisp, complete and correctly "
+                "spaced with NO garbled/overlapping/duplicated glyphs or stray characters "
+                "(HARD GATE).\n")
+    return ("- logo_ok = true if the brand mark is VISIBLE and legible against what sits behind it "
+            "(enough contrast, not cropped, not covered by other elements). It was composited "
+            "pixel-exactly from the brand's OWN file, so judge ONLY its visibility and placement — "
+            "NEVER its letterforms: a stylised wordmark with overlapping or interlocking letters is "
+            "the brand's design, not damage.\n")
+
+
+def _pass_criteria(arabic: bool, *, logo_composited: bool = False) -> str:
+    """The `overall_pass` conjunction — language-aware.
+
+    MEASURED (Volume Qatar, 2026-07-21): a clean ENGLISH poster (verbatim fidelity 1.0, critic
+    score 8/10) was rejected with "The poster uses Latin script, which violates the pass criteria."
+    "No Latin in the copy" is correct for an ARABIC brand and wrong for every other one — the
+    per-field instruction already knew that; this line did not. A D-8 language-axis leak: a true
+    rule applied to a question it does not belong to.
+    """
+    logo_part = "" if logo_composited else "logo_ok AND "
+    if arabic:
+        return (f"- overall_pass = true ONLY if {logo_part}script_wellformed AND no Latin in the "
+                "copy AND no clipping AND on_brand_color AND no candid violation AND no "
+                "invented_product AND no third_party_mark AND score >= 7.\n")
+    return (f"- overall_pass = true ONLY if {logo_part}script_wellformed AND no clipping AND "
+            "on_brand_color AND no candid violation AND no invented_product AND no "
+            "third_party_mark AND score >= 7. This brand's own language is NOT Arabic, so Latin "
+            "copy is CORRECT and must never count against the poster.\n")
 
 
 def poster_vision_qa(
@@ -72,6 +122,7 @@ def poster_vision_qa(
     brand_dna: Any = None,
     arabic: bool = True,
     expect_real_products: Optional[bool] = None,
+    logo_composited: bool = False,
 ) -> PosterQAVerdict:
     """Inspect the FINAL rendered poster. Returns a verdict; `checked=False` (permissive pass)
     when no multimodal caller is available."""
@@ -130,14 +181,21 @@ def poster_vision_qa(
            "fabricated shoe/bottle/device/dish shown as theirs (HARD GATE: a fake product is a "
            "false claim). Generic out-of-focus background objects are fine.\n"
            if expect_real_products is not True else "")
+        # PLACEMENT (2026-07-20): the prompt now carries placement physics; the critic must be
+        # able to SEE the failure, otherwise a floating box still ships. Phrased per CATEGORY, not
+        # "on a surface" — shoes belong on the ground, a car on a road, a sofa in a room.
+        + "- placement_logical = true if any product shown sits somewhere physically real for a "
+        "product OF ITS KIND: supported by something that would truly carry it (counter, shelf, "
+        "ground, road, room, hand, worn), at a believable SIZE next to the objects around it, with "
+        "a contact shadow and lighting that match the scene. FALSE if it floats/hovers unsupported, "
+        "is absurdly large or small, casts no shadow where it touches, or is placed somewhere "
+        "nonsensical for that category.\n"
         + "- third_party_mark = true if ANY other company's logo or trademark appears anywhere "
         "in the scene — a swoosh, an apple mark, any recognizable brand symbol on objects or "
         "clothing (HARD GATE).\n"
         "- score = 1..10 overall creative quality as a premium brand poster.\n"
-        "- overall_pass = true ONLY if logo_ok AND script_wellformed AND no Latin in the copy AND "
-        "no clipping AND on_brand_color AND no candid violation AND no invented_product AND no "
-        "third_party_mark AND score >= 7.\n"
-        "- reason = one short sentence naming the biggest problem (or 'clean')."
+        + _pass_criteria(arabic, logo_composited=logo_composited)
+        + "- reason = one short sentence naming the biggest problem (or 'clean')."
     )
     user = "Review this rendered poster as an art director and return the verdict."
 
@@ -159,13 +217,17 @@ def poster_vision_qa(
         script_wellformed=bool(resp.script_wellformed),
         invented_product=bool(resp.invented_product),
         third_party_mark=bool(resp.third_party_mark),
+        placement_logical=bool(resp.placement_logical),
         score=int(resp.score or 0),
-        # code-side hard gates re-ANDed: a crisp logo, well-formed script, NO invented hero
-        # product and NO third-party mark are non-negotiable — a model that answers
-        # overall_pass=true but flags any of them still FAILS.
-        overall_pass=bool(resp.overall_pass) and bool(resp.logo_ok)
-        and bool(resp.script_wellformed) and not bool(resp.invented_product)
-        and not bool(resp.third_party_mark),
+        # code-side hard gates re-ANDed (PD-1 — recompute, never trust the model's overall_pass):
+        # a crisp logo, well-formed script, NO invented hero product, NO third-party mark, AND the
+        # promised quality floor (score >= 7, prompt vision_qa.py:139). P-25: score was promised as a
+        # pass condition but not enforced — a model saying overall_pass=true with a 5 still passed.
+        overall_pass=_recompute_pass(
+            logo_ok=bool(resp.logo_ok), script_wellformed=bool(resp.script_wellformed),
+            invented_product=bool(resp.invented_product),
+            third_party_mark=bool(resp.third_party_mark), score=int(resp.score or 0),
+            model_pass=bool(resp.overall_pass), logo_composited=logo_composited),
         reason=(resp.reason or "").strip(),
         checked=True,
     )

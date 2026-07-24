@@ -216,11 +216,15 @@ def render_creative_reel(
     # and any caption now pass the shared drop-to-grounded policy — a line carrying an
     # UNSOURCED hard claim is BLANKED (ambience instead of speech), never rewritten. Runs on
     # APPROVED plans too: the HITL law lets gates veto/log — blanking is not a plan swap.
+    _blanked_vo = _had_vo = 0
+    _had_hook = _had_cta = False
     try:
         from reel.grounding import grounded_captions
         vo = [s.voiceover for s in creative.scenes]
+        _had_vo = sum(1 for a in vo if (a or "").strip())
         kept_vo = grounded_captions(profile, vo)
         blanked = sum(1 for a, b in zip(vo, kept_vo) if a and not b)
+        _blanked_vo = blanked
         if blanked:
             logger.info("[reel] %d voiceover line(s) blanked (unsourced hard claim)", blanked)
         for s, k in zip(creative.scenes, kept_vo):
@@ -228,10 +232,26 @@ def render_creative_reel(
         caps = grounded_captions(profile, [s.on_screen_text for s in creative.scenes])
         for s, k in zip(creative.scenes, caps):
             s.on_screen_text = k
+        _had_hook = bool((creative.hook or "").strip())
+        _had_cta = bool((creative.cta or "").strip())
         hc = grounded_captions(profile, [creative.hook, creative.cta])
         creative.hook, creative.cta = hc[0], hc[1]
     except Exception:  # noqa: BLE001 — the gate never loses a reel
         pass
+
+    # البند 5 (owner: "مينفعش التكلفة تروح على الفاضي") — PRE-SPEND HARD GATE: this is the last
+    # point before the first PAID call (seed images -> TTS -> Veo). Blanking a line or two is
+    # normal remediation, but a reel whose copy was GUTTED BY THE GROUNDING GATE (hook+cta both
+    # stripped, or most of an existing voiceover killed) is a creative corpse — rendering it
+    # burns real money for an unusable video. Abort HERE, before a single dollar, with the real
+    # reason. NOTE: measures what grounding REMOVED, never what the design left silent — an
+    # ambience-only reel with no voiceover by design passes untouched.
+    _gutted_hc = bool(_had_hook and not (creative.hook or "").strip()) \
+        and bool(_had_cta and not (creative.cta or "").strip())
+    if _gutted_hc or (_had_vo and _blanked_vo * 2 > _had_vo):
+        raise RuntimeError(
+            "PRE-SPEND GATE: معظم كوبي الريل سقط في بوابة التوثيق (ادّعاءات بلا مصدر) — "
+            "أوقفنا التوليد قبل صرف أي رندر مدفوع. راجعي البريف/البيانات وأعيدي المحاولة.")
 
     # FULLY-GENERATED SCENES (owner ruling 2026-07-12): real photos exit the display path
     # and become conditioning + judging references. REEL_SEED_MODE=real restores legacy.
@@ -240,7 +260,12 @@ def render_creative_reel(
     if (_os.environ.get("REEL_SEED_MODE") or "generated").lower() != "real":
         try:
             from reel.seed_gen import generate_scene_seeds
-            seeds = generate_scene_seeds(creative, list(photos or []), profile=profile,
+            # البند 5 index-basis fix: the director assigns scene.image_index relative to the
+            # photos it actually RECEIVED (creative.images = the fetched subset) — indexing the
+            # pre-fetch list here resolved the SAME index to a DIFFERENT photo whenever a URL
+            # was dropped, seeding scenes with the wrong product. One basis everywhere.
+            _seed_photos = list(getattr(creative, "images", None) or photos or [])
+            seeds = generate_scene_seeds(creative, _seed_photos, profile=profile,
                                          brand_dna=None,
                                          out_dir=Path(out_path).parent, caller=qa_caller_seed(),
                                          log=print)   # the CLI shows [seedgen] stats
@@ -291,7 +316,8 @@ def render_creative_reel(
         vo_durs = [s.duration_s for s in storyboard.scenes]
         vo_deliveries = [s.voiceover_delivery for s in creative.scenes]
         vo_path = synth_voiceover(vo_lines, vo_durs, Path(out_path).with_suffix(".vo.m4a"),
-                                  deliveries=vo_deliveries, tone=_brand_tone(profile))
+                                  deliveries=vo_deliveries, tone=_brand_tone(profile),
+                                  profile=profile)
         if vo_path:
             logger.info("voice-over track ready: %s", vo_path)
 

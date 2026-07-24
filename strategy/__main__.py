@@ -29,7 +29,8 @@ def main() -> int:
     ap.add_argument("--days", type=int, default=30)
     ap.add_argument("--out", default="outputs/content_plan.json")
     ap.add_argument("--platforms", default="", help="comma-separated (default: instagram,tiktok,linkedin)")
-    ap.add_argument("--cadence", type=int, default=4, help="posts per week")
+    ap.add_argument("--cadence", type=int, default=None,
+                    help="posts per week (default: the brand category's cadence, media_plan.config)")
     ap.add_argument("--trends", action="store_true", help="ride current trends relevant to the brand")
     ap.add_argument("--no-llm", action="store_true", help="deterministic fallback plan (no LLM)")
     args = ap.parse_args()
@@ -42,9 +43,17 @@ def main() -> int:
 
     caller = None
     if not args.no_llm:
+        # CS-92: the LLM calendar path SPENDS (one live Gemini call). Refuse under a no-spend context
+        # (pytest / BASEERA_NO_SPEND) so it can never bill by accident; --no-llm is the free path.
+        from spend_tripwire import refuse_if_no_spend
+        refuse_if_no_spend("one live Gemini call to plan the content calendar",
+                           alternative="run with --no-llm for the deterministic plan")
         try:
             from business_profile.llm import default_caller
-            caller = default_caller(strong=False)   # planning is light -> cheap model is fine
+            # P-13: the content calendar is the product's core creative output — it deserves the
+            # strong model, consistent with the poster's art direction (which uses strong=True).
+            # It was on Flash ("planning is light"), a mismatch with its importance.
+            caller = default_caller(strong=True)
         except Exception:
             caller = None
 
@@ -52,8 +61,12 @@ def main() -> int:
     if args.trends:
         try:
             from trends import top_trends, keywords_from_profile
+            # D-8 (CS-62): the calendar rides the BRAND'S market trends, not Google's US default.
+            from poster.locale import search_locale
+            _gl, _hl = search_locale(profile)
             print("[strategy] fetching current trends...", file=sys.stderr)
-            trends = top_trends(keywords_from_profile(profile), top_k=6, require_match=False)
+            trends = top_trends(keywords_from_profile(profile), top_k=6, require_match=False,
+                                gl=_gl, hl=_hl)
         except Exception:
             trends = None
 

@@ -60,9 +60,11 @@ RULES: List[Rule] = [
 
     # ---- UNIVERSAL: guaranteed results / outcomes / returns ----
     Rule("GR-1", "guaranteed_results", "block", None, _rx(
-        r"\bguarantee(d|s)?\b[^.\n]{0,30}\b(result|outcome|return|cure|weight\s*loss|success)\b",
-        r"\bguaranteed\s+(results|outcomes|returns)\b",
-        r"\b100%\s*(guaranteed|result|results|effective|success|cure)\b",
+        # P-26: added profit/income/ROI + optional plural (`s?`) — "guarantee 200% returns" (plural,
+        # with words between) was a common finance-ad guarantee GR-1 used to miss.
+        r"\bguarantee(d|s)?\b[^.\n]{0,30}\b(result|outcome|return|profit|income|roi|cure|weight\s*loss|success)s?\b",
+        r"\bguaranteed\s+(results|outcomes|returns|profit|profits|income|roi)\b",
+        r"\b100%\s*(guaranteed|result|results|effective|success|cure|profit|return)\b",
         r"نتيجة\s+مضمونة", r"نتائج\s+مضمونة", r"مضمون(ة|ه)?\s+(النتيجة|النتائج|الشفاء)",
         r"ضمان\s+(النتيجة|النتائج|الشفاء)", r"عائد\s+مضمون", r"ربح\s+مضمون", r"نتيجة\s+أكيدة",
     ), "Promises a guaranteed result/outcome/return (Meta prohibits guaranteeing results). State the "

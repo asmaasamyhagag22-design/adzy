@@ -95,6 +95,13 @@ def _logo_data_uri(url: Optional[str]) -> Optional[str]:
         if low.endswith(".svg"):
             mime = "image/svg+xml"
         else:
+            # البند 2: key a white-matted raster logo to alpha FIRST — this is the single
+            # choke point feeding BOTH the endcard and the in-scene overlay, and it also
+            # un-skews _logo_mean_luma (a white card used to read as a "light" logo).
+            from .image_quality import white_key_logo
+            keyed = white_key_logo(data)
+            if keyed is not data:
+                data, mime = keyed, "image/png"
             knocked = _knockout_if_dark(data)
             if knocked is not data:
                 data, mime = knocked, "image/png"      # white variant re-encodes as PNG

@@ -38,6 +38,7 @@ class CreativeConcept(BaseModel):
     core_benefit: str = ""
     emotional_tone: str = ""
     visual_idea: str = ""               # text-free scene for the image (brand design language)
+    product_placement: str = ""         # where the featured product physically sits in that scene
     proof_points: list[str] = Field(default_factory=list)   # 2-3 -> become the chips
     headline: str = ""                  # 2-6 words, ad copy (NOT a mission statement)
     subheadline: str = ""               # optional single supporting line
@@ -57,6 +58,7 @@ class _ConceptResponse(BaseModel):
     core_benefit: str
     emotional_tone: str
     visual_idea: str
+    product_placement: str = ""         # additive: permissive default keeps older callers valid
     proof_points: list[str]
     headline: str
     subheadline: str
@@ -156,6 +158,31 @@ def _grounding_problems(c: CreativeConcept, ledger: Any) -> list[str]:
 # Build
 # ---------------------------------------------------------------------
 
+def _placement_rule(featured_product: Optional[str]) -> str:
+    """Ask the concept WHERE the featured product physically belongs in the scene it just invented.
+
+    Owner (2026-07-20): "البوستر بيحط علبة الدوا في أي مكان وبأي شكل مش مهتم هو ده مكان منطقي ولا
+    لأ." The renderer now enforces placement PHYSICS, but the creative decision — which support,
+    which moment, whose hand — belongs with the concept that authored the scene. Same model call,
+    so no extra spend.
+
+    Universal by construction (owner's D-8 correction): a box rests on a counter, but shoes sit on
+    the ground, a car on a road, a sofa in a room — so the field asks for the NATURAL SUPPORT of
+    this product's own kind, never "a surface".
+    """
+    if not (featured_product or "").strip():
+        return ""
+    return (
+        "- product_placement: ONE sentence in ENGLISH saying exactly where the featured product "
+        "physically sits inside your visual_idea, and why that spot is true to life. Name (a) the "
+        "NATURAL SUPPORT that carries a product of ITS kind — a counter, a shelf, the ground, a "
+        "road, a room's floor, a hand mid-use, worn on the body — never floating and never a blank "
+        "studio void; (b) the surrounding context that makes the moment real; (c) the person's "
+        "relation to it if a person is in the scene (holding it, reaching for it, using it). Choose "
+        "the place where this kind of product is genuinely used, kept or displayed.\n"
+    )
+
+
 def _fallback_concept(profile: dict, arabic: bool) -> CreativeConcept:
     """A grounded concept when there's no caller / all retries fail — copy comes from the
     profile so it is real, and (for an Arabic brand) Arabic-only fields are preferred."""
@@ -199,6 +226,7 @@ def build_creative_concept(
     research: Any = None,
     trend_context: Optional[str] = None,
     raw_facts: Optional[str] = None,
+    featured_product: Optional[str] = None,
 ) -> CreativeConcept:
     """One coherent campaign concept + brand-language copy. Arabic brands -> Arabic copy with
     ZERO Latin (validated + regenerated). Never raises.
@@ -253,7 +281,12 @@ def build_creative_concept(
     except Exception:  # noqa: BLE001
         country = ""
     tone_block = _dna_tone_lines(brand_dna)
-    lang_name = "Egyptian Arabic (فصحى-قريبة / عامية مصرية راقية)" if arabic else "English"
+    # CS-04 (D-8): the copy register follows the brand's EVIDENCED country, not a hardcoded
+    # 'Egyptian Arabic' for every Arabic brand (a Saudi brand was commissioned in Masri). Same
+    # resolver the content calendar uses (P-04) — now the single country->dialect map in
+    # poster.locale, keyed on `country` which is already resolved at :252 above.
+    from poster.locale import arabic_dialect_for
+    lang_name = arabic_dialect_for(profile) if arabic else "English"
     vary = ""
     if variation:
         vary = (f"\nThis run's creative angle: {variation.get('mood','')}, "
@@ -333,7 +366,8 @@ def build_creative_concept(
         "company. Write visual_idea in ENGLISH — a production brief, no words in the image."
         + (f" The scene is set in {country} with authentic local people from {country} — "
            f"say so explicitly in the visual_idea." if country else "") + "\n"
-        "- proof_points: 2-3 SHORT consumer-language points that support single_message (these "
+        + _placement_rule(featured_product)
+        + "- proof_points: 2-3 SHORT consumer-language points that support single_message (these "
         "become on-poster chips). Each must serve the message — drop anything unrelated. NOT a "
         "dump of internal/B2B product names.\n"
         "BRAND-COHERENCE (HARD RULE — owner caught 'بطل مذاكرة' shipped for an education "
@@ -342,6 +376,12 @@ def build_creative_concept(
         "never says stop eating, a gym never mocks training. Tension is allowed ONLY against a "
         "PAIN the brand solves (waiting, cost, theory-without-practice, complexity) and must be "
         "phrased so the brand's own activity stays desirable.\n"
+        "- CREATIVE BAR (البند 4 — owner: 'مش كريتيف'): start from a HUMAN INSIGHT — a real "
+        "moment, tension or desire from the brand's actual pain-points/reviews — not from the "
+        "product's spec sheet. Banned shapes: 'جرب X الآن', 'X الأفضل في Y', any line a "
+        "competitor could run unchanged, and any generic benefit platitude. The idea should "
+        "make a stranger FEEL something specific before it informs them. Stay 100% inside the "
+        "real facts below — creativity is in the ANGLE, never in inventing claims.\n"
         "- headline: AD COPY — 2 to 6 words, an ENTICING hook that sells the core_benefit and "
         "stops a scroll. NOT a company mission statement, NOT generic corporate values, NOT a "
         "category platitude a competitor could run unchanged ('control in your hand', 'your unfair "
@@ -361,15 +401,32 @@ def build_creative_concept(
         "THEY DO + the SPECIFIC service + one REAL proof? Is the visual the real world of THIS "
         "service, not a stock person? If any is missing, rewrite."
     )
+    # CS-14 (P-72 pattern): scraped fields are UNTRUSTED text. Neutralize the characters that
+    # let a page's own copy break out of its slot or counterfeit prompt structure — the same
+    # 3-char neutralization the evidence pack applies (" -> ', brackets -> parens), plus a
+    # newline-collapse for inline fields. Semantic injection stays caught downstream by the
+    # spine/ledger gates.
+    def _neutral(v: str, *, inline: bool = True) -> str:
+        v = str(v or "").replace('"', "'").replace("[", "(").replace("]", ")")
+        return " ".join(v.split()) if inline else v
+
+    name = _neutral(name)
+    tagline = _neutral(tagline)
+    desc = _neutral(desc)
+    offers = [_neutral(o) for o in (offers or [])]
     raw_facts_block = (
         "\nREAL PRODUCT-PAGE FACTS (verbatim from the brand's own page — the owner's "
         "raw-data-first rule; ground the concept in THESE specifics):\n"
-        + raw_facts[:1800] + "\n") if raw_facts and raw_facts.strip() else ""
+        + _neutral(raw_facts[:1800], inline=False) + "\n") if raw_facts and raw_facts.strip() else ""
     user = (
         f"Brand: {name}\n"
         + (f"Country/market: {country}\n" if country else "")
         + (f"Tagline: {tagline}\n" if tagline else "")
         + (f"What they do: {desc[:400]}\n" if desc else "")
+        + (f"FEATURED PRODUCT/SERVICE — the ENTIRE concept is about THIS one item, the user "
+           f"picked it explicitly: {_neutral(featured_product)}. The headline or subheadline "
+           f"MUST name it (its real name; customer wording allowed) and must NOT write about "
+           f"a different product.\n" if featured_product else "")
         + (f"Real offerings (raw — may be internal jargon; render them in the words a real "
            f"customer would use, but never change what they factually ARE): {', '.join(offers)}\n"
            if offers else "")
@@ -406,6 +463,7 @@ def build_creative_concept(
             audience=resp.audience.strip(), single_message=resp.single_message.strip(),
             core_benefit=resp.core_benefit.strip(), emotional_tone=resp.emotional_tone.strip(),
             visual_idea=resp.visual_idea.strip(),
+            product_placement=(getattr(resp, "product_placement", "") or "").strip(),
             proof_points=[p.strip() for p in (resp.proof_points or []) if p.strip()],
             headline=resp.headline.strip(), subheadline=resp.subheadline.strip(),
             cta=resp.cta.strip(), language=("ar" if arabic else "en"),

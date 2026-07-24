@@ -24,7 +24,37 @@ from grounding.audit import POLICY, coverage_block
 
 # Poster-specific exclusion on top of the shared scope (the generated background is design,
 # not a factual claim).
-_POSTER_EXCLUDED = {"background_image": "design domain (text-free scene); not a factual claim"}
+# P-33: do NOT assert the scene is "text-free" — generated backgrounds frequently bake in
+# incidental text (shop signs, pseudo-glyphs, even a third-party mark). What is true is that the
+# COPY audit does not certify the imagery; any text/marks the vision model saw are recorded in the
+# `vision_qa` block (P-42), not silently blessed as sourced copy.
+_POSTER_EXCLUDED = {"background_image":
+                    "generated design/imagery — not certified as sourced copy; "
+                    "incidental text or marks in the scene are recorded in vision_qa, not blessed"}
+
+
+def attach_vision_qa(audit: dict | None, qa: Any) -> "dict | None":
+    """P-42: persist the SHIPPED poster's vision-QA verdict into its audit sidecar.
+
+    Before this the tri-state verdict (`third_party_mark` / `invented_product` / `score` /
+    `overall_pass`) lived ONLY in the in-memory `PosterGenResult.qa` and was never written next to
+    the poster — so a counterfeit swoosh could ship under a copy-only `passes: true` with no record
+    of whether QA even ran. This records it. `overall_pass` is tri-state (True/False/None=not
+    checked); `checked` says whether a vision model actually inspected the image."""
+    if audit is None or qa is None:
+        return audit
+    audit["vision_qa"] = {
+        "checked": bool(getattr(qa, "checked", False)),
+        "overall_pass": getattr(qa, "overall_pass", None),   # True | False | None (not checked)
+        "score": getattr(qa, "score", None),
+        "third_party_mark": bool(getattr(qa, "third_party_mark", False)),
+        "invented_product": bool(getattr(qa, "invented_product", False)),
+        "logo_ok": bool(getattr(qa, "logo_ok", True)),
+        "script_wellformed": bool(getattr(qa, "script_wellformed", True)),
+        "has_latin_text": bool(getattr(qa, "has_latin_text", False)),
+        "reason": str(getattr(qa, "reason", "") or ""),
+    }
+    return audit
 
 
 def build_poster_audit(profile: dict, concept: Any, brief: Any = None) -> dict:
@@ -33,8 +63,20 @@ def build_poster_audit(profile: dict, concept: Any, brief: Any = None) -> dict:
     `concept` carries the final copy + the gate's `remediation` log. `brief` (optional) is
     what actually renders — when given, its fields are the authoritative shipped copy.
     """
-    from grounding import EvidenceLedger
-    ledger = EvidenceLedger.from_profile(profile)
+    from grounding import EvidenceLedger, make_subject_judge
+    # CS-46/CS-75 (owner ruling 2026-07-18): the AUDIT ledger must carry the same subject judge the
+    # concept gate uses (poster/concept.py:233) — without it a fabricated superlative ("أفضل قهوة")
+    # or a fabricated issuer ("معتمد من هارفارد") is certified brand-tier in the sidecar (measured on
+    # 12/18 real profiles). The judge is a cheap Flash call, invoked ONLY on the disjoint-subject
+    # residual; guarded so no caller / an offline env degrades to the lenient deterministic gate
+    # (never blocks a real claim, never crashes the audit).
+    judge = None
+    try:
+        from business_profile.llm import default_caller
+        judge = make_subject_judge(default_caller(strong=False))
+    except Exception:  # noqa: BLE001
+        judge = None
+    ledger = EvidenceLedger.from_profile(profile, subject_judge=judge)
 
     def _shipped(concept_val: str, *brief_attrs: str) -> str:
         if brief is not None:

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 from typing import Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -102,10 +102,43 @@ def _in_chrome(el) -> bool:
     return False
 
 
+# Query params that describe a TRANSFORM (size/quality/format), not image IDENTITY.
+_IMG_TRANSFORM_PARAMS = {
+    "w", "h", "q", "width", "height", "quality", "dpr", "fit", "format", "fm", "auto",
+    "crop", "resize", "size", "s", "sharp", "blur", "bg", "lossless", "cs",
+}
+_IMG_EXTS = {"jpg", "jpeg", "png", "webp", "gif", "avif", "svg", "bmp", "tiff"}
+# Query params an image PROXY uses to name the REAL image (Next.js /_next/image?url=…, imgix, etc.)
+_IMG_SOURCE_PARAMS = ("url", "src", "image", "imageurl", "file", "fileurl", "path", "i")
+
+
 def _basename_key(url: str) -> str:
-    """Dedup key: the filename, lowercased — collapses a CDN's transform variants
-    (…/h_630,w_1200/13987186/962275_444653.jpeg vs …/h_1500/…/962275_444653.jpeg)."""
-    return urlparse(url).path.rsplit("/", 1)[-1].lower()
+    """Dedup key that identifies the underlying IMAGE, not its transform (P-66).
+
+    Two legitimate URL shapes must be told apart:
+      1. CDN transform in the PATH, real filename at the end
+         (…/h_630,w_1200/13987186/962275_444653.jpeg) — the filename IS the identity, so
+         collapsing by filename correctly merges the h_1500 variant of the SAME photo.
+      2. Image PROXY with the real image in the QUERY
+         (/_next/image?url=/products/foo.jpg&w=640) — here the path filename is a generic
+         "image", so filename-only keying collapsed EVERY product photo into one (measured on
+         Next.js/Wix/Cloudinary sites). Key on the referenced source instead, minus transforms."""
+    p = urlparse(url)
+    fname = p.path.rsplit("/", 1)[-1].lower()
+    qs = parse_qsl(p.query)
+    # (2) proxy pattern: a query param references the real image -> key on ITS basename.
+    for k, v in qs:
+        if k.lower() in _IMG_SOURCE_PARAMS and v:
+            return v.rsplit("/", 1)[-1].lower() or v.lower()
+    # (1) the path filename carries a real image extension -> it is the identity; drop the query
+    #     (transforms) so variants of one photo merge.
+    ext = fname.rsplit(".", 1)[-1] if "." in fname else ""
+    if ext in _IMG_EXTS:
+        return fname
+    # (3) generic/proxy path with no image extension and no source param -> keep the NON-transform
+    #     query so distinct images that differ only in the query don't collapse to one.
+    kept = sorted((k.lower(), v) for k, v in qs if k.lower() not in _IMG_TRANSFORM_PARAMS)
+    return (fname + "?" + urlencode(kept)).lower() if kept else fname
 
 
 def _collect_content_images(

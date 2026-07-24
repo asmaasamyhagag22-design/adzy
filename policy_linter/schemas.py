@@ -24,6 +24,8 @@ class LintFinding(BaseModel):
 class PolicyLintReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    verdict: Literal["PASS", "VIOLATIONS"]     # recomputed in code: VIOLATIONS iff any block finding
+    # recomputed in code (PD-1): VIOLATIONS iff any block finding; NEEDS_REVIEW when the copy is in a
+    # language the ar/en rule set cannot check (P-93 — an un-checkable language is NOT a clean PASS).
+    verdict: Literal["PASS", "VIOLATIONS", "NEEDS_REVIEW"]
     findings: List[LintFinding] = Field(default_factory=list)
     surfaces_checked: List[str] = Field(default_factory=list)

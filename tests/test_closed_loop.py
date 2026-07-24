@@ -59,6 +59,6 @@ def test_a_healthy_campaign_needs_no_new_creative():
 def test_kill_and_replace_also_triggers_a_variant():
     res = run_closed_loop(
         policy=_policy(), snapshots=simulate("loser", days=14, seed=7), profile=_PROFILE,
-        media_plan=_plan(), variation_fn=lambda old: {"headline": "عرض جديد", "cta": "اطلب"},
+        media_plan=_plan(), variation_fn=lambda old: {"headline": "تجربة جديدة ليك", "cta": "اطلب"},
         created_at="t")
     assert res.decision.kind is DecisionKind.KILL_AND_REPLACE and res.action == "variant_bundled"

@@ -53,12 +53,18 @@ def _load(path: Path) -> Tuple[MediaPlan, dict, Optional[dict]]:
     """(media_plan, profile_dict, result_doc) from a media_plan.json, a run dir, or a result JSON.
     profile/result are best-effort — used only to enrich the U5 advisor, never to fabricate."""
     if path.is_dir():
+        # P-48: full_run writes `media_plan.json`, but the STUDIO writes `{slug}_media_plan.json`.
+        # Accept both so the CLI can consume a studio run directory (it couldn't before).
         mp = path / "media_plan.json"
         if not mp.exists():
-            raise SystemExit(f"no media_plan.json in {path}")
+            cands = sorted(path.glob("*media_plan*.json"))
+            if cands:
+                mp = cands[0]
+        if not mp.exists():
+            raise SystemExit(f"no *media_plan*.json in {path}")
         result = None
         for cand in sorted(path.glob("*.json")):
-            if cand.name == "media_plan.json":
+            if cand.name == mp.name or "media_plan" in cand.name:
                 continue
             try:
                 doc = json.loads(cand.read_text(encoding="utf-8"))
@@ -108,9 +114,23 @@ def main(argv=None) -> int:
     name = _business_name(profile, plan)
     out = Path(args.out) if args.out else Path("outputs/launch_bundle") / _slugify(name)
 
+    # CS-121 consumer: a result bundled from outputs/<slug>_result.json has a sibling
+    # <slug>_plan.audit.json (the calendar's claim trail) — its compliance sheet ships too.
+    sheet = None
+    if str(args.path).endswith("_result.json"):
+        audit_path = Path(str(args.path).replace("_result.json", "_plan.audit.json"))
+        if audit_path.is_file():
+            try:
+                from grounding.compliance import build_compliance_sheet
+                sheet = build_compliance_sheet(json.loads(audit_path.read_text(encoding="utf-8")))
+            except Exception:  # noqa: BLE001 — a bad audit never blocks the bundle
+                sheet = None
+
     bundle = assemble_launch_bundle(
         profile=profile, media_plan=plan,
+        compliance_sheet=sheet,
         competitor_count=_competitor_count(result),
+        media_plan_v2=(result or {}).get("media_plan_v2") if isinstance(result, dict) else None,
         out_dir=out)
 
     print(_summary(bundle, out))

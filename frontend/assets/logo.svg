@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 170" fill="none">
+  <defs>
+    <linearGradient id="adarch-text" x1="0" y1="0" x2="620" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f2f2f2"/>
+      <stop offset="1" stop-color="#9a9a9a"/>
+    </linearGradient>
+  </defs>
+
+  <text x="310" y="92" text-anchor="middle"
+        font-family="'Segoe UI', Arial, sans-serif" font-weight="600"
+        font-size="64" letter-spacing="2" fill="url(#adarch-text)">
+    ADARCHIT<tspan fill="transparent">E</tspan>CT
+  </text>
+
+  <!-- Icon replacing the "E" — a circular badge with an upward growth chart,
+       matching the reference wordmark's mark-in-place-of-a-letter motif. -->
+  <g transform="translate(429, 34)">
+    <circle cx="26" cy="26" r="26" fill="#161616" stroke="#5b5b5b" stroke-width="2"/>
+    <path d="M12 32 L20 22 L26 27 L38 13" stroke="#e8e8e8" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M31 13 H38 V20" stroke="#e8e8e8" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="310" y="130" text-anchor="middle"
+        font-family="'Segoe UI', Arial, sans-serif" font-weight="400"
+        font-size="26" letter-spacing="0.5" fill="#a8a8a8">
+    All in One, One for All
+  </text>
+</svg>

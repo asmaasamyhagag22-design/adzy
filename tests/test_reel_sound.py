@@ -11,22 +11,25 @@ from pathlib import Path
 import reel.sound as snd
 
 
-def _graph(monkeypatch, *args, **kw) -> str:
+def _graph(monkeypatch, tmp_path, *args, **kw) -> str:
+    # P-92: write under tmp_path, NEVER a bare "x.m4a" — the run_ffmpeg mock doesn't create the
+    # file, so synth_sound_bed falls to _wave_impact_fallback which used to leak `x.wav` into the
+    # repo root (a 529KB untracked artifact). tmp_path is auto-cleaned.
     cap: dict = {}
     monkeypatch.setattr(snd, "run_ffmpeg", lambda a: cap.__setitem__("args", a))
-    snd.synth_sound_bed(Path("x.m4a"), *args, **kw)
+    snd.synth_sound_bed(tmp_path / "x.m4a", *args, **kw)
     return " ".join(cap["args"])
 
 
-def test_mood_tunes_the_pad(monkeypatch):
-    tense = _graph(monkeypatch, 12.0, mood="tense and cluttered")
+def test_mood_tunes_the_pad(monkeypatch, tmp_path):
+    tense = _graph(monkeypatch, tmp_path, 12.0, mood="tense and cluttered")
     assert "98.00" in tense and "lowpass=f=360" in tense           # dark, sparse
-    confident = _graph(monkeypatch, 12.0, mood="confident resolve")
+    confident = _graph(monkeypatch, tmp_path, 12.0, mood="confident resolve")
     assert "196.00" in confident and "lowpass=f=780" in confident  # bright, full
 
 
-def test_sfx_beats_place_named_cues_at_their_times(monkeypatch):
-    g = _graph(monkeypatch, 12.0, sfx_beats=[(0.0, "impact"), (6.0, "chime"), (9.0, "whoosh")])
+def test_sfx_beats_place_named_cues_at_their_times(monkeypatch, tmp_path):
+    g = _graph(monkeypatch, tmp_path, 12.0, sfx_beats=[(0.0, "impact"), (6.0, "chime"), (9.0, "whoosh")])
     assert "sine=frequency=62" in g                                # impact boom
     assert "880" in g and "1318.51" in g                           # chime blip
     assert "anoisesrc" in g                                        # whoosh sweep
@@ -34,14 +37,14 @@ def test_sfx_beats_place_named_cues_at_their_times(monkeypatch):
     assert "adelay=8700|8700" in g                                 # whoosh fires 0.3s BEFORE its cut (9.0)
 
 
-def test_sfx_beats_out_of_range_are_skipped(monkeypatch):
+def test_sfx_beats_out_of_range_are_skipped(monkeypatch, tmp_path):
     # impact=False removes the always-on opening boom so we isolate the (skipped) out-of-range cues
-    g = _graph(monkeypatch, 5.0, impact=False, sfx_beats=[(99.0, "chime"), (-1.0, "impact")])
+    g = _graph(monkeypatch, tmp_path, 5.0, impact=False, sfx_beats=[(99.0, "chime"), (-1.0, "impact")])
     assert "880" not in g and "anoisesrc" not in g and "adelay" not in g
 
 
-def test_positional_call_is_back_compatible(monkeypatch):
-    g = _graph(monkeypatch, 6.0, [2.0, 4.0])                       # old signature: no mood/sfx
+def test_positional_call_is_back_compatible(monkeypatch, tmp_path):
+    g = _graph(monkeypatch, tmp_path, 6.0, [2.0, 4.0])             # old signature: no mood/sfx
     assert "110.00" in g and "amix" in g                          # default pad, valid graph
 
 

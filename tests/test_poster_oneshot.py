@@ -23,7 +23,8 @@ def test_oneshot_prompt_carries_copy_verbatim_with_the_contract():
                              has_logo=True)
     for text in copy.values():
         assert f'"{text}"' in p                                      # verbatim, quoted
-    assert "EXACTLY, character for character" in p                   # the exact-render contract
+    assert "BEGIN TEXT" in p and "END TEXT" in p                     # fenced drawable zone (1.3)
+    assert "EXACTLY as written" in p                                 # the exact-render demand
     assert "right-to-left" in p and "SHAPED AND CONNECTED" in p      # Arabic clause
     # The model must NOT draw the logo (it garbles Arabic script) — the reserved corner is a
     # CONTINUATION of the background with an explicit placeholder ban (FIX-C1: the old wording
@@ -50,8 +51,8 @@ def test_oneshot_prompt_makes_the_primary_color_dominate_not_just_the_cta():
 
 def test_oneshot_prompt_skips_empty_fields_and_optional_clauses():
     p = build_oneshot_prompt({"headline": "Stay Close", "subheadline": "", "cta": ""})
-    assert 'HEADLINE (dominant, hero typography): "Stay Close"' in p
-    assert "SUBHEADLINE" not in p and "CALL-TO-ACTION" not in p
+    assert '"Stay Close"' in p and "headline" in p                   # role hint OUTSIDE the fence
+    assert "subheadline" not in p and "call-to-action" not in p      # empty fields leave no trace
     assert "right-to-left" not in p and "REAL logo" not in p
 
 

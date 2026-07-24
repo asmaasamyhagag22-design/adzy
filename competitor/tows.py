@@ -268,7 +268,16 @@ def build_tows(swot: SWOT, *, caller: Any = None, profile: Any = None) -> TowsRe
     if profile is not None:
         try:
             from grounding import EvidenceLedger
-            ledger = EvidenceLedger.from_profile(profile)
+            # P-24: wire the subject judge (from the caller build_tows already receives) so a
+            # disjoint-subject superlative is rejected, not leniently accepted. caller=None ->
+            # make_subject_judge(None) -> None -> the ledger's documented lenient mode (unchanged).
+            _judge = None
+            try:
+                from grounding.subject_judge import make_subject_judge
+                _judge = make_subject_judge(caller)
+            except Exception:  # noqa: BLE001
+                _judge = None
+            ledger = EvidenceLedger.from_profile(profile, subject_judge=_judge)
         except Exception:  # noqa: BLE001
             ledger = None
 

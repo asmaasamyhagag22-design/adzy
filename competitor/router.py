@@ -130,7 +130,26 @@ def route_discovery(
                                [base, f"UNKNOWN type -> web engine '{web_engine.name}': {tail}"], [])
 
     if bt is BusinessType.LOCAL:
-        return _places(profile, places_client, base, **discovery_kwargs)
+        res = _places(profile, places_client, base, **discovery_kwargs)
+        if not res.thin_peer_set:
+            return res
+        # MEASURED (Volume Qatar, 2026-07-21): LOCAL used to return here unconditionally, so a
+        # café in The Pearl was locked to Places alone and shipped with ONE peer — a catering
+        # company. nanocare's saved note reads "HYBRID merge: 0 Places + 4 web -> 4 after dedup":
+        # every competitor it has came from the web engine. `thin_peer_set` was already computed
+        # and acted on by nobody. A thin result now widens through the SAME merge the HYBRID
+        # branch uses; a healthy one returns above, so working brands are unchanged.
+        web_peers = _safe_web(web_engine, profile, manifest)
+        if not web_peers:
+            return res
+        merged = _dedup(list(res.competitors) + web_peers)
+        notes = list(res.notes) + [
+            f"thin local tier ({len(res.competitors)} peer(s)) -> widened to web engine "
+            f"'{web_engine.name}': +{len(web_peers)} -> {len(merged)} after dedup."
+        ]
+        return PeerMatchResult(merged, len(merged) < TARGET_PEERS,
+                               res.candidates_considered, res.candidates_passed_filters,
+                               notes, res.audit)
 
     if bt in (BusinessType.ECOMMERCE, BusinessType.REACH):
         # Both compete by category, not proximity -> web only. REACH (education / B2B /

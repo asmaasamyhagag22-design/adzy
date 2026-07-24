@@ -2,8 +2,98 @@
 
 **The single source of truth for this project.** Replaces the historical
 change-log. Read this before acting in this repo. Last full revision: 2026-07-04.
-Test suite: **1618 passed, 2 skipped, 0 failed** (2026-07-15, re-derived live; grew from
+Test suite: **1635 passed, 2 skipped, 0 failed** (2026-07-15, re-derived live, 66s; grew from
 880 as each audit fix below shipped with its hermetic regression tests).
+
+**D-8 UNIVERSALITY — "it has to work for any country" (2026-07-15, IN PROGRESS).**
+Volume Cafe (Doha, a real client deliverable) exposed it: `upcoming_season` returned **"موسم الصيف
+والسواحل / Summer & coast season"** — Egypt's North-Coast BEACH season — for a Qatari café. Not
+merely inapplicable: **inverted** (a 45 °C Gulf summer drives people INDOORS; Egypt's is the peak).
+That violates **D-8, an OWNER DIRECTIVE** (`docs/INTERFACES.md:22`): *"the system is universal across
+verticals/languages/**countries** … CONFIG keyed by the profile's universal signal, always with a
+universal default … a vertical hack in core logic is forbidden."*
+
+**THE FAILURE CLASS, now at four instances — "a true statement that answers a different question
+than the one asked":** ① the 42 ("not checked" written as "verified") · ② trends ("Rising interest"
+from an `else` branch) · ③ **seasons** — `trends/seasons.py:9` *"Universal by construction … no
+**vertical** logic"*: true, and defending the WRONG AXIS while country logic sits hardcoded in the
+same file · ④ **trends `gl`/`hl`** — the citation TRACES (real URL, real article) while the claim
+("a signal for YOUR market") does not, because the search asked about a different market.
+*Honest caveat on ③: seasons.py is not hiding it — `:1` says "Egyptian marketing-season calendar"
+and the call site's own comment (`dashboard/build.py:182`) says "an Egyptian marketing season". The
+code KNEW, wrote it down in both places, and shipped it universally anyway. The primary sin is the
+CALL SITE, not the docstring.*
+
+**SHIPPED so far (all zero-spend, RED-first per fix):**
+- `trends/sources.py` — `SerperTrendSource(keywords, *, gl, hl)` now passes the brand's market to
+  the SERP. Before, `prov.search(q, num=…)` sent **neither**, so Serper served its **US/English
+  default** and the dashboard labelled the result *"إشارات السوق الحيّة · Live market signals"*.
+  `hl` is **not** derived from `gl` — "the country is Arab ⇒ search in Arabic" is
+  `strategy/builder.py:154`'s bug with the arrow reversed. Both default to `""` ⇒ omitted ⇒
+  byte-identical to the old request. The false *"FREE, keyless public APIs"* docstring (`:1`) is
+  fixed — Serper is paid, keyed and FIRST.
+- `poster/locale.py` — `country_code()` ("Qatar" → `"qa"`) **derived from `CCTLD_COUNTRY` at import**
+  (no second table — `poster/art_director.py:582` already is one, and two tables drift). `.uk`→`gb`
+  is the only ccTLD≠ISO mismatch in all 62 keys. `"the USA/Canada"` (`:51`) resolves to `""` — a +1
+  phone genuinely cannot say which country. Plus `search_locale(profile) -> (gl, hl)`.
+- `competitor/full_run.py` + `api/routes/swot.py` — both resolve the market from the profile.
+
+**MEASURED, and both refuted something we believed:**
+1. **The SERP's noise floor is 66 %.** Identical query, nothing changed, minutes apart ⇒ 66 % of
+   URLs differ. A first A/B "measured" 79 % churn from `gl`; the control showed that was ~all
+   noise. **Any n=1 trend snapshot is mostly noise** — including every trend list this product has
+   ever rendered. (`outputs/_gl_control.json`)
+2. **`gl` is necessary but NOT sufficient.** Queries with market words in the TEXT went **0 → 4**
+   Qatar/Gulf hosts when `gl=qa` was added; new angles with `gl=qa` and no market words returned
+   **0**. `gl` re-ranks — it does not conjure local sources for a globally-written topic. The market
+   must be in the query **and** in `gl`. (`outputs/_gl_ab.json`)
+
+**A REAL SCRAPE CLOSED THE HONESTY GAP** (owner: *"اسكراب حقيقي علشان تبقا النتيج صح"*).
+`scrapes/volumeqatar_com_20260715_112727/` (10 pages, robots-allowed, free) + a $0.019 profile build
+⇒ `country_of` resolved **"Qatar"** from the brand's OWN `service_areas: ["Qanat Quartier", "Pearl
+Qatar"]` (quote + page_url), and `languages` measured **en @ 100 %** ⇒ `search_locale = ("qa","en")`.
+The market is no longer asserted by a human. *(`hl="ar"` would have been wrong — the site is English.)*
+
+**FOUND, NOT YET FIXED (tickets, evidence-backed):**
+- **T-KW-SALIENCE — the auto trend query is nonsense for this brand.** Left alone the pipeline
+  searches **`"cafe baked salmon trends 2026"`**: `keywords_from_profile` splits OFFERING NAMES into
+  words and `_query()` takes the **first three**, so a brand whose own title is *"Volume Cafe –
+  Specialty Coffee"* never mentions coffee (it sits ~40th). Vertical-calibrated by accident: for a
+  jeweller, offering names ARE the category (rings/earrings); for a café they are menu items.
+- **T-PHONE-CIRCULAR — an assumed country code read back as evidence of the country.**
+  `scraper/extractors/contact.py:47` `_HOME_MARKET_REGION = "EG"` is the fallback when
+  `region_from_site` finds no signal (generic TLD, no `/xx-yy` path). `country_of` step 3 then reads
+  that `+20` and concludes **"Egypt"** — *the evidence is the assumption*. Same shape as the circular
+  trends gate deleted in P1. **PROVEN, not theoretical:** `scrapes/nahdionline_com_20260704_102759`
+  (Al Nahdi, **Saudi**) stores `e164=+20920024673` for the Saudi unified number `920024673`, and
+  `search_locale` on it returns **`("eg","ar")`** — a Saudi brand would search Egypt's SERP.
+  Bounded: only numbers valid in BOTH countries collide (Qatari 8-digit locals are rejected, not
+  fabricated), and `contact.py:44-46` already DOCUMENTS this exact residual. `PhoneRecord`
+  (`scraper/schemas.py:162`) carries no signalled-vs-assumed flag, so nothing downstream can tell.
+  Note the EG fallback is load-bearing for the corpus — most of the 14-URL grid is `.com`.
+- **THE BENCHMARK NEVER TESTED THE COUNTRY AXIS.** All 14 graded URLs serve Egypt. D-8 says the grid
+  stays *"multi-**vertical**"* — it says nothing about multi-country. So universality is measured on
+  the vertical axis and **never on the country axis**, which is exactly how the Egypt coupling
+  survived every gate. (Ad-hoc scrapes do include `aztech_sa`, `outletpharmacyonline_sa`, `ulta_com`
+  — but nothing non-Egyptian is *graded*.)
+- **The country-assumption sweep (~20 sites)** — `dashboard/build.py:464` renders **"كل مصر ·
+  nationwide"** to a Doha brand · `media_plan/config.py:67` prices every KPI in **EGP** ·
+  `reel/render3/director.py:269` `return loc or "Egypt"` · `strategy/builder.py:154` any-Arabic ⇒
+  Egyptian (**the bug D5 already killed in the reel, still live in the calendar**) ·
+  `reel/voiceover.py:202` `ar-EG-SalmaNeural` · `reel/render3/prompts.py:62,101` hardcoded "Egyptian"
+  casting · no **QAR** in the currency regexes.
+  ⚠ **`process.md:861`'s "no hardcoded Egypt [in the reel]" is an OVERSTATEMENT of a real, bounded
+  fix** — D5 covered `_culture_line` in `reel/art_director` + `reel/generate`, exactly and only.
+  ⚠ **Do NOT "clean" the ~20 hits for "Cairo" in `reel/textlayer.py` / `endcard.py` /
+  `poster/template.py`** — that is the **Google Font named Cairo**; removing it breaks Arabic
+  rendering everywhere.
+
+**STILL OPEN:** the seasons country axis (config keyed by `country_of`, **universal default =
+EMPTY**, Egypt the one ratified table — owner ruling: *the DATE is universal, the MARKETING MEANING
+is not*) · the visibility edits (**two** are needed: `advisor/advisor.py:2` says it *"mirrors"*
+`dashboard/build.py:_honesty_surface`, and the advisor's `Gap`s reach only the launch bundle — an
+advisor-only gap would never reach the client) · the Volume Cafe market angle re-run
+(`outputs/volume_cafe_trends.json` is marked **WIP / DO NOT SEND**).
 
 **THE FAIL-OPEN SWEEP (P6, 2026-07-15) — the most valuable audit in this project's history.**
 A repo-wide audit of every gate/validator asked one question: *what happens when it CANNOT
@@ -2263,6 +2353,432 @@ Packages: `scraper/`, `business_profile/`, `grounding/`, `competitor/`, `brand/`
 
 ---
 
+## 8.5 — 2026-07-18/19: الداشبورد الموحّدة + الوكالة الآلية (uncommitted mega-session)
+
+**U1 — War Room ثم الداشبورد الموحّدة اللافندر:** `dashboard/war_room.py` — 10 صفحات full-viewport
+(قيادة+بطاقة براند+posture · سوق · SWOT/TOWS/voice · ذكاء · خلايا · خزنة · خدمات تفاعلية HITL ·
+استوديو · تقويم · ذمة+honesty)، هوية لافندر `#CDB4E4`/`#A98BD0`، RTL. Routing: `/dashboard`=الموحّدة،
+`/classic`=القديم، `/war_room` alias. اللاندنج بنفس الهوية + السلوجن الرسمي (ع/EN toggle):
+"ذكاءٌ يُؤسَّس على الحقيقة.. لِيَخلُقَ يقيناً." / "Grounded in truth. Engineered for certainty."
+**قاعدة مالكة:** ممنوع "صفر هلوسة"/إطلاقات في أي سطح client-facing — النظام يعالج ويستبعد، لا يمنع.
+
+**U2–U5 — الشاحنات الأربعة (ads_intel/marketing_intel/media_plan_v2):**
+- ش2 حقائق حتمية: `ads_intel/facts.py`+`config.py` — Winner=نشط≥30ي (env)، إجهاد=3 نسخ في 7ي
+  (collation 120-char NFKC)، CTA سلم حتمي (لينك>نص، ""=مجهول). AdPresence+winners_30d/fatigue/top_*.
+- ش3 وضع المنافس: `marketing_intel` mode="competitor" + kind=message_angle + `from_ads.py`؛
+  نفس موات الاقتباس الحرفي (كود). CLI: `scripts/extract_competitor_intel.py`.
+- ش4 الهجوم المضاد: `media_plan_v2/engine.py` — `_counter_cell` (منافس صورة→Reel، فيديو→ثابت،
+  سعر→جودتنا)، `counter_basis` "أب القرار"، لا CPL منافس مخترع (rationale فقط).
+- ش1 السحب التكيفي: `ads_intel/live.py` (transport+pagination fail-closed) + `pull_ledger.py`
+  (META_MONTHLY_CALL_CAP=500) + `orchestrator.py` (batch 20، ثقة 3عروض|5آلام|1فائز، سقف 200،
+  autopull_enabled=token∧¬NO_SPEND∧¬DISABLED∧¬pytest) موصول في `full_run` + `competitor_intel` بالنتيجة.
+
+**2026-07-19 مساءً — إصلاحات استخدام المالكة (6) + كل المفتوح:**
+- صلة الإعلانات: `search_type=KEYWORD_EXACT_PHRASE` + بوابة صلة متعددة الإشارات في
+  `ads_intel/relevance.py` (chokepoint واحد: `ads_from_snapshot(only_competitor=True)`) + عدّاد
+  `filtered_out` يظهر chip بالرادار.
+- منافسو التعليم: `web_discovery._judge_system_prompt(category)` — قائمة DROP ديناميكية تستثني نوع
+  البراند نفسه (تعليم يحتفظ بالمعاهد، برمجيات بالأدوات)؛ باقي الفئات بايت-ثابتة. بوابة identity
+  تتخفف لـREACH بهوية رفيعة.
+- برومبت البوستر: العقد الحرفي خرج من برومبت الصورة (OCR فقط)؛ سياج BEGIN TEXT/END TEXT يحمل
+  الكوبي فقط؛ compliance_for وصلت للـoneshot (CS-02 residual مقفول).
+- bidi: `unicode-bidi:plaintext`+`dir=auto` (داشبورد+لوج اللاندنج). أدلة: لينك دائماً — fallback
+  لموقع البراند للادّعاءات الموثّقة فقط + default source_url في `grounding/ledger.py` brand-tier.
+- كروت الخدمات: unquote عند المنبع + dedup/merge بمفتاح مطبَّع (نانوكير 10 نص مكسور→6 نظيفة) +
+  grid auto-fill. بطاقة البراند في p1.
+- التسليمات: `launch_bundle` يشحن media_plan_v2 (+test_cells.csv) — LB-MPV2-GAP مقفول؛ CS-121
+  الكالندر بقى ياخد compliance sheet (شكل items مقبول + موصّل للحزمة)؛ CS-14 تحييد P-72 في
+  concept؛ CS-26/29/30 صياغات بلا إطلاق.
+- الترند: CS-63 dedup URL مطبَّع، CS-44 salience بالتكرار، إفصاح ضوضاء الـSERP (قياس 07-15) على p2؛
+  Serper بقى له عدّاد+سقف (SERPER_MONTHLY_CALL_CAP=500، fail-closed) في المزوّد نفسه.
+- سلامة اختبارات: `two_phase_route_decision` دالة إنتاج مختبَرة (CS-54/70)؛ اختبار سلوكي للريجستري
+  (CS-91)؛ رسالة مفيدة لـmeasure_oneshot_poster (CS-116).
+- CS-158: ACCEPT_LANGUAGE بقى env-overridable (SCRAPER_ACCEPT_LANGUAGE) + إفصاح — القياس تذكرة.
+- print_pack: الأكسنت وردي→لافندر (خلفية الطباعة البيضا مقصودة).
+
+---
+
+## 8.6 — 2026-07-20: البرفكت من الجذور (ذوق الريل · منطق البوستر · عزل اللوجو · أرقامها)
+
+توجيه المالكة: "مفيش ذوق ولا وجهة نظر [في الريل] · البوستر بيحط علبة الدوا في أي مكان بلا منطق ·
+اللوجو اعمله isolation صح · اهتم بالتفاصيل ومبدأ إننا شغالين على أي URL".
+
+**حُكم المالكة الحاكم (غيّر التصميم):** *"الذوق ليس له Ground Truth — مستحيل تختبره. لكن
+Strategy يمكن."* + *"لجنة 3 خبراء = 4 نداءات LLM؛ هل ده أحسن ولا بس أغلى؟ ناقد واحد يكفي."*
+⇒ اتلغت لجنة الـWorkflow المخططة، والبوابة بقت **بنيوية تُقاس بالكود**، مش حكم ذوق.
+
+- **استراتيجية الريل (`reel/creative_director.py` + `reel/coherence.py`):** ثلاث التزامات تُقرَّر
+  **قبل** أي مشهد: `creative_pov` (الإحساس الواحد) · `narrative_arc` (≥3 مراحل مرتّبة — القصة اللي
+  الـPOV ما يقولهاش، بحكمها) · `visual_motif` (خيط بصري). كل مشهد يعلن `arc_beat`.
+  `coherence_lint` يرفض بالكود: POV فاضي/عام (فلتر كلمات تسويقية عامة ع/EN) · قوس <3 مراحل أو مكرر
+  · مشهد بلا beat معلن · مشاهد ما بتمشيش القوس بالترتيب من أوله لآخره · **موتيف ما بيتكررش فعلاً**
+  (لازم توكناته في ≥2 برومبت مشهد — ده اللي بيفرّق بين موتيف وأمنية). `require_strategy=True` وقت
+  التأليف فقط، فالخطط المعتمدة قبل العقد تفضل تعدي (استشاري).
+- **منطق وضع المنتج (`poster/oneshot._props_rules` + `poster/concept._placement_rule` +
+  `poster/vision_qa`):** خمس قواعد فيزياء + قرار مكان يتاخد مع الفكرة (نفس النداء = صفر تكلفة زيادة)
+  ويتنقل حرفياً للرندر + معيار `placement_logical` في الناقد البصري = فشل قابل لإعادة الرندر.
+  **تصحيح المالكة (D-8):** القاعدة مش "على سطح" — ده صح لعلبة وغلط للجزمة (الأرض) والعربية (الطريق)
+  والكنبة (الأوضة) والمبنى؛ الصيغة العالمية = **دعامة طبيعية تناسب فئة المنتج نفسها**.
+- **عزل اللوجو (`reel/image_quality.white_key_logo`):** flood-fill من الحواف بدل الـsoft ramp —
+  الخلفية المتصلة بالحواف alpha 0 **كامل** ("شيل خالص مش تطفية")، والأبيض الداخلي محفوظ (غير متصل).
+  **مقيس على لوجو نانوكير الحقيقي: 84.5% شفاف تمام، 0.00% نص-شفاف، العلامة سليمة.**
+  + تفضيل الفيكتور (`scraper/inline_svg_logo`): لوجو أساسي JPEG (شفافية مستحيلة) + مرشح inline-svg
+  بثقة ≥0.3 ⇒ يُجرَّب الفيكتور أولاً بنفس بوابة الحبر. **نانوكير: مرشحاه بلوكات مصمتة 100% ⇒ اترفضوا
+  صح، فضل الـJPEG + الـflood-fill.** كمان: `resolve_raw_homepage` بيقرا `home.html` زي
+  `00_homepage.html` — الاسم الجديد كان بيعطّل الإثراء بصمت في كل سكرايب حديث.
+- **أرقامها تُحسب (`media_plan/builder._apply_owner_budget`):** ميزانيتها الشهرية بقت `test_budget`
+  فعلياً، متقسّمة بحصص الأهداف (المجموع = رقمها بالظبط، بدون كسر مخترع)، ومعاها `budget_note` بيقول
+  الحساب. أقل من **أرضية التعلّم** (3×التكلفة المستهدفة×المجموعات) = رفض معلن مش قبول صامت ولا كراش.
+  **بق مسكه الاختبار:** `model_copy` ما بيعيدش التحقق ⇒ الميزانية تحت الأرضية كانت هتعدي بصمت؛
+  الحل `model_validate`. الديك بيقرا `_plan_test_budget` (مجموع كل الأهداف) و p1 بيقول "من رقمك ✓".
+- **قاعدة "كل داتا = ملف" (`trends/artifact.py`):** `outputs/<slug>_trends.json` = العناصر +
+  `_meta` (البذور، gl/hl، العدد، إفصاح الضوضاء المقيس، وسبب الفراغ لو فاضي). الملفات المعاد بناؤها
+  من تحليل قديم بتتوسم `backfilled_from` وبتقول السوق **غير مسجّل** — مش "غير محدد" (نفس فخ D-8:
+  جملة صحيحة بتجاوب على سؤال تاني).
+- **الكاش:** `Cache-Control: no-store` كان **موجود أصلاً** على كل رد ديناميكي ⇒ سبب "الميزات مش
+  بتظهر" كان **عملية السيرفر الشغالة أقدم من الكود**، مش الهيدر. اتضاف اختبار حماية للهيدر.
+
+**فحص الربط بالداشبورد (سؤال المالكة "انت ربط كل التعديلات بالداشبورد صح؟") — لقى 3 فجوات حقيقية:**
+1. **إثراء اللوجو ما كانش شغال خالص على مسار الداشبورد**: `enrich_profile_logo` بيشتغل على ملف،
+   وبيتنده من CLI الـ`business_profile` بس؛ لكن الداشبورد بيحلل عبر `competitor/full_run.py` اللي
+   بيسيب البروفايل جوه الـresult ⇒ كل براند من الداشبورد كان بيتخطى الإثراء بصمت. الحل:
+   `enrich_logo_in_profile_dict` (نسخة in-memory، والملف بقى بيفوّض ليها) متندهة من full_run.
+2. **بريف الـHITL ما كانش بيعرض الاستراتيجية**: البوابة بتفرض POV/قوس/موتيف، لكن الشاشة اللي
+   بتوافق منها ما كانتش بتعرضهم ⇒ موافقة على ~$11 من غير ما تشوفي الحاجة الوحيدة اللي اتغيّرت.
+   الحل: `_reel_brief_lines` بيبدأ بوجهة النظر/القوس/الموتيف وكل مشهد بيتوسم بمرحلته.
+3. **ملف الترندات ما كانش موصول من الصفحة**: اتضاف سطر في صفحة السوق بالاسم والعدد الكامل.
+
+**الاستوديو بيعرض شغل قديم (owner، NTI 2026-07-20):** التحليل اتعاد النهاردة 12:24 والبوستر/الريل
+من 12 يوليو — إعادة التحليل بتبني الاستراتيجية وما بتلمسش الإبداع، فشغل مُتجاوَز فضل يقدّم نفسه
+كأنه الحالي. + "مش سامحلي أجنيريت": مفيش أي قفل في الكود — بانل الـHITL بيفتح **تحت حدود الشاشة**
+فالضغط يبان كأنه ما عملش حاجة. الحل (٣ حتت):
+- `_staleness_note`: أي إبداع أقدم من `<slug>_result.json` بيتوسم على الصفحة نفسها بعمره بالأيام
+  ("قديم — اتعمل قبل التحليل الحالي بـ8 يوم"). قاعدة عالمية، نفس فئة الخطأ بتاعة الادعاء بلا مصدر.
+- `archive_creative` + `POST /studio/reset` + زر "🧹 ابدأ من جديد": بينقل البوستر/الريل/الخطط لـ
+  `outputs/_archive/<slug>/<timestamp>/` — **أرشفة مش مسح** (رندر مدفوع ~$11 لازم يفضل استرجاعه
+  ممكن)، وملفات التحليل ما بتتلمسش.
+- البانل بقى `scrollIntoView` عند الفتح.
+
+**إعلانات ميتا اشتغلت (2026-07-20) — وكشفت بقّين صامتين:**
+- **`.env` مش متحمّل في نقاط الدخول**: المالكة أكّدت هويتها، ولّدت توكن شغّال، حطته في `.env` —
+  والسحب قال "META_ADS_TOKEN is not set". `.env` كان بيتحمّل في 3 أماكن مالهاش علاقة بالتحليل، فـ
+  `autopull_enabled()` بيقرا بيئة فاضية ⇒ ذكاء إعلانات المنافسين كان هيفضل فاضي **للأبد بلا أي خطأ**
+  وبشكل مطابق للحقيقة ("المنافس مش بيعلن") — أخطر نوع فشل في المشروع. الحل: `config_env.load_env`
+  مشترك، متندَه من كل نقطة دخول بتقرا اعتماد. **الاختبار سلوكي مش نصي** (جربت grep الأول وعدّى غلط
+  لأن `full_run` عنده helper اسمه `_load_env` — نفس المصادفة اللي هترجّع البق).
+- **البحث بالعبارة الحرفية بيصفّر الأسماء المركّبة**: مقيس حي (EG/ACTIVE): "Vodafone" حرفي 5 /
+  غير مرتّب 5، لكن **"Vodafone Egypt" حرفي 0 وغير مرتّب 1** — البراند بيختفي بالكامل. الحل: صفحة
+  أولى فاضية ⇒ توسيع **مرة واحدة** لـUNORDERED، وبوابة الصلة الموجودة بترمي الغرباء. كلمة واحدة =
+  مفيش إعادة (نفس البحث). **إثبات حي: السحب اتحول من 0 لـ1.**
+- أداة `scripts/verify_meta_token.py`: بتترجم رفض ميتا لحاجة واحدة تتصلح، وبتقيس عمر التوكن
+  (توكن الـExplorer = ساعتين) و`--long-lived` بيبدّله بـ60 يوم **ويكتبه في .env** (مش في الشاشة).
+
+السويت: 1957 → **2039** أخضر، صفر إنفاق (مكتبة إعلانات ميتا مجانية)، صفر commit.
+
+## 8.7 — 2026-07-21: تشغيلة فوليوم قطر (أول براند غير مصري) — سجل المشاكل بالتفصيل
+
+**الطلب:** سكراب `volumeqatar.com/food menu/` + تشغيل المشروع كله **ما عدا الريل** + فولدر لكل موقع.
+**النتيجة:** كل حاجة اتسلّمت (سويت 2080 خضراء)، والتشغيلة دي لوحدها كشفت **٧ باجات** — ستة منها
+كانت هتخرّب أي تسليم لعميل، وواحد كان بيخفي نفسه بشكل مطابق للحقيقة.
+
+### المشكلة ١ — كل موديلات الصور ميتة في المشروع (البوستر فشل كلياً)
+- **العَرَض:** `[X] poster failed: ClientError 404 NOT_FOUND ... imagen-4.0-generate-001`.
+- **التشخيص:** فحص حي لسبع موديلات على `radiant-octane-501919-v1`: **كلها 404** — كل الـImagen
+  و`gemini-3-pro-image-preview` (اللي `.env` مثبّتها في `ONESHOT_IMAGE_MODEL`). الشغّالة الوحيدة:
+  **`gemini-2.5-flash-image` (نانو بنانا)**. ملاحظة تشخيصية: أول فحص عملته كان على
+  `us-central1` وده كان غلط مني — موديلات الـoneshot بتتحل على `location="global"` بس.
+- **الجذر:** موديل واحد ثابت = نقطة فشل مفردة؛ الـ404 (موديل اتشال) كان بيتعامل زي أي خطأ.
+- **الحل:** `poster/oneshot._MODEL_CHAIN` + `_is_missing_model` — الموديل المضبوط يتجرب **أولاً**،
+  و404 **ما يتعادش على نفس الموديل** (فرق جوهري عن 429 اللي هو نوبة مؤقتة وبيتعاد فعلاً).
+
+### المشكلة ٢ — اللوجو بيتحط فوق العنوان (البوستر غير صالح)
+- **العَرَض:** "Feed your mind" اتقرت "eed your mind"؛ والناقد البصري نفسه كتب: *"the brand logo is
+  garbled and overlaps with the headline, making it completely unusable"*.
+- **الجذر:** الركن كان بيتحدد من **اتجاه القراءة** بس، من غير ما يبص الركن فيه إيه.
+- **محاولة أولى ناقصة:** خليته يختار بين الركنين الفوقانيين — وفضلت تقع، لأن **عنوان بعرض الصفحة
+  بياخد الاتنين**. الاختيار بين ركنين وحشين برضه بيقع على النص.
+- **الحل النهائي:** قياس **الأربع أركان** بطاقة الحواف. **معايرة على الرندر الحقيقي:**
+  عنوان = 22.9 · خلفية صورة عادية = 7.3 · نسيج خفيف = 1.8 ⇒ عتبة نص مطلقة 12.0 + نسبة 1.6،
+  فالعتبة لوحدها ما بتحركش اللوجو على صورة مزدحمة، والنسبة لوحدها بتقلب اللاي-آوت على نسيج عادي.
+
+### المشكلة ٣ — البوستر **المرفوض** بيدهس البوستر الكويس (الأخطر بصرياً)
+- **العَرَض:** الملف المسلَّم فيه "speciaity coffee coffee" و"Mall of Maqur".
+- **المفارقة:** بوابة النص **رفضت** الرندر ده فعلاً (fidelity 0.667 < 1.0) — ومع ذلك اتكتب على
+  الملف النهائي، لأن الـcanonical sink (اللي اتعمل أصلاً لعلاج "فشل وهو موجود") كان بيتحدّث من
+  **كل** محاولة ساعة ما تتولد، قبل أي بوابة.
+- **الحل:** `_refresh_canonical(..., passed=)`. رندر ما عدّاش البوابات يُنشر **فقط** لو مفيش أي
+  تسليم قبله (وعد البند ١ محفوظ: التايم-آوت يسيب حاجة معروضة)، لكنه **أبداً** ما يستبدل تسليم قائم.
+
+### المشكلة ٤ — الناقد بيرسّب أي براند إنجليزي (D-8، محور اللغة)
+- **العَرَض:** بوستر نضيف (دقة 1.0، تقييم 8/10) مرفوض بـ*"The poster uses Latin script, which
+  violates the pass criteria"*.
+- **الجذر:** تعليمة الحقل كانت لغوية-واعية، لكن سطر `overall_pass` كان بيطلب "no Latin in the copy"
+  **لكل براند في الدنيا**. قاعدة صح لبراند عربي، متطبّقة على سؤال مش بتاعها.
+- **الحل:** `_pass_criteria(arabic)` — النص العربي يحتفظ بالقاعدة، وغير العربي بيتقاله صراحة إن
+  الحروف اللاتينية **صحيحة** وما تتحسبش ضده.
+
+### المشكلة ٥ — الناقد بيرفض لوجو العميل نفسه
+- **العَرَض:** ٣ رندرات متتالية مرفوضة بـ"the brand logo is completely garbled and illegible".
+- **التشخيص:** نزّلت `wp-logo-BOOK.png` من موقع البراند وعرضته على خلفية داكنة: **لوجو مقصود
+  حروفه متداخلة** (V من ورق كتاب + OLUME متشابكة). التركيب عندنا **بكسل-مطابق** (الملف RGBA شفاف
+  أصلاً ⇒ `white_key_logo` سابه بايت-ثابت، 77.5% شفافية زي ما هي).
+- **الجذر:** `logo_ok` اتعمل عشان يمسك **الموديل** وهو بيعيد رسم لوجو ويبوّظه. لما بنركّب الأصل
+  الحقيقي حتمياً، الفشل ده **مستحيل بالبناء** — والحكم على شكل الحروف بقى بيرفض تصميم العميل.
+- **الحل:** `logo_composited=True` ⇒ المعيار يبقى **الوضوح** (تباين/قص/تغطية) مش شكل الحروف، وبيتشال
+  من ضرب `overall_pass` (بـ`_recompute_pass`، الحكم لسه بيتحسب في الكود مش من الموديل).
+
+### المشكلة ٦ — العملة بترجع "جنيه" لما البلد مش متعرفة (D-8، محور البلد)
+- **العَرَض:** براند قطري ممكن ياخد أرقامه بالجنيه المصري.
+- **الجذر:** `currency or "جنيه"` في `reality_check` (نص الإفصاح) و`war_room` (مرتين).
+- **ملاحظة على الاختبار:** أول اختبار كتبته فحص حقل `currency` بس و**عدّى** — التسريب كان في
+  **نص الإفصاح**. وسّعت الفحص للنص والملاحظات فطلع أحمر.
+- **الحل:** `"بعملتك المحلية"` + `_deck_currency` — بلد مجهولة = **مفيش كلمة عملة**، مش عملة تانية.
+
+### المشكلة ٧ — ملف الفولدر بيتسلّم قديم (باج في اللي لسه كاتبه)
+- **العَرَض:** اختبار السويت الكاملة رسب بشكل متقطع.
+- **الجذر:** `shutil.copy2` بينسخ الـmtime، فملف اتعدّل في **نفس جزء الثانية** بيتقارن كأنه "محدَّث"
+  ⇒ العميل ياخد النسخة القديمة. تحسين شكله سليم وبيشحن بيانات قديمة بصمت.
+- **الحل:** الملفات الصغيرة (<5MB) تتنسخ **دايماً**؛ المقارنة للفيديو الكبير بس.
+
+### ما اشتغل صح من أول مرة (محور البلد — الاختبار الحقيقي)
+`country_of` = Qatar · `search_locale` = `qa/en` · الترندات قطرية فعلاً ("Qatar Catering Services
+Market Size") · زر الطوارئ **بالريال القطري** · الكاستينج خليجي · 14 صنف من المنيو.
+**الأسعار:** غير موجودة على الموقع أصلاً (صفر ذكر لـQAR في 85 ألف حرف) — استخراج صح مش فقدان.
+
+### فجوات مفتوحة في التسليمة (مش باجات — نواقص معلنة)
+- **منافس واحد بس** (LEE-TOP Catering) لمنطقة فيها مقاهي كتير. غالباً لأن الدخول كان من **صفحة
+  المنيو** ⇒ التصنيف "catering" وبذور البحث بقت أصناف أكل ("tomato","basil","soup") مش سوق.
+  **مقترح:** التشغيل على الدومين الجذر بدل صفحة داخلية.
+- **التهديدات في SWOT = صفر** — تحليل المخاطر فاضي في حزمة هتتنافس بيها.
+
+## 8.8 — 2026-07-21: منافس واحد وصفر تهديدات — الحل من الجذر (٦ بنود)
+
+سلسلة سبب **واحدة** ورا العرضين، اتكشفت بتلات تحقيقات متوازية. الأرقام قياسات مش تقديرات.
+
+### ١) الكود كان بيقرا حقول غير موجودة (أخطر واحد)
+`competitor/discovery.py` كان بيقرا `physical_address`/`lat`/`lng` — **مش في الاسكيما أصلاً**.
+**مقيس على كل الكوربوس: صفر من ٢٢ بروفايل فيه الحقول دي.** يعني `is_online_only=True` في **١٠٠٪**
+من التشغيلات، وفرع الجيوكود المكتمل (`:274-300`) **ما اشتغلش ولا مرة في الإنتاج** — كل براند محلي
+اتبحثله بلا إحداثيات ولا تحيّز مكاني. `_subject_address` بيقرا `locations` ⟶
+`contact_channels.physical_addresses` ⟶ `service_areas`. **النتيجة: صفر ⟶ ١٤ من ٢٢.**
+
+### ٢) السوق قبل المنيو
+`market_definition.py` كان `for svc in subs[:5] or ([category] ...)` — التصنيف يُستخدم **فقط لو
+مفيش عروض**. المقهى دخل من صفحة المنيو فـ"العروض" بقت أطباق، والاستعلام بقى
+`'Volume Catering Qanat Quartier'` (اتنين من تلاتة باسم البراند نفسه). نانوكير كانت بتدوّر على
+**SKU بتاعها هي**. الحل: ترتيب ثلاث طبقات (تصنيف ⟶ متكرر-عبر-العروض/مُعزَّز-عبر-حقلين ⟶ نسخة منتج)
++ حارس اسم البراند + مكان قابل للبحث. **رتّبنا ما حذفناش، فكل الاختبارات القايمة عدّت بلا تعديل.**
+وصلّحنا إن `cafe` كانت **بتتشال** كـ"كلمة براند" لأن الاسم "Volume Cafe" — كسر فئة كاملة
+("X Pharmacy"، "Y Jewelry").
+
+### ٣) LOCAL كان محبوس على محرك واحد
+`router.py` كان بيرجّع Places لوحده و`thin_peer_set` محسوب ومهمَل. الدليل: **منافسي نانوكير الأربعة
+كلهم من الويب** (Places رجّع صفر). دلوقتي البركة الرفيعة بتوسّع بنفس دمج HYBRID الموجود؛ النتيجة
+الكافية ما بتتغيّرش.
+
+### ٤) البركة الصغيرة كانت بتضخّم الدرجة
+بمرشح واحد وسيط المراجعات = مراجعاته هو ⟹ `size_similarity=1.0` مجاناً ⟹ شركة كاترينج عدّت كقرين
+مقهى بـ0.73. (وهنا **رابع حقل وهمي**: `review_count` — فالاحتياطي هو المسار الوحيد اللي بيشتغل.)
+بركة أقل من ٣ ⟹ الدرجة تُسقَط بدل ما تتحوّل لثقة.
+
+### ٥) تهديدات مشتقة وموسومة — **والتصميم اتصحّح بواسطة اختبار قايم**
+أول تنفيذ حوّل **ضعف في موقعك** لتهديد، فوقع `test_scraped_behind_standalone_emits_no_phantom_threat`
+فوراً. الاختبار كان صح: **التهديد خارجي والضعف داخلي — ده تعريف SWOT مش تفضيل**. شِلت المولّد ده
+تماماً؛ الاشتقاق بقى من أدلة **خارجية** بس (إشارات سوق + نضج البراند)، وكل بند بياخد
+`claim_strength="directional_not_validated"` (السلّم الموجود، مش حقل جديد) وبيقول في نصه إنه استنتاج.
+كمان: `_TREND_THREAT_KEYS` ١٦ كلمة إنجليزي، فترند "Qatar Catering Market Size" بقى **فرصة** تلقائياً.
+
+### ٦) اللي النظام بيعترف بيه لنفسه بقى يوصل للصفحة
+`swot.notes` و`discovery_notes` **مكانوش معروضين في أي مكان** في `dashboard/` — رغم إن سجل الاكتشاف
+بيقول حرفياً "مش هنحشي بمرشحين تحت المستوى" و"جرّبي نطاق أوسع". و`swot.py:190` كان بيحسب الفراغ على
+الـSWOT **كله**، فنقطة قوة واحدة عرضية سكّتت الإفصاح. دلوقتي: إفصاح **لكل خانة**، الخانة الفاضية
+بتقول سببها بدل شرطة، وسم `ready_for_swot=false` بحاجبه، و`discovery_audit` بيتحفظ.
+
+### التحقق: إعادة تشغيل فوليوم قطر فعلياً (المعايير مسجّلة مقدماً)
+
+| | قبل | بعد |
+|---|---|---|
+| المنافسون | **1** (شركة كاترينج) | **4** — Joe's cafe · Pure Eats · Suisse Chalet Café · The Kitchen Doha |
+| نوعهم | كاترينج عدّى على type="food" | مقاهي/مطاعم بمسافات 0.2 · 0.5 · 2.7 كم |
+| المرشحون المسحوبون | 2 | **20** |
+| أقران بموقع قابل للفحص | 0 | **3** |
+| سجل الاكتشاف | `proximity dropped` | `resolved center via Places -> (25.37599, 51.54502)` · `biased ... r=15000m` |
+| ملاحظات SWOT | 1 | 2 (منها الإفصاح الجديد لكل خانة) |
+
+**الجيوكود اشتغل لأول مرة في تاريخ النظام.**
+
+### صدق: حاجتان ما اتحسنوش
+1. **التهديدات لسه 0.** الإفصاح الجديد بيقول السبب على الصفحة: "التهديدات محتاجة قرين له موقع قابل
+   للفحص، أو شكاوى، أو إشارة سوق. المتاح: 4 قرين، منهم 3 بموقع قابل للفحص." الترندات اللي رجعت
+   (`Fresh mood 🥗😍 #tchetche`) مالهاش إشارة نمو، فالاشتقاق ما اشتغلش — **صح إنه ما اخترعش**.
+2. **استعلام v1 كان لسه بأسماء الأطباق** بعد إعادة التشغيل (`'tomato basil soup baked salmon with
+   cafe'`) — الترتيب وصل لـ`query_seeds` ووقف قبل `discovery.build_text_query` بدالة واحدة.
+   اتصلّح بعدها: `'cafe catering tomato basil soup'`، واسم البراند بيتشال من `offering_keywords`
+   في المصدر. **التشغيلة اللي فوق كسبت من البذور بس — الرقم هيتحسن أكتر في التشغيلة الجاية.**
+
+**السويت: 2080 ⟶ 2129 خضراء. صفر commit.**
+
+## 8.9 — 2026-07-21: نانوكير + بيبسي — مشاكل ظهرت من تشغيل براندات مختلفة
+
+### نانوكير (إيكومرس مصري بالعربي)
+- **أسماء المنافسين كانت عناوين SEO.** التسليمة كانت بتقول "أفضل مكمل غذائي في مصر 2026"
+  و"متجر مكملات غذائية في مصر" كأنهم براندات — بينما دول inshapesupplements.com و beseha.com.
+  `_clean_title` كان بياخد أول جزء قبل الفاصل، واللي على صفحة SEO هو عبارة الكلمات المفتاحية.
+  الحل: الجزء اللي **يطابق الدومين** يكسب، وإلا الدومين نفسه يتجمّل. القاعدة بالدومين مش بقايمة
+  كلمات ⇒ بتشتغل بأي لغة. **النتيجة: Drdiamond · iFIT · Iherb** بدل عناوين البحث.
+- **تسريب اسم البراند عبر الكتابتين.** الاسم إنجليزي ("Nano Care Therapeutics") والمنتجات عربي،
+  فحاجز `tokenize(name)` مالحقش والاستعلام فضل `'ecommerce نانو كير ليبوسومال فيتامين'`. وصّلنا
+  `brand_identity_tokens` (بتستنتج كلمات البراند من **تكرارها عبر المنتجات** بأي أبجدية).
+  **مقايضة مسجّلة:** لبراند اسمه "Nano Care" بيبيع "Nano Care Liposomal X"، كلمة `ليبوسومال`
+  بتركب كل المنتجات زي اسم البراند — والتكرار لوحده مش قادر يفرّق. **نرمي**: اسم مسرّب = صفر
+  مضمون، فئة ضايعة = استرجاع أقل بس.
+- **أهم إشارة كانت في الخانة الغلط.** نانوكير كلها قايمة على الليبوسومال، والسوق بيقول
+  *"Why Liposomal Technology Is Becoming the Standard"* — النظام حسبها **فرصة**. دي تآكل خندقها.
+  ضفنا فئة تهديد **التسليع** (غير النمو: النمو = منافسون أكتر، التسليع = ميزة أقل).
+  **صفر ⟶ 1 تهديد حقيقي.** وخبر فئة عادي ("A Breakthrough in Nutrient Delivery") **مش** تهديد.
+- **صدق:** التهديدات كانت صفر لسبب سليم — نانوكير **مش متأخرة** في أي بُعد مقيس أمام 3 أقران
+  اتسحبوا فعلاً. المشكلة كانت التصنيف، مش نقص الأدلة.
+
+### بيبسي (براند عالمي محجوب)
+- **الموقع بيرجّع 403 — حتى على `robots.txt`.** أكدناه بفحص مستقل: `pepsi.com` و`pepsico.com`
+  الاتنين 403 لمتصفح عادي، ومتصفح Chromium كامل بياخد نفس الرد. **مش مشكلة اسكرابر ضعيف** —
+  الرفض عند حافة الـCDN قبل أي تفاوض.
+- **الرسالة كانت كلام مبرمجين.** كانت بتطبع `<ErrorCode.BOT_PROTECTION: ...> datetime.datetime(...)`
+  وتعرض تلات أسباب مختلفة مع بعض — رغم إن كائن الفشل عارف أنهي واحدة. بقى
+  `scrape_failure_message` بيفرّق: حجب متعمد / 429 مؤقت / موقع مش موجود / شهادة — وكل واحدة
+  بتقول **إيه العمل**. الـrepr الخام بيروح لسطر `[debug]` منفصل.
+- **قرار المالكة: fallback بـApify.** `scraper/apify_fallback.py` — بيشتغل **بعد** زحف بصفر صفحات
+  بس (موقع شغّال عمره ما يتحاسب مرتين)، سقف صارم 50 صفحة (Apify بيحاسب بالنتيجة)، وكل ناتج موسوم
+  `source="apify"` فمحدش يقدر يعرض فيتش مدفوع على إنه زحفنا إحنا. أي فشل بيرجّع للرسالة الصادقة.
+  **مقيس حي: 6 صفحات من بيبسي بمحتوى حقيقي (منتجات وحملات) في 162 ثانية.**
+- **حد أخلاقي مسجّل مرة واحدة:** موقع بيرفض نشر `robots.txt` أصلاً — استخدام فيتشر خارجي هناك
+  قرار بخصوص شروط الموقع، وهو قرار المالكة لكل براند. الكود ما بياخدوش بالنيابة عنها بصمت؛
+  عشان كده كل تشغيلة fallback موسومة ومسجّلة. ومفيش أدوات تحايل (بروكسي دوّار/بصمة TLS/حل كابتشا)
+  اتبنت ولا هتتبني.
+
+### fallback بيبسي — أربع طبقات، كل واحدة كانت مخبّية اللي تحتها
+
+الـfallback نجح من أول لحظة (12 صفحة بيبسي حقيقية). اللي فشل هو **استهلاك** نتيجته:
+
+1. **قواميس Apify اتحطت في `manifest.pages` مباشرة.** لكن `PageRecord` مابيحملش نص — بيحمل
+   `html_path`/`clean_text_path` بيشاوروا على ملفات. التعيين وقع في التحقق، والـ`except` الواسع
+   بلعه ⇒ **فيتش ناجح بان كأنه موقع ميت.** الحل: نكتب نفس تخطيط ملفات الزاحف ونبني PageRecords فوقه.
+2. **بروفايل فاضي اتشحن كتحليل.** بعد التصليح، التشغيلة كمّلت وطلّعت SWOT فيه ٨ نقاط ضعف عن بيبسي:
+   "مفيش تاجلاين"، "قيمة مقترحة ضعيفة"، "مدى منتجات ضيق". **كلها كذب** — أعراض فشل استخراجنا
+   مكتوبة كتدقيق للبراند. الكود كان بيحرس حالة "صفر صفحات" بس، مش الخطوة اللي بعدها.
+   `profile_is_hollow` بيوقف التشغيلة دلوقتي ويقول السبب.
+3. **HTML بلا رأس.** Apify بيرجّع HTML منظّف بالـreadability: `<div id="readability-content">`
+   بدون `<head>`/`<title>`/`og:` — ومستخرجاتنا القاعدية بتقرا الحاجات دي بالظبط. اسم البراند كان
+   في الـ`h1` والنظام أعمى عنه. بنعيد بناء رأس من ميتاداتا Apify نفسها؛ الحقل الغايب **يتشال**
+   (`<title></title>` فاضية بتتقري "البراند مالوش عنوان" مش "إحنا مشفناش").
+4. **`site_metadata` فضل فاضي.** الهوية بتتقري من `manifest.site_metadata`
+   (`business_profile/rules/from_metadata.py:165`)، مش من HTML الصفحات — والاسترداد كان بيبني
+   الصفحات ويسيب الكائن ده فاضي. بيتملّي دلوقتي من نفس الميتاداتا، **وبس لو الزاحف نفسه مقراش حاجة**.
+
+**نظافة اختبارات (باج من عندي):** اختبار كان بيكتب نص فكسچر (`"real body"`) في مجلد `scrapes/`
+الحقيقي لأني نسيت `scrape_dir`. اتنضّف، وكل الاختبارات بقت تكتب في `tmp_path`.
+
+**السويت: 2145 ⟶ 2184 خضراء.**
+
+## 8.10 — 2026-07-21: تقوية الاسكرابر — الإجابة مكانتش مكتبة
+
+سؤال المالكة: "الجت هب فيه lib حلوة نقوي بيها الاسكرابر عموماً علشان ميبلوكش غير للشديد القوي".
+القياس ودّى لحتة تانية: **مكانش عندنا مشكلة قوة، كان عندنا مشكلتين من صنعنا.**
+
+### ١) كنا بنناقض نفسنا (والتناقض هو أرخص فحص بوت في الدنيا)
+مقيس على متصفح المشروع نفسه:
+
+| الإشارة | كنا بنقول | الحقيقة |
+|---|---|---|
+| نسخة المتصفح | Chrome **131** | **147** |
+| `Sec-CH-UA` | **فاضية** | كروم بيبعتها دايماً |
+| `navigator.languages` | `['en-US']` | وهيدرنا `en-US,en;q=0.9,ar;q=0.8` |
+
+UA **مكتوب بالإيد** بيتقادم لوحده — شحنا كذبة ١٦ نسخة. `scraper/browser_identity.py` بيشتق الهوية
+من المحرك الفعلي: نسخة صح + تلميحات عميل متطابقة + locale بيوافق الهيدر. **مقيس: 147 = 147 ✓**
+
+**اللي رفضناه عمداً:** ترقيع `navigator.webdriver`. ده موجود لغرض واحد: إخفاء الأتمتة عن موقع سأل
+عنها بالتحديد. بنشيل تناقضاتنا إحنا، مش بنكسر قفل حطه حد عن قصد.
+
+### ٢) كنا بنرمي مواقع شغالة (الأخطر)
+**مقيس (بيبسي):** الموقع رد **200 بصفحة كاملة 35KB وعنوان "Pepsi Official Site"** — وإحنا رمينا
+الموقع كله لأن `_incapsula_` موجودة في الـHTML. لكن `_incapsula_` هو **سكريبت الحماية نفسه**،
+بيشحن على كل صفحة محمية بما فيها اللي بتتقدّم لزوار عاديين. كنا بنقرا "الموقع بيستخدم حماية" على
+إنه "الموقع رفضنا". العلامات اتفصلت:
+- **قاطعة** (`challenge-platform`, `__cf_chl_`, `px-captcha`): بتتحمّل **فقط** على صفحة تحدي ⇒ حجب.
+- **حضور بس** (`_incapsula_`, `_pxhd`, `ak_bmsc`): حجب **فقط** لو الصفحة كمان فاضية/بلا عنوان.
+
+اختبار التحدي العربي من كلاودفلير (`test_bot_detection_lang_agnostic`) رجع **أخضر بلا تعديل** —
+التفرقة صح مش ترخية.
+
+### ٣) عن مكتبات GitHub — قياس مش رأي
+- **أدوات التحايل** (`curl_cffi`, `undetected-chromedriver`, `camoufox`, `cloudscraper`): بتكسر
+  الخط اللي فوق. مرفوضة.
+- **أدوات الاستخراج** (`trafilatura`, `extruct`, `BeautifulSoup`): المحتوى المسترد فيه **صفر
+  JSON-LD، صفر microdata، صفر أسعار** — مفيش مكتبة هتطلّع حاجة مش موجودة.
+- المكسب الحقيقي كان **٤ سطور إعداد**.
+
+### ٤) غلطة تشغيلية مسجّلة — كررت درس ١٣ يوليو
+ضربت بيبسي ~١٠ مرات في التشخيص. نفس الكود بالظبط: **200 (35KB) من ساعة ⟶ 403 (908 بايت) دلوقتي**.
+جدران الحماية بتسجّل سمعة IP. **مش عارف دلوقتي لو بيبسي أصلاً محجوب ولا أنا اللي حجبته علينا** —
+والدليل الوحيد إنه رد 200 كامل مرتين قبل ما أكتّر. التأكد الوحيد: نسيبه يومين ونجرب **مرة واحدة**.
+**قاعدة:** التشخيص على موقع خارجي = طلب واحد لكل فرضية، والتشغيلة الحقيقية هي الاختبار.
+
+**السويت: 2184 ⟶ 2202 خضراء.**
+
+## 8.11 — 2026-07-21: التاكسونومي بيخلط سؤالين (تحليل عميق، حل معماري)
+
+**بدأ من:** ليه كوكاكولا مصر طلعت `services_b2c`؟ القياس عبر **كل** البروفايلات كشف إن ده عرض
+لمرض في `BusinessCategory` نفسه، مش حالة واحدة.
+
+**الجذر:** الـ19 تصنيف بيخلطوا **محورين متعامدين**:
+- **السوق** (إيه بتبيع): restaurant · cafe · clinic · education · beauty · fitness · automotive …
+- **نموذج العمل** (إزاي بتبيع): ecommerce · retail · services_b2c · services_b2b · agency …
+
+حقل واحد مايقدرش يجاوب الاتنين، فبيتأرجح حسب اللي الموقع بيركّز عليه.
+
+**الدليل المقيس (`outputs/*_profile.json`):**
+- تحت `ecommerce` واحدة: **صيدلية أونلاين + بيت مجوهرات + براند مكملات + براند تجميل** — أربع أسواق
+  مالهاش علاقة، فـ"مين منافسيّا" ممكن يقارن صيدلية بجواهرجي.
+- **Raw African**: `beauty` في تشغيلات و`ecommerce` في غيرها — نفس البراند، نفس الموقع (**نتيجة غير
+  ثابتة**).
+- **كوكاكولا** = `services_b2c` (وهي FMCG مشروبات)؛ فودافون/أورانج نفس الشيء، وفودافون مرة
+  `services_b2b`.
+
+**ليه بيكسر كل حاجة:** المحورين **مطلوبين فعلاً** لمستهلكين مختلفين:
+- السوق يحرّك: بذور الترند، `market_definition.query_seeds`، صلة الأقران، التموضع.
+- النموذج يحرّك: `CATEGORY_TYPE_MAP` (أنواع Places)، توجيه `business_type.py`، نصف قطر البحث.
+فأي إجابة يختارها الحقل، **المستهلك التاني بياخد مدخل غلط بصمت**. **12 موديول، 200+ استخدام.**
+
+**حكم المالكة: "ممنوع الحلول المؤقتة"** — نفصل المحورين، مانرقّعش المصنِّف. + **السوق نص حر موثّق**
+مش قايمة مغلقة (أي قايمة هتقصر عن أسواق حقيقية — D-8). + **إعادة تحليل الكل** بعد اكتمال التحويل.
+
+**اتنفّذ (خطوة 1 من 4):** `business_profile/schemas.py`:
+- `BusinessModel` enum مغلق صغير (ecommerce/local/service/hybrid/unknown) — المحور ده فعلاً محدود.
+- `market_category` = `EvidencedField[str]` نص حر.
+- `category` القديم **باقٍ** حتى يتحوّل كل مستهلك — مفيش حاجة تقع في النص.
+
+**اتنفّذ (خطوة 2 من 4):** الاستخراج بيملا المحورين — برومبت الهوية بيسأل عن `market_category`
+(نص حر: "handmade jewellery"/"liposomal supplements") و`business_model` (مغلق:
+ecommerce/local/service/hybrid/unknown)؛ `IdentityResponse` + `ValidatedIdentity` بيحملوهم؛
+`_merge_identity_axes` بيكتبهم على البروفايل (السوق EvidencedField، النموذج enum). موديل غير معروف
+يُسقَط مايكسرش. **بق مسكه اختبار قايم:** الـ`default_factory` بتاعي بنى `ValidatedScalarField`
+بدون `inferred` المطلوب — اتصلّح.
+
+**اتنفّذ (خطوة 3 من 4):** المستهلكين اتحوّلوا للمحور الصح + الداشبورد:
+- **النموذج**: `business_type.classify_business_type` بيقرا `business_model` صريح (ecommerce→ship،
+  local→proximity، service→reach، hybrid→both)؛ غائب/unknown ⟶ قوايم `category` القديمة (توافق).
+- **السوق**: `trends.keywords_from_profile` و`market_definition.query_seeds` يفضّلوا
+  `market_category` النص الحر؛ `category` احتياطي. (نصف قطر البحث فضل على `category` — ده سؤال
+  نموذج: geography-free ecommerce مقابل walk-in.)
+- **الداشبورد** (`war_room._brand_chips`): شيب السوق (النص الحر) + شيب النموذج بكلمة بشرية
+  ("متجر أونلاين"/"نشاط محلي")؛ unknown = مفيش شيب نموذج. برضه سطر brand-sub يفضّل السوق.
+
+**متبقّي:** إعادة تحليل الـ22 بروفايل (حكم المالكة) عشان يتصنّفوا على المحورين.
+**مسجّل في الذاكرة:** `category-conflates-market-and-model`.
+
+**السويت: 2202 ⟶ 2207 خضراء.**
+
 ## 9. Where things live (quick map)
 
 | Concern | Files |
@@ -2276,6 +2792,11 @@ Packages: `scraper/`, `business_profile/`, `grounding/`, `competitor/`, `brand/`
 | Poster | `poster/{pipeline,concept,oneshot,art_director,variation,from_profile,template,vision_qa,brand_research}.py` |
 | Reel | `reel/{generate,art_director,motion,text_overlay,textlayer,endcard,video_provider,image_quality,grounding}.py` |
 | Web | `api/routes/*`, `frontend/components/*` |
+| الداشبورد الموحّدة | `dashboard/war_room.py` (10 صفحات لافندر), `dashboard/server.py` (routing + لاندنج بالسلوجن), `dashboard/products.py` |
+| ذكاء الإعلانات | `ads_intel/{facts,config,relevance,live,pull_ledger,orchestrator,consumer}.py`, `ads_intel/providers/meta_ad_library.py` |
+| الذكاء التسويقي | `marketing_intel/{extractor,from_ads,schemas}.py` (الموات الحرفي) |
+| الخطة الاستراتيجية v2 | `media_plan_v2/{engine,reality_check,schemas}.py` (خلايا/خزنة/هجوم مضاد) |
+| حزمة الإطلاق | `launch_bundle/*` (الآن تشحن v2 + test_cells.csv + شيت الكالندر) |
 
 ---
 

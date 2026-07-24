@@ -27,12 +27,14 @@ def _surrounding_text(form_el) -> Optional[str]:
     if label and label.strip():
         return label.strip()[:200]
 
-    # Walk up to find a nearby heading
-    parent = form_el.parent
+    # Walk UP the ancestor chain; at each level scan the PREVIOUS SIBLINGS of the CURRENT node for a
+    # heading (CS-159). The old loop reset `prev = form_el` every hop, so it rescanned the form's own
+    # siblings 3× and never inspected an ancestor's siblings — the common '<section><h2>..</h2><div>
+    # <form>..' layout put the heading one level up and was missed.
+    node = form_el
     hops = 0
-    while parent is not None and hops < 3:
-        # Look for a heading before the form in this parent's children
-        prev = form_el
+    while node is not None and hops < 4:
+        prev = node
         while True:
             prev = prev.find_previous_sibling()
             if prev is None:
@@ -41,7 +43,7 @@ def _surrounding_text(form_el) -> Optional[str]:
                 text = prev.get_text(strip=True)
                 if text:
                     return text[:200]
-        parent = parent.parent
+        node = node.parent                    # next hop scans the ANCESTOR's previous siblings
         hops += 1
 
     return None

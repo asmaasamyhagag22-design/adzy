@@ -167,6 +167,18 @@ def capture_inline_svg_logo(
     return data_uri, prefers_dark
 
 
+def resolve_raw_homepage(raw_dir: str | Path) -> Optional[Path]:
+    """The scrape's saved homepage HTML. Two layouts exist on disk: older scrapes save
+    ``00_homepage.html``, newer ones ``home.html`` — checking only the former silently
+    disabled enrichment for every new scrape."""
+    raw_dir = Path(raw_dir)
+    for name in ("00_homepage.html", "home.html"):
+        p = raw_dir / name
+        if p.is_file():
+            return p
+    return None
+
+
 def _inline_svg_index(src: str) -> Optional[int]:
     if isinstance(src, str) and src.startswith("inline-svg:"):
         try:
@@ -174,6 +186,80 @@ def _inline_svg_index(src: str) -> Optional[int]:
         except (ValueError, IndexError):
             return None
     return None
+
+
+# Formats that CANNOT carry transparency. A PNG/WebP primary may already be transparent,
+# so it is never touched — the upgrade below fires only when the primary is provably
+# opaque, and can therefore never replace a brand logo that was already fine.
+_OPAQUE_RASTER_EXTS = (".jpg", ".jpeg")
+
+# An inline-svg candidate the scraper itself scored below this is too doubtful to swap
+# in for the primary (a nav icon that happens to live in a logo-ish container).
+_MIN_CANDIDATE_CONFIDENCE = 0.3
+
+
+def _is_certainly_opaque_raster(src: str) -> bool:
+    if not isinstance(src, str) or not src.startswith(("http://", "https://")):
+        return False
+    path = src.split("?", 1)[0].split("#", 1)[0].lower()
+    return path.endswith(_OPAQUE_RASTER_EXTS)
+
+
+def _svg_candidate_index(visual: dict) -> Optional[int]:
+    """The first inline-svg entry in ``logo_candidates`` worth trying, or ``None``."""
+    for cand in visual.get("logo_candidates") or []:
+        if not isinstance(cand, dict):
+            continue
+        try:
+            conf = float(cand.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            conf = 0.0
+        if conf < _MIN_CANDIDATE_CONFIDENCE:
+            continue
+        idx = _inline_svg_index(str(cand.get("src") or ""))
+        if idx is not None:
+            return idx
+    return None
+
+
+def enrich_logo_in_profile_dict(profile: dict, raw_html_path: str | Path) -> bool:
+    """The in-memory half of :func:`enrich_profile_logo` — mutates ``profile`` in place.
+
+    Exists because the two profile-producing paths differ: the ``business_profile`` CLI writes a
+    file, while the analysis run (``competitor/full_run.py``, which is what the DASHBOARD uses)
+    keeps the profile in the result document. Only the file path was wired, so every dashboard
+    brand silently skipped logo enrichment.
+    """
+    raw_html_path = Path(raw_html_path)
+    if not isinstance(profile, dict) or not raw_html_path.is_file():
+        return False
+    visual = profile.get("visual") or {}
+    primary = visual.get("primary_logo")
+    if not isinstance(primary, dict):
+        return False
+    primary_src = str(primary.get("src") or "")
+    idx = _inline_svg_index(primary_src)
+    upgraded_from: Optional[str] = None
+    if idx is None and _is_certainly_opaque_raster(primary_src):
+        idx = _svg_candidate_index(visual)
+        if idx is not None:
+            upgraded_from = primary_src
+    if idx is None:
+        return False
+    captured = capture_inline_svg_logo(
+        raw_html_path.read_text(encoding="utf-8", errors="replace"), idx)
+    if not captured:
+        return False
+    data_uri, prefers_dark = captured
+    primary["src"] = data_uri
+    primary["source_type"] = ("inline_svg_upgraded_from_jpeg" if upgraded_from
+                              else "inline_svg_rasterized")
+    if upgraded_from:
+        primary["opaque_raster_src"] = upgraded_from
+    primary["logo_chip"] = "dark" if prefers_dark else "light"
+    visual["primary_logo"] = primary
+    profile["visual"] = visual
+    return True
 
 
 def enrich_profile_logo(profile_path: str | Path, raw_html_path: str | Path) -> bool:
@@ -189,23 +275,7 @@ def enrich_profile_logo(profile_path: str | Path, raw_html_path: str | Path) -> 
     if not profile_path.is_file() or not raw_html_path.is_file():
         return False
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
-    visual = profile.get("visual") or {}
-    primary = visual.get("primary_logo")
-    if not isinstance(primary, dict):
+    if not enrich_logo_in_profile_dict(profile, raw_html_path):
         return False
-    idx = _inline_svg_index(str(primary.get("src") or ""))
-    if idx is None:
-        return False
-    captured = capture_inline_svg_logo(
-        raw_html_path.read_text(encoding="utf-8", errors="replace"), idx
-    )
-    if not captured:
-        return False
-    data_uri, prefers_dark = captured
-    primary["src"] = data_uri
-    primary["source_type"] = "inline_svg_rasterized"
-    primary["logo_chip"] = "dark" if prefers_dark else "light"
-    visual["primary_logo"] = primary
-    profile["visual"] = visual
     profile_path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
     return True

@@ -53,6 +53,13 @@ def _site_slug(dirname: str) -> str:
     return _TS_RE.sub("", dirname)
 
 
+def coverage_pct(fit30k: int, filtered: int) -> float:
+    """% of filtered blocks that fit the char budget. CS-67: an EMPTY scrape (filtered == 0) has NO
+    content, so it must NOT score a perfect 100% ('everything fit' is vacuously true but reads as a
+    fully-covered brand — the P-43 marasim empty scrape got a perfect grade). 0/0 -> 0.0."""
+    return (fit30k / filtered * 100.0) if filtered else 0.0
+
+
 def _fit_count(pack, max_chars: int) -> int:
     """Number of blocks that survive the char cap (== lines the LLM reads)."""
     txt = pack.as_llm_text(max_chars=max_chars)
@@ -78,14 +85,16 @@ def measure_one(manifest_path: Path) -> dict | None:
     # which cap actually binds (drops the most relevant content)?
     drop_200 = filtered - pack200      # lost to the 200-block / 60-per-type cap
     drop_30k = pack200 - fit30k        # lost to the 30k-char cap
-    if drop_200 <= 0 and drop_30k <= 0:
+    if not filtered:
+        bind = "empty"                 # CS-67: nothing captured — not "none" (which reads as clean)
+    elif drop_200 <= 0 and drop_30k <= 0:
         bind = "none"
     elif drop_30k >= drop_200:
         bind = "30k-char"
     else:
         bind = "200-block"
 
-    seen_pct = (fit30k / filtered * 100.0) if filtered else 100.0
+    seen_pct = coverage_pct(fit30k, filtered)
     return {
         "total": total,
         "filtered": filtered,
@@ -95,6 +104,7 @@ def measure_one(manifest_path: Path) -> dict | None:
         "seen_pct": seen_pct,
         "lost_pct": 100.0 - seen_pct,
         "bind": bind,
+        "empty": filtered == 0,
     }
 
 

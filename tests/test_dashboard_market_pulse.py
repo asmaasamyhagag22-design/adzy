@@ -9,7 +9,10 @@ from dashboard.build import _market_pulse, build_dashboard_html
 
 
 def test_market_pulse_shows_trends_and_season():
+    # The season calendar is Egypt-only (P-02), so this test represents an EGYPTIAN brand; the
+    # non-Egypt case (seasons hidden) is covered in test_dashboard_d8.py.
     comp = {"generated_at": "2026-07-12T00:00:00+00:00",
+            "profile": {"source_url": {"value": "https://brand.com.eg/"}},
             "trends": [{"title": "AI upskilling surges in MENA", "url": "https://x/1", "source": "hn"},
                        {"title": "Fiber rollout accelerates", "url": "https://x/2", "source": "reddit"}]}
     html = _market_pulse(comp, "2026-07-12")
@@ -20,7 +23,9 @@ def test_market_pulse_shows_trends_and_season():
 
 
 def test_market_pulse_season_only_when_no_trends():
-    html = _market_pulse({"trends": []}, "2026-05-01")   # May -> Eid al-Adha upcoming
+    # Egyptian brand (season calendar is Egypt-only, P-02).
+    html = _market_pulse({"trends": [], "profile": {"source_url": {"value": "https://x.eg/"}}},
+                         "2026-05-01")   # May -> Eid al-Adha upcoming
     assert "عيد الأضحى" in html and "in " in html         # days-until framing
     assert "approx" in html                               # Hijri date honestly flagged
 
@@ -31,7 +36,8 @@ def test_no_pulse_when_nothing():
 
 
 def test_calendar_item_gets_season_attribution(tmp_path):
-    competitor = {"subject_url": "https://x/", "competitor_count": 0, "competitors": [],
+    competitor = {"subject_url": "https://x.eg/", "competitor_count": 0, "competitors": [],
+                  "profile": {"source_url": {"value": "https://x.eg/"}},  # Egyptian brand (P-02)
                   "swot": {"mode": "standalone", "strengths": [], "weaknesses": [],
                            "opportunities": [], "threats": []}, "tows": {"strategies": []}}
     plan = {"items": [{"date": "2026-09-05", "platform": "instagram", "content_type": "post",

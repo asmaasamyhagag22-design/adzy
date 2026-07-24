@@ -34,6 +34,7 @@ from typing import Optional
 from ..schemas import (
     AudienceType,
     BusinessCategory,
+    BusinessModel,
     Confidence,
     EvidenceItem,
     LLMEvidenceRef,
@@ -131,6 +132,7 @@ class RejectionCode:
     EMPTY_QUOTE = "empty_quote"
     QUOTE_NOT_IN_BLOCK = "quote_not_in_block"
     ENUM_COERCION_MISS = "enum_coercion_miss"
+    CLAIM_NOT_SUPPORTED = "claim_not_supported"  # P-70: value's hard claim not backed by the cited quote
 
 
 @dataclass
@@ -209,6 +211,39 @@ def _validate_evidence_item(
         note="quote not found in block text after normalization")
 
 
+# P-70: hard, FALSIFIABLE claim kinds. A value carrying one of these must have it SUPPORTED by the
+# cited evidence — not just accompanied by an authentic-but-unrelated quote. Soft marketing
+# superlatives (best/leading/largest) are deliberately EXCLUDED: they are commonly synthesised into
+# a description and enforcing them here would drop legitimate paraphrase. We target the fabrication
+# archetype: a number/year, a #1/first/only ranking, an award/certification/guarantee, a free offer.
+_HARD_CLAIM_KINDS = frozenset({"number", "first", "only", "award", "certification",
+                               "guarantee", "free"})
+
+
+def _value_hard_claims_supported(value: object, accepted: list) -> bool:
+    """True unless the value carries an UNSOURCED hard claim (P-70). Reuses the Evidence Ledger's
+    claim resolution against the accepted evidence quotes. Pure paraphrase / puffery -> True.
+    Degrades to True (no block) whenever grounding is unavailable or there is no evidence to check
+    against — the strict require_evidence gate already handles the no-evidence case."""
+    text = value if isinstance(value, str) else str(getattr(value, "value", value) or "")
+    if not text.strip():
+        return True
+    try:
+        from grounding.ledger import EvidenceLedger, LedgerEntry
+    except Exception:  # noqa: BLE001
+        return True
+    entries = [LedgerEntry(raw=(getattr(it, "quote", "") or ""), source_type="profile_evidence")
+               for it in accepted if getattr(it, "quote", None)]
+    if not entries:
+        return True
+    try:
+        verdicts = EvidenceLedger(entries).audit_text(text)
+    except Exception:  # noqa: BLE001
+        return True
+    # Fail only when a HARD-kind claim is unsourced; soft superlatives never trigger a drop.
+    return all(v.sourced or getattr(v.claim, "kind", "") not in _HARD_CLAIM_KINDS for v in verdicts)
+
+
 def _validate_evidence_list(
     refs: list[LLMEvidenceRef],
     lookup: _BlockLookup,
@@ -274,6 +309,14 @@ class ValidatedIdentity:
     tagline: ValidatedScalarField
     description: ValidatedScalarField
     category: ValidatedScalarField  # value is BusinessCategory or None
+    # process.md §8.11 — the two axes `category` conflated. Defaulted so older call sites and
+    # tests that build a ValidatedIdentity without them still construct.
+    market_category: ValidatedScalarField = field(
+        default_factory=lambda: ValidatedScalarField(
+            value=None, evidence=[], confidence=Confidence.NONE, inferred=True))
+    business_model: ValidatedScalarField = field(
+        default_factory=lambda: ValidatedScalarField(
+            value=None, evidence=[], confidence=Confidence.NONE, inferred=True))
 
 
 @dataclass
@@ -378,6 +421,16 @@ def _validate_scalar(
         return ValidatedScalarField(value=None, evidence=[], confidence=Confidence.NONE,
                             inferred=False)
 
+    # P-70: the quote is authentic, but does it SUPPORT the value? A hallucinated hard claim
+    # ("Egypt's #1 pharmacy", "serving since 1965") attached to a real but unrelated quote used to
+    # pass. Require the value's hard claims to resolve against the cited evidence; drop otherwise.
+    if accepted and not _value_hard_claims_supported(value, accepted):
+        diag_bucket.append(RejectionRecord(
+            code=RejectionCode.CLAIM_NOT_SUPPORTED, block_id=None, quote=str(value)[:200],
+            note="value carries a hard claim (number/ranking/credential) not supported by the cited evidence"))
+        return ValidatedScalarField(value=None, evidence=[], confidence=Confidence.NONE,
+                            inferred=False)
+
     return ValidatedScalarField(value=value, evidence=accepted, confidence=confidence,
                         inferred=inferred)
 
@@ -429,8 +482,21 @@ def _validate_identity(
     if category.value is None:
         diag.fields_dropped.append("category")
 
+    # market_category — free text (WHAT is sold). No enum coercion; evidence validated when present.
+    market_category = _validate_scalar(
+        resp.market_category_evidence, resp.market_category_value,
+        resp.market_category_confidence, lookup, bucket,
+        inferred=True, require_evidence=False)
+    # business_model — closed enum (HOW it sells). A non-member string is dropped, never crashes.
+    coerced_model = _coerce_enum(resp.business_model_value, BusinessModel)
+    business_model = _validate_scalar(
+        resp.business_model_evidence, coerced_model,
+        resp.business_model_confidence, lookup, bucket,
+        inferred=True, require_evidence=False)
+
     return ValidatedIdentity(tagline=tagline, description=description,
-                              category=category)
+                              category=category, market_category=market_category,
+                              business_model=business_model)
 
 
 # ---------------------------------------------------------------------

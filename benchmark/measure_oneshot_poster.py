@@ -52,6 +52,14 @@ def main() -> int:
     ap.add_argument("--profile", default=str(ROOT / "te_eg_fresh.json"))
     args = ap.parse_args()
 
+    # CS-116/135: the historical default profile no longer exists — fail with a USEFUL message
+    # (the real candidates on disk) instead of a bare FileNotFoundError before any render.
+    if not Path(args.profile).is_file():
+        cands = sorted(p.name for p in (ROOT / "outputs").glob("*_profile.json"))[:10]
+        hint = ("\n  available: " + ", ".join(cands)) if cands else ""
+        raise SystemExit(f"[x] profile not found: {args.profile}\n"
+                         f"    pass one explicitly: --profile outputs/<slug>_profile.json{hint}")
+
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env")
 

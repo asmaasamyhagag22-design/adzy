@@ -17,6 +17,10 @@ from __future__ import annotations
 
 import argparse
 import json
+
+from config_env import load_env
+
+load_env()
 import re
 import sys
 import threading
@@ -54,72 +58,145 @@ def _ok_slug(slug: str) -> bool:
     return bool(slug) and bool(_SLUG_RE.match(slug))
 
 
+# CS-03: every studio GET that SPENDS. P-94 originally guarded only `/generate/*`, which left the
+# system's biggest spender (`/analyze` = the whole pipeline) and two LLM routes wide open to the
+# same crawl/prefetch/CSRF trigger. Each entry is verified at its spend site:
+#   /analyze         -> _stream_analyze -> run.analyze()            = full pipeline (scrape+LLM+SWOT+calendar)
+#   /ask             -> _serve_ask -> archive_qa.answer_question()  = builds its own caller + embeddings
+#                                                                     (no caller/embed_fn injected)
+#   /hitl/preview    -> run.hitl_preview() -> default_caller()      = LLM critic + _arabic_rendering.
+#                       Its docstring says "zero paid renders" — TRUE, and beside the point: no
+#                       render still bills for the LLM calls. Paid is paid.
+#   /generate/poster -> Imagen/Gemini
+#   /generate/reel   -> Veo
+_PAID_GET_ROUTES = frozenset({
+    "/analyze", "/ask", "/hitl/preview", "/generate/poster", "/generate/reel",
+})
+
+
+def _paid_get_trusted(headers) -> bool:
+    """P-94 / CS-03: the paid routes MUST stay GET (the studio streams progress over an EventSource,
+    which is GET-only). That makes them reachable by crawl / prefetch / cross-site <img> CSRF — each
+    of which would spend real money (reel drives Veo). Modern browsers stamp every request with
+    Sec-Fetch metadata; the studio's own EventSource/fetch is `same-origin` and never a prefetch.
+    So: allow only same-origin/same-site requests, and never a prefetch. Requests with NO Sec-Fetch
+    headers at all (curl / very old clients) are allowed — they already require local access to this
+    loopback-bound server. This only *protects* the reel route; it never runs it."""
+    def _h(name: str) -> str:
+        return (headers.get(name) or "").strip().lower()
+
+    if _h("sec-purpose").startswith("prefetch") or "prefetch" in _h("purpose"):
+        return False
+    site = _h("sec-fetch-site")
+    if site and site not in ("same-origin", "same-site"):
+        # cross-site (CSRF) or `none` (address-bar / bookmark / crawler) -> refuse to spend.
+        return False
+    return True
+
+
 # ------------------------------------------------------------------------------------------------
 # Landing page (URL -> Analyze -> redirect to the studio)
 # ------------------------------------------------------------------------------------------------
+def _persist_service_scrape(out_dir: str, slug: str, info) -> "Path":
+    """Owner ask (2026-07-20): append every user-initiated service scrape to
+    outputs/<slug>_service_scrapes.json — the audit file tying the brand profile to what was
+    actually pulled per service, so the owner can verify completeness and grade it."""
+    import dataclasses
+    from datetime import datetime, timezone
+    rec = dataclasses.asdict(info) if dataclasses.is_dataclass(info) else dict(
+        getattr(info, "__dict__", {}) or {})
+    rec["scraped_at"] = datetime.now(timezone.utc).isoformat()
+    path = Path(out_dir) / f"{slug}_service_scrapes.json"
+    doc = {"slug": slug, "profile_file": f"{slug}_profile.json", "scrapes": []}
+    if path.is_file():
+        try:
+            old = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(old, dict) and isinstance(old.get("scrapes"), list):
+                doc = old
+        except Exception:  # noqa: BLE001 — a corrupt audit file restarts, never crashes
+            pass
+    doc["scrapes"] = [r for r in doc["scrapes"] if r.get("url") != rec.get("url")] + [rec]
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
 def _landing_html() -> str:
-    c = _C
-    return f"""<!doctype html><html lang="en"><head>
+    """The front door — the SAME lavender War-Room identity as the unified /dashboard (owner:
+    "المفروض كله نفس الديزاين"). One URL in -> SSE progress -> hands off to /dashboard."""
+    from dashboard.war_room import _W as w
+    return f"""<!doctype html><html lang="ar" dir="rtl"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Baseera Studio</title>
+<title>بصيرة · غرفة العمليات</title>
 <style>
-  :root{{color-scheme:light;}} *{{margin:0;padding:0;box-sizing:border-box;}}
-  body{{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-    color:{c['ink']};background:{c['bg']};line-height:1.5;-webkit-font-smoothing:antialiased;
-    background-image:
-      radial-gradient(circle at 8% 4%,rgba(236,203,214,.38) 0%,transparent 26%),
-      radial-gradient(circle at 94% 8%,rgba(240,228,211,.30) 0%,transparent 28%),
-      radial-gradient(circle at 4% 98%,rgba(246,224,231,.36) 0%,transparent 28%);
-    min-height:100vh;padding:34px clamp(14px,4vw,44px) 60px;}}
-  .serif{{font-family:'Fraunces',Georgia,'Times New Roman',serif;}}
-  .wrap{{max-width:900px;margin:0 auto;}}
-  .brand{{display:flex;align-items:center;gap:11px;margin-bottom:22px;}}
-  .dot{{width:34px;height:34px;border-radius:11px;flex:none;
-    background:linear-gradient(135deg,{c['blush500']},{c['blush700']});box-shadow:0 6px 16px rgba(158,69,100,.28);}}
-  .brand-n{{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:22px;letter-spacing:-.3px;}}
-  .brand-t{{font-size:12px;color:{c['muted']};letter-spacing:.4px;text-transform:uppercase;}}
-  .card{{background:{c['surface']};border:1px solid {c['line']};border-radius:20px;
-    padding:clamp(20px,4vw,34px);box-shadow:0 14px 40px rgba(126,52,80,.09);}}
-  h1{{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:clamp(24px,4vw,34px);
-    line-height:1.12;letter-spacing:-.6px;margin-bottom:8px;}} h1 em{{font-style:normal;color:{c['blush600']};}}
-  .sub{{color:{c['inkSoft']};font-size:15px;max-width:60ch;margin-bottom:24px;}}
+  :root{{color-scheme:dark;}} *{{margin:0;padding:0;box-sizing:border-box;}}
+  body{{font-family:'Cairo','Tajawal','Segoe UI','Noto Sans Arabic',Tahoma,sans-serif;
+    color:{w['ink']};line-height:1.6;-webkit-font-smoothing:antialiased;min-height:100vh;
+    background:radial-gradient(1100px 700px at 85% -10%,rgba(205,180,228,.10),transparent 60%),
+               radial-gradient(900px 650px at 8% 110%,rgba(169,139,208,.07),transparent 55%),
+               linear-gradient(160deg,{w['bg']} 0%,{w['bg2']} 100%);
+    display:flex;align-items:center;justify-content:center;padding:34px clamp(14px,4vw,44px);}}
+  .wrap{{max-width:860px;width:100%;}}
+  .brand{{display:flex;align-items:center;gap:12px;margin-bottom:26px;}}
+  .dot{{width:38px;height:38px;border-radius:12px;flex:none;
+    background:linear-gradient(135deg,{w['gold']},{w['goldDeep']});
+    box-shadow:0 6px 22px rgba(205,180,228,.35);}}
+  .brand-n{{font-weight:800;font-size:22px;}}
+  .brand-t{{font-size:11.5px;color:{w['muted']};letter-spacing:.14em;text-transform:uppercase;
+    font-family:'Cascadia Code',Consolas,monospace;}}
+  .card{{background:{w['surface']};border:1px solid {w['line']};border-radius:22px;
+    padding:clamp(24px,4vw,40px);box-shadow:0 24px 70px rgba(0,0,0,.45);}}
+  h1{{font-weight:800;font-size:clamp(24px,4vw,32px);line-height:1.4;margin-bottom:10px;
+    text-wrap:balance;}} h1 em{{font-style:normal;color:{w['gold']};}}
+  .sub{{color:{w['inkSoft']};font-size:14.5px;max-width:62ch;margin-bottom:26px;}}
   .row{{display:flex;gap:10px;flex-wrap:wrap;}}
-  input[type=url]{{flex:1 1 340px;min-width:0;padding:14px 16px;font-size:15px;border:1.5px solid {c['line']};
-    border-radius:12px;background:#fff;color:{c['ink']};font-family:inherit;}}
-  input[type=url]:focus{{outline:none;border-color:{c['blush500']};box-shadow:0 0 0 4px rgba(184,92,122,.14);}}
-  button{{padding:14px 26px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;color:#fff;
-    border:none;border-radius:12px;white-space:nowrap;background:linear-gradient(135deg,{c['blush500']},{c['blush700']});
-    box-shadow:0 8px 20px rgba(158,69,100,.26);transition:transform .12s,opacity .12s;}}
-  button:hover:not(:disabled){{transform:translateY(-1px);}} button:disabled{{opacity:.5;cursor:not-allowed;}}
-  .stage-strip{{display:flex;flex-wrap:wrap;gap:7px;margin-top:24px;}}
-  .chip{{font-size:11.5px;font-weight:600;padding:6px 12px;border-radius:999px;background:#fff;
-    border:1px solid {c['line']};color:{c['muted']};transition:all .2s;}}
-  .chip.run{{color:{c['blush700']};border-color:{c['blush500']};background:{c['blush100']};animation:pulse 1.1s ease-in-out infinite;}}
-  .chip.ok{{color:{c['ok']};border-color:rgba(63,143,107,.4);background:rgba(63,143,107,.09);}}
-  .chip.bad{{color:{c['bad']};border-color:rgba(181,72,72,.4);background:rgba(181,72,72,.08);}}
-  @keyframes pulse{{0%,100%{{opacity:1;}}50%{{opacity:.55;}}}}
-  #log{{margin-top:18px;background:#2A1A1F;color:#F3E7EC;border-radius:14px;padding:16px 18px;
-    font-family:'Space Grotesk',ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.7;
+  input[type=url]{{flex:1 1 340px;min-width:0;padding:14px 18px;font-size:14.5px;direction:ltr;
+    border:1.5px solid {w['line']};border-radius:14px;background:{w['bg']};color:{w['ink']};
+    font-family:'Cascadia Code',Consolas,monospace;}}
+  input[type=url]:focus{{outline:none;border-color:{w['gold']};
+    box-shadow:0 0 0 4px rgba(205,180,228,.16);}}
+  button{{padding:14px 30px;font-size:15px;font-weight:800;font-family:inherit;cursor:pointer;
+    color:{w['bg']};border:none;border-radius:14px;white-space:nowrap;
+    background:linear-gradient(135deg,{w['gold']},{w['goldDeep']});
+    box-shadow:0 8px 26px rgba(205,180,228,.28);transition:transform .12s,box-shadow .12s;}}
+  button:hover:not(:disabled){{transform:translateY(-2px);
+    box-shadow:0 12px 32px rgba(205,180,228,.4);}}
+  button:disabled{{opacity:.5;cursor:not-allowed;}}
+  .stage-strip{{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px;}}
+  .chip{{font-size:11.5px;font-weight:700;padding:6px 14px;border-radius:999px;
+    background:{w['bg']};border:1px solid {w['line']};color:{w['muted']};transition:all .2s;
+    font-family:'Cascadia Code',Consolas,monospace;}}
+  .chip.run{{color:{w['gold']};border-color:{w['gold']};animation:pulse 1.1s ease-in-out infinite;}}
+  .chip.ok{{color:{w['green']};border-color:rgba(74,222,156,.4);}}
+  .chip.bad{{color:{w['red']};border-color:rgba(255,107,107,.4);}}
+  @keyframes pulse{{0%,100%{{opacity:1;}}50%{{opacity:.5;}}}}
+  @media(prefers-reduced-motion:reduce){{*{{animation:none!important;transition:none!important}}}}
+  #log{{margin-top:18px;background:{w['vault']};color:{w['inkSoft']};border-radius:14px;
+    border:1px solid {w['line']};padding:16px 18px;unicode-bidi:plaintext;text-align:start;
+    font-family:'Cascadia Code',ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.7;
     max-height:300px;overflow:auto;display:none;white-space:pre-wrap;word-break:break-word;}}
-  #log .l-ok{{color:#8FE0B8;}} #log .l-bad{{color:#F3A8A8;}} #log .l-run{{color:#E8C7D4;}}
-  .foot{{text-align:center;color:{c['muted']};font-size:12px;margin-top:26px;}}
+  #log .l-ok{{color:{w['green']};}} #log .l-bad{{color:{w['red']};}} #log .l-run{{color:{w['gold']};}}
+  .brand{{position:relative;}}
+  .lang-toggle{{margin-inline-start:auto;background:transparent;color:{w['inkSoft']};
+    border:1px solid {w['line']};border-radius:999px;padding:6px 16px;font-size:12px;
+    font-weight:700;box-shadow:none;font-family:'Cascadia Code',Consolas,monospace;}}
+  .lang-toggle:hover{{color:{w['gold']};border-color:{w['gold']};transform:none;box-shadow:none;}}
 </style></head><body>
 <div class="wrap">
   <div class="brand"><div class="dot"></div>
-    <div><div class="brand-n">Baseera Studio</div><div class="brand-t">Marketing Intelligence</div></div></div>
+    <div><div class="brand-n">بصيرة · Baseera</div><div class="brand-t">Marketing War Room</div></div>
+    <button class="lang-toggle" id="lang">EN</button></div>
   <div class="card">
-    <h1 class="serif">One URL in, a <em>campaign you drive</em>.</h1>
-    <p class="sub">Paste a brand's website. Baseera studies it — profile, cited SWOT, real
-      competitors, a content calendar — then hands you a live dashboard where you generate the
-      poster and the reel on demand, and regenerate until they're right.</p>
+    <h1 id="slogan">ذكاءٌ يُؤسَّس على الحقيقة.. <em>لِيَخلُقَ يقيناً.</em></h1>
+    <p class="sub" id="sub">الصقي رابط موقع البراند. بصيرة تدرسه — بروفايل، SWOT بالأدلة،
+      منافسين حقيقيين، تقويم محتوى — وتسلّمك غرفة عمليات حيّة تولّدي فيها البوستر والريل
+      بموافقتك، وكل رقم فيها له مصدر.</p>
     <div class="row">
       <input id="url" type="url" placeholder="https://your-brand.com" autocomplete="off" spellcheck="false">
-      <button id="go">Analyze</button>
+      <button id="go">حلّلي</button>
     </div>
     <div id="strip" class="stage-strip" style="display:none"></div>
     <div id="log"></div>
   </div>
-  <div class="foot">Runs locally. Heavy generation only happens when you ask for it.</div>
 </div>
 <script>
 const STAGES=["Scrape + Profile + Competitors + SWOT","Content calendar"];
@@ -129,7 +206,7 @@ function chips(){{strip.innerHTML="";strip.style.display="flex";
   STAGES.forEach(s=>{{const d=document.createElement("div");d.className="chip";d.dataset.k=s;
     d.textContent=s.replace(" + Competitors + SWOT","...");strip.appendChild(d);}});}}
 function setChip(label,cls){{const el=[...strip.children].find(c=>label.startsWith(c.dataset.k.split(" ...")[0].split(" +")[0])||c.dataset.k===label); if(el)el.className="chip "+cls;}}
-function line(t){{const d=document.createElement("div");
+function line(t){{const d=document.createElement("div");d.dir="auto";
   if(t.includes("[OK]"))d.className="l-ok";else if(t.includes("[X]"))d.className="l-bad";
   else if(t.trim().startsWith("->"))d.className="l-run";d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight;}}
 go.onclick=()=>{{const u=url.value.trim();if(!u){{url.focus();return;}}
@@ -140,11 +217,26 @@ go.onclick=()=>{{const u=url.value.trim();if(!u){{url.focus();return;}}
     if(d.event==="stage_start")setChip(d.label,"run");else if(d.event==="stage_ok")setChip(d.label,"ok");
     else if(d.event==="stage_fail")setChip(d.label,"bad");}});
   es.addEventListener("done",e=>{{const d=JSON.parse(e.data);es.close();
-    line("\\n[OK] opening your studio ...");window.location="/studio?slug="+encodeURIComponent(d.slug);}});
+    line("\\n[OK] opening your war room ...");window.location="/dashboard?slug="+encodeURIComponent(d.slug);}});
   es.addEventListener("failed",e=>{{const d=JSON.parse(e.data);es.close();go.disabled=false;
     line("\\n[X] "+(d.msg||"analysis failed"));}});
   es.onerror=()=>{{if(es.readyState===EventSource.CLOSED)go.disabled=false;}};}};
 url.addEventListener("keydown",e=>{{if(e.key==="Enter")go.click();}});
+const COPY={{
+  ar:{{slogan:'ذكاءٌ يُؤسَّس على الحقيقة.. <em>لِيَخلُقَ يقيناً.</em>',
+      sub:'الصقي رابط موقع البراند. بصيرة تدرسه — بروفايل، SWOT بالأدلة، منافسين حقيقيين، تقويم محتوى — وتسلّمك غرفة عمليات حيّة تولّدي فيها البوستر والريل بموافقتك، وكل رقم فيها له مصدر.',
+      go:'حلّلي',dir:'rtl',toggle:'EN'}},
+  en:{{slogan:'Grounded in truth. <em>Engineered for certainty.</em>',
+      sub:"Paste a brand's website. Baseera studies it — profile, cited SWOT, real competitors, a content calendar — then hands you a live war room where you generate the poster and reel on your approval, every number traceable to its source.",
+      go:'Analyze',dir:'ltr',toggle:'ع'}}}};
+let LANG='ar';
+document.getElementById('lang').onclick=()=>{{
+  LANG=LANG==='ar'?'en':'ar';const c=COPY[LANG];
+  document.getElementById('slogan').innerHTML=c.slogan;
+  document.getElementById('sub').textContent=c.sub;
+  go.textContent=c.go;document.documentElement.dir=c.dir;
+  document.documentElement.lang=LANG;
+  document.getElementById('lang').textContent=c.toggle;}};
 </script></body></html>"""
 
 
@@ -705,7 +797,9 @@ def _studio_page(slug: str, out_dir: str) -> str | None:
     i = report.rfind(marker)
     mp_card = _media_plan_card(slug, out_dir)
     ask = _ask_archive_section()
-    block = f'<div class="bsr"><div class="wrap">{mp_card}{ask}{section}</div></div>'
+    # Insert directly into the report's existing .bsr>.wrap (marker is inside it) — do NOT re-wrap
+    # in a second .bsr>.wrap (that nested two 1180px centering containers; harmless but a smell).
+    block = f'{mp_card}{ask}{section}'
     body = (report[:i] + block + report[i:] if i >= 0 else report + block)
     bar = ('<div class="cst-bar"><a href="/dashboard?slug=' + slug +
            '" target="_blank">⤓ Download the full dashboard</a></div>')
@@ -733,7 +827,10 @@ def _studio_page(slug: str, out_dir: str) -> str | None:
         '<button class="hitl-cancel" onclick="hitlClose()">إلغاء</button>'
         '<button class="hitl-exec" onclick="hitlExecute()">EXECUTE — نفّذي التوليد</button>'
         '</div></div></div>')
-    return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    # dir="rtl" so the LIVE studio renders identically to the RTL download (build.py:1229). It was
+    # lang="en" with no dir -> the report's logical CSS resolved LTR here and RTL in the export, so
+    # the owner saw a mirror-flipped layout ("ظبط السنترة"). Now they match.
+    return (f'<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<title>Baseera Studio · {slug}</title>{_studio_css()}</head><body>'
             f'{bar}{body}{hitl}{_studio_js(slug, False, False)}</body></html>')
@@ -780,6 +877,14 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         route, q = parsed.path, parse_qs(parsed.query)
+
+        # CS-03: the guard must cover EVERY route that spends, not just the two it was written for.
+        # Paid is paid — one check, before dispatch.
+        if route in _PAID_GET_ROUTES and not _paid_get_trusted(self.headers):
+            self._send(403, b"cross-site or prefetch requests may not trigger a paid operation",
+                       "text/plain; charset=utf-8")
+            return
+
         if route in ("/", "/index.html"):
             self._send(200, _landing_html().encode("utf-8"), "text/html; charset=utf-8")
         elif route == "/analyze":
@@ -794,16 +899,18 @@ class _Handler(BaseHTTPRequestHandler):
             self._serve_scrape_qa(q)
         elif route == "/ask":
             self._serve_ask(q)
-        elif route == "/generate/poster":
-            self._stream_generate(q, "poster")
-        elif route == "/generate/reel":
-            self._stream_generate(q, "reel")
+        elif route in ("/generate/poster", "/generate/reel"):
+            self._stream_generate(q, "poster" if route.endswith("poster") else "reel")
         elif route == "/hitl/preview":
             self._serve_hitl_preview(q)
         elif route == "/asset":
             self._serve_asset(q)
         elif route == "/dashboard":
-            self._serve_dashboard(q)
+            self._serve_war_room(q)      # the unified paged package IS the dashboard now
+        elif route == "/classic":
+            self._serve_dashboard(q)     # the legacy single-scroll report, kept for print/export
+        elif route == "/war_room":
+            self._serve_war_room(q)      # back-compat alias
         elif route == "/favicon.ico":
             self._send(204, b"", "image/x-icon")
         else:
@@ -811,6 +918,43 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/owner_inputs":
+            # أرقام المالك (2026-07-20): margin/capacity/budget typed in the vault — saved per
+            # brand; the next page build recomputes every governing number from them.
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+            except Exception:  # noqa: BLE001
+                self._send(400, b"bad body", "text/plain; charset=utf-8")
+                return
+            slug = str(body.get("slug") or "")
+            if not _ok_slug(slug):
+                self._send(400, b"bad slug", "text/plain; charset=utf-8")
+                return
+            from dashboard.owner_inputs import save_owner_inputs
+            saved = save_owner_inputs(slug, body, out_dir=self.out_dir)
+            self._send(200, json.dumps(saved, ensure_ascii=False).encode("utf-8"),
+                       "application/json; charset=utf-8")
+            return
+        if parsed.path == "/studio/reset":
+            # "عايزة أفتحه كأنه أول مرة" (2026-07-20): clear the brand's generated creative so the
+            # studio starts empty. Archives — never deletes — because a paid render must stay
+            # recoverable; the analysis/strategy files are untouched.
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+            except Exception:  # noqa: BLE001
+                self._send(400, b"bad body", "text/plain; charset=utf-8")
+                return
+            slug = str(body.get("slug") or "")
+            if not _ok_slug(slug):
+                self._send(400, b"bad slug", "text/plain; charset=utf-8")
+                return
+            from dashboard.run import archive_creative
+            moved = archive_creative(slug, out_dir=self.out_dir)
+            self._send(200, json.dumps({"archived": len(moved)}).encode("utf-8"),
+                       "application/json; charset=utf-8")
+            return
         if parsed.path != "/hitl/refine":
             self._send(404, b"not found", "text/plain; charset=utf-8")
             return
@@ -939,6 +1083,14 @@ class _Handler(BaseHTTPRequestHandler):
         if info is None or not info.usable:
             _json({"ok": False, "error": "no product found on that page"})
             return
+        # Owner ask (2026-07-20): every service scrape persists to an AUDIT file next to the
+        # profile — "علشان أتأكد إن كل حاجة اتسحبت وأقدر أقيّم". Never blocks the response.
+        slug = (q.get("slug") or [""])[0]
+        if _ok_slug(slug):
+            try:
+                _persist_service_scrape(self.out_dir, slug, info)
+            except Exception:  # noqa: BLE001
+                pass
         _json({"ok": True, "product": {
             "name": info.name, "image": info.image, "url": info.url,
             "price": info.price, "currency": info.currency}})
@@ -960,6 +1112,37 @@ class _Handler(BaseHTTPRequestHandler):
             poster_path=str(P["poster"]) if P["poster"].is_file() else None,
             reel_path=str(P["reel"]) if P["reel"].is_file() else None,
             standalone=True,
+        )
+        self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+
+    def _serve_war_room(self, q: dict):
+        """Build + serve the paged War Room dashboard. Served pages reference media via /asset
+        (instant load + Range-seekable video) instead of base64; the CLI file build embeds."""
+        slug = (q.get("slug") or [""])[0]
+        if not _ok_slug(slug):
+            self._send(400, b"bad slug", "text/plain; charset=utf-8")
+            return
+        P = _run_mod.paths(slug, self.out_dir)
+        if not P["result"].is_file():
+            self._send(404, b"no analysis for that brand yet", "text/plain; charset=utf-8")
+            return
+        from dashboard.war_room import build_war_room_html
+        out = Path(self.out_dir)
+        try:
+            from dashboard.products import products_for_slug
+            services = products_for_slug(slug, out_dir=self.out_dir)
+        except Exception:  # noqa: BLE001
+            services = []
+        html = build_war_room_html(
+            str(P["result"]),
+            profile_path=str(P["profile"]) if P["profile"].is_file() else None,
+            media_plan_path=str(out / f"{slug}_media_plan.json"),
+            audit_path=str(out / f"{slug}_plan.audit.json"),
+            poster_path=str(P["poster"]) if P["poster"].is_file() else None,
+            reel_path=str(P["reel"]) if P["reel"].is_file() else None,
+            plan_path=str(P["plan"]) if P["plan"].is_file() else None,
+            embed_media=False, asset_base=f"/asset?slug={slug}&kind=",
+            slug=slug, out_dir=self.out_dir, serve_mode=True, services=services,
         )
         self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
 
@@ -1118,10 +1301,18 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             if not alive["v"]:
                 return
+            if not (asset and Path(asset).is_file()):
+                # البند 1 safety net: the pipeline refreshes the canonical file after every
+                # render — re-check before declaring failure (exit-code blindness must never
+                # 404 a poster that exists).
+                P2 = _run_mod.paths(slug, self.out_dir)
+                if kind in P2 and P2[kind].is_file():
+                    asset = P2[kind]
             if asset and Path(asset).is_file():
                 self._sse_write(sse("done", {"kind": kind, "asset": f"/asset?slug={slug}&kind={kind}"}))
             else:
-                self._sse_write(sse("failed", {"msg": f"{kind} generation did not produce a file."}))
+                self._sse_write(sse("failed", {"msg": f"لم يُنتَج ملف {kind} — راجعي آخر سطر "
+                                                      f"[X] في اللوج أعلاه (السبب الحقيقي فيه)."}))
         finally:
             with _INFLIGHT_LOCK:
                 _INFLIGHT.discard(key)

@@ -308,21 +308,34 @@ def arabic_dialect() -> str:
     return (os.environ.get("REEL_ARABIC_DIALECT") or "masri").strip().lower()
 
 
-def _copy_language_label(language: str) -> str:
-    """The on-screen caption language instruction for the story prompt. 'auto' keeps the
-    old behavior (the brand's audience language, inferred by the model)."""
+def _copy_language_label(language: str, profile: Optional[dict] = None) -> str:
+    """The on-screen caption language instruction for the story prompt. 'auto' keeps the old
+    behavior (the brand's audience language, inferred by the model). The Arabic register follows the
+    brand's EVIDENCED country (poster.locale) when a profile is given — a Saudi brand's captions are
+    Khaleeji, not Masri; the REEL_ARABIC_DIALECT=fusha override still wins; no profile -> pilot default."""
     if arabic_dialect() == "fusha":
         return {"ar": "Modern Standard Arabic (فصحى معاصرة سلسة وقريبة)",
                 "en": "English"}.get(language[:2], language)
+    if language[:2] == "ar" and profile is not None:
+        from poster.locale import arabic_region_of, arabic_dialect_for
+        reg = arabic_region_of(profile)
+        if reg and reg != "egypt":
+            return arabic_dialect_for(profile)
     return {"ar": "Egyptian Arabic (عامية مصرية راقية)",
             "en": "English"}.get(language, "the brand's audience language")
 
 
-def _spoken_language_label(language: str) -> str:
-    """The voiceover language/dialect instruction. 'auto' -> the audience's own dialect."""
+def _spoken_language_label(language: str, profile: Optional[dict] = None) -> str:
+    """The voiceover language/dialect instruction. 'auto' -> the audience's own dialect. Arabic
+    register follows the brand's EVIDENCED country (poster.locale) when a profile is given."""
     if arabic_dialect() == "fusha":
         return {"ar": "clear, warm Modern Standard Arabic (fusha)",
                 "en": "natural conversational English"}.get(language[:2], language)
+    if language[:2] == "ar" and profile is not None:
+        from poster.locale import arabic_region_of, arabic_dialect_for
+        reg = arabic_region_of(profile)
+        if reg and reg != "egypt":
+            return f"natural spoken {arabic_dialect_for(profile)}"
     return {"ar": "natural spoken Egyptian Arabic (Masri)",
             "en": "natural conversational English"}.get(language, "the audience's OWN dialect")
 
@@ -404,14 +417,14 @@ def build_brand_story(
            f"text or colour):\n{dna_lines}" if dna_lines else "")
         + f"\nReturn 'character' (the one recurring protagonist), 'scenes' ({n} text-free scenes "
           f"that tell the brand's story in order), 'captions' (ONE short on-screen line per "
-          f"scene, aligned with 'scenes', ~2-5 words each, in {_copy_language_label(language)}, "
+          f"scene, aligned with 'scenes', ~2-5 words each, in {_copy_language_label(language, profile)}, "
           f"that NARRATES that beat so the story reads on the footage), and 'voiceovers' (ONE "
           f"spoken line per scene, aligned with 'scenes', ~5-12 words, warm and conversational "
-          f"in {_spoken_language_label(language)} — it will be SPOKEN aloud in the video), "
+          f"in {_spoken_language_label(language, profile)} — it will be SPOKEN aloud in the video), "
           f"'narrator' (ONE voice for the WHOLE reel: gender + age + tone, matching the "
           f"protagonist — e.g. 'a warm adult Egyptian woman, reassuring'), and 'hook' (ONE "
           f"fresh scroll-stopping OPENER for the reel's first seconds, 2-5 words, in "
-          f"{_copy_language_label(language)} — NOT the brand's tagline verbatim; a new line "
+          f"{_copy_language_label(language, profile)} — NOT the brand's tagline verbatim; a new line "
           f"each time). THE VOICEOVER LINES ARE ONE CONTINUOUS NARRATION: each line flows "
           f"from the previous one — a single narrator telling ONE story, never 5 unrelated "
           f"statements. Grammatical GENDER must be consistent with the narrator in every "

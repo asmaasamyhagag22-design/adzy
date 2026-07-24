@@ -160,7 +160,7 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
                 generate_oneshot_poster(
                     a_prompt,
                     p, logo_bytes=None,
-                    model=_SEED_IMAGE_MODEL,          # EXPLICIT nano — never the poster's env
+                    model=_SEED_IMAGE_MODEL,          # EXPLICIT pro lane (see :88) — never the poster's env
                     product_images=([ref] if (ref and attempt < 3) else None))
                 stats["generated"] += 1
                 v = check_seed_frame(p, caller=caller, brand_hint=name)

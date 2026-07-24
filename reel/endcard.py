@@ -192,6 +192,14 @@ def render_endcard(profile: dict, out_png: Path, *, width: int = REEL_W, height:
                 page.screenshot(path=str(out_png), clip={"x": 0, "y": 0, "width": width, "height": height})
             finally:
                 browser.close()
+        # P-38: trim any near-black letterbox band off the rendered card (a no-op on our full-canvas
+        # HTML, but the safety net the frame inspection asked for). Reuses the reel image trimmer.
+        if out_png.exists():
+            try:
+                from reel.image_quality import trim_letterbox_png
+                trim_letterbox_png(str(out_png))
+            except Exception:
+                pass
         return out_png if out_png.exists() else None
     except Exception:
         return None

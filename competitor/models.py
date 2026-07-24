@@ -99,6 +99,11 @@ class PeerFitBreakdown:
     language: Optional[float] = None
     total: float = 0.0
     weights_used: Dict[str, float] = field(default_factory=dict)
+    # HOW `total` was derived (P-80). "weighted" = the real multi-dimension fit (Places peers, via
+    # peer_match._aggregate). "search_rank" = a WEB peer with no Places data, so total is just
+    # 1/SERP-rank — NOT a measured competitive fit. Downstream must not present a search_rank score
+    # as a validated fit (that was exactly the P-30 artifact: fit=1.0 with an all-null breakdown).
+    basis: str = "weighted"
 
 
 @dataclass

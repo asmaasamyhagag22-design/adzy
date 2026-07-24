@@ -20,7 +20,13 @@ import re
 from collections import Counter
 from urllib.parse import urlsplit
 
-CAP = 12  # current MAX_INTERNAL_PAGES (in addition to the homepage)
+# CS-51: read the REAL live cap from scraper.config — the hardcoded 12 was stale (the live cap is
+# 40, and 50 for e-commerce), so the 'stop' column mislabelled almost every store as CAP-bound when
+# the actual binding constraint was time/speed. Fall back to 40 only if the import ever fails.
+try:
+    from scraper.config import ECOMMERCE_MAX_INTERNAL_PAGES as CAP  # the e-commerce store cap (50)
+except Exception:  # noqa: BLE001
+    CAP = 40
 
 # Product/shop URL tokens (mirrors scraper.config PAGE_TYPE_PATTERNS['products']) — the
 # UNIVERSAL e-commerce signal: a store has many product/collection internal links.
