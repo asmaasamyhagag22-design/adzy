@@ -50,9 +50,14 @@ def _auth(client):
 
 # ---------- domain_key (must match frontend domainKeyFromUrl) ----------
 
+# The hyphen case CHANGED on 2026-07-25, and the old expectation was locking a defect: mapping both
+# "." and "-" onto "_" made `foo-bar.com` and `foo.bar.com` one key, so one brand's stored record
+# overwrote the other's and every later stage ran on a blend of two companies
+# (tests/test_domain_key_is_injective.py). "-" now encodes as "__". Dot-only hosts are untouched,
+# which is why the other two rows here are unchanged and the brands already on disk kept their keys.
 @pytest.mark.parametrize("url,key", [
     ("https://www.brand.com.eg/x", "brand_com_eg"),
-    ("https://sub.my-brand.qa", "sub_my_brand_qa"),
+    ("https://sub.my-brand.qa", "sub_my__brand_qa"),
     ("http://Example.COM", "example_com"),
 ])
 def test_domain_key_matches_frontend_rule(url, key):
@@ -136,8 +141,14 @@ def test_brands_require_auth(client):
 
 
 def test_brand_crud_via_http(client, tmp_path):
-    BrandStore().save(profile_to_brand(_profile(), source_url="https://volumeqatar.com/"))
+    # The brand is seeded WITH an owner, because that is how one is really created: POST /api/scrape
+    # stamps the requesting account onto the result (api/routes/scrape.py). Seeding it ownerless was
+    # a fixture shortcut, and once ownership landed it produced a state the real flow cannot reach —
+    # an unclaimed brand, which DELETE deliberately refuses with 409 until a human claims it.
     h = _auth(client)
+    me = client.get("/api/auth/me", headers=h).json()
+    BrandStore().save(profile_to_brand(_profile(), source_url="https://volumeqatar.com/"),
+                      owner_id=me["id"])
     grid = client.get("/api/brands", headers=h).json()["brands"]
     assert any(b["domain_key"] == "volumeqatar_com" for b in grid)
     one = client.get("/api/brands/volumeqatar_com", headers=h)

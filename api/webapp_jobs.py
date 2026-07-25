@@ -19,23 +19,25 @@ from .schemas import JobStatus
 logger = logging.getLogger(__name__)
 
 
-def start_brand_job(request: Request, domain_key: str, work) -> dict:
+def start_brand_job(request: Request, domain_key: str, work, owner_id: str = "") -> dict:
     """Create a job bound to a brand, run `work` in a thread, persist the patch, mark terminal."""
     store = request.app.state.store
     job = store.create()
     job.domain_key = domain_key
     store.attach_loop(job.job_id, asyncio.get_running_loop())
     asyncio.create_task(run_brand_job(job_id=job.job_id, domain_key=domain_key, store=store,
-                                      work=work))
+                                      work=work, owner_id=owner_id))
     return {"job_id": job.job_id}
 
 
-async def run_brand_job(*, job_id: str, domain_key: str, store, work) -> None:
+async def run_brand_job(*, job_id: str, domain_key: str, store, work,
+                        owner_id: str = "") -> None:
     job = store.get(job_id)
     try:
-        patch = await asyncio.to_thread(_do_work, domain_key, work)
+        patch = await asyncio.to_thread(_do_work, domain_key, work, owner_id)
         if patch is not None:
-            BrandStore().update(domain_key, patch)
+            # Scoped: an enrichment job must not be able to rewrite another account's analysis.
+            BrandStore().update(domain_key, patch, for_user=owner_id or None)
         job.status = JobStatus.SUCCEEDED
         job.current_stage = None
     except Exception as e:  # noqa: BLE001
@@ -47,6 +49,6 @@ async def run_brand_job(*, job_id: str, domain_key: str, store, work) -> None:
         job.updated_at = datetime.now(timezone.utc)
 
 
-def _do_work(domain_key: str, work) -> dict:
-    brand = BrandStore().get(domain_key) or {}
+def _do_work(domain_key: str, work, owner_id: str = "") -> dict:
+    brand = BrandStore().get(domain_key, for_user=owner_id or None) or {}
     return work(brand)

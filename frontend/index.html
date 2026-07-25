@@ -1679,7 +1679,7 @@
           <textarea id="studio-product-desc" class="input" style="min-height:64px; resize:vertical;"
             placeholder="Description - e.g. A rich chocolate sponge cake layered with buttercream in warm chocolate sauce, served with vanilla ice cream."></textarea>
           <label style="display:block; margin-top:8px; font-size:0.78rem; color:var(--text3);">
-            Reference photo (optional) - upload the real product photo to preserve its exact identity instead of letting the model imagine it
+            Reference photo (optional) - stored with the request. It does not condition the render yet, so the visual is built from your brand profile; we'll say so on the result
             <input type="file" id="studio-product-reference" accept="image/*" class="input" style="margin-top:4px;" />
           </label>
         </div>
@@ -1810,6 +1810,11 @@
         </button>
       </div>
       <div id="gen-image-meta" style="font-size:0.78rem; color:var(--text3); text-align:center;"></div>
+      <!-- Where the backend's honesty fields land. The API has carried is_preview /
+           degraded_reason / trust_violation / trust_note_ar for a while; nothing rendered them, so
+           a disclosed image reached the screen looking exactly like a finished one. -->
+      <div id="gen-disclosure" style="display:none; font-size:0.82rem; line-height:1.5;
+           text-align:center; margin-top:8px; padding:10px 14px; border-radius:10px;"></div>
     </div>
   </div>
 
@@ -2303,6 +2308,42 @@ function toast(msg, type = '') {
 function fmt(v) {
   if (v === null || v === undefined || v === '') return '';
   return String(v);
+}
+
+// --- provenance banner -------------------------------------------------------------------
+// One place that renders what the backend says about an image it just produced. Every generation
+// response carries is_preview / degraded_reason / trust_violation / trust_note_ar, and until now
+// the client read none of them: a free placeholder, a paid render that failed and silently fell
+// back, and a render the pipeline itself flagged as containing a fabricated element all arrived
+// on screen looking identical to a finished, trustworthy image.
+function showDisclosure(data) {
+  const box = document.getElementById('gen-disclosure');
+  if (!box) return;
+  if (!data || (!data.trust_violation && !data.degraded_reason && data.is_preview === false)) {
+    box.style.display = 'none';
+    box.textContent = '';
+    return;
+  }
+  const lines = [];
+  let tone = 'info';
+  if (data.trust_violation) {
+    tone = 'warn';
+    lines.push(data.trust_note_ar
+      || 'This render contains an element the quality check could not verify — review before use.');
+  }
+  if (data.degraded_reason) {
+    tone = tone === 'warn' ? 'warn' : 'info';
+    lines.push('The full render did not run: ' + data.degraded_reason
+               + ' — showing the free preview instead.');
+  } else if (data.is_preview) {
+    lines.push('Free preview — not the final render.');
+  }
+  const warn = tone === 'warn';
+  box.style.background = warn ? 'rgba(255,159,10,0.12)' : 'rgba(255,255,255,0.06)';
+  box.style.color      = warn ? '#FFB020' : 'var(--text2)';
+  box.style.border     = '1px solid ' + (warn ? 'rgba(255,159,10,0.35)' : 'rgba(255,255,255,0.10)');
+  box.textContent = lines.join('  ·  ');
+  box.style.display = 'block';
 }
 
 function scoreColor(s) {
@@ -3759,8 +3800,13 @@ async function deleteBrand() {
 }
 
 // ── Studio ─────────────────────────────────────────────────────────────────
+// MUST stay identical to api/brand_translate.domain_key_from_url. "-" maps to "__", not "_":
+// mapping both "." and "-" onto "_" made foo-bar.com and foo.bar.com the same key, so one site's
+// brand record overwrote the other's. If these two implementations drift, the browser requests a
+// record the server filed under a different name. (tests/test_domain_key_is_injective.py asserts
+// this file agrees with the Python.)
 function domainKeyFromUrl(url) {
-  try { return new URL(url).hostname.replace(/^www\./, "").replace(/\./g, "_").replace(/-/g, "_"); }
+  try { return new URL(url).hostname.replace(/^www\./, "").replace(/\./g, "_").replace(/-/g, "__"); }
   catch(e) { return ""; }
 }
 function ensureDomainKey(brand) {
@@ -4035,6 +4081,7 @@ async function generateImage() {
     document.getElementById('edit-cta').value      = data.cta      || cta      || '';
     document.getElementById('gen-image-meta').textContent =
       state.selectedCT.replace('_',' ') + ' · ' + state.selectedStyle + ' · ' + (state.studioBrand.organization_name || '');
+    showDisclosure(data);
 
   } catch(e) {
     document.getElementById('gen-loading').classList.remove('active');
@@ -4167,7 +4214,15 @@ async function applyMaskEdit() {
     state.lastGenFilename = data.filename || state.lastGenFilename;
     document.getElementById('gen-image').src = 'data:image/png;base64,' + data.image_b64;
     toggleMaskMode(false);
-    toast('Region edited', 'success');
+    // The endpoint returns `applied:false` with a note in the brand's language: region editing has
+    // no implementation, so the image comes back untouched. Announcing "Region edited" regardless
+    // sent the user off to rewrite a prompt that was never read by anything.
+    if (data.applied === false) {
+      toast(data.note || 'Region editing is not available yet — the image is unchanged.', 'error');
+    } else {
+      toast('Region edited', 'success');
+    }
+    showDisclosure(data);
   } catch (e) {
     toast('Edit failed: ' + e.message, 'error');
   } finally {

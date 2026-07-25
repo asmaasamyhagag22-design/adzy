@@ -13,9 +13,10 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
+from api.auth import guard_public_signup
 from api.user_auth import UserStore, decode_token, issue_token
 
 router = APIRouter()
@@ -71,7 +72,10 @@ def require_user(authorization: Optional[str] = Header(None)) -> dict:
 
 
 @router.post("/auth/signup", response_model=AuthResponse)
-def signup(req: SignupRequest) -> AuthResponse:
+def signup(req: SignupRequest, request: Request) -> AuthResponse:
+    # Every account can trigger paid generation, so account creation is loopback-only unless the
+    # operator opened it deliberately (api/auth.guard_public_signup).
+    guard_public_signup(request)
     if len(req.password) < 8:
         raise HTTPException(status_code=422, detail="Password must be at least 8 characters.")
     user = _store().create(req.email, req.password, req.full_name)

@@ -21,17 +21,35 @@ import hmac
 import json
 import os
 import secrets
+import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
+
+# Serialises the check-then-write in `UserStore.create`. Signup is a sync endpoint, so FastAPI runs
+# concurrent signups on separate threadpool threads against one shared users.json.
+_USERS_LOCK = threading.RLock()
 
 
 # ---------------------------------------------------------------------
 # storage location (env-overridable so tests get an isolated tmp dir)
 # ---------------------------------------------------------------------
 
+# Anchored on the REPOSITORY, not the working directory. MEASURED: with the old relative default,
+# starting uvicorn from `C:/Users/Admin` put every account, the signing secret, the brand catalog and
+# all generated images under `C:/Users/Admin/outputs/webapp` — so logins failed, tokens were
+# invalidated by a freshly generated secret, and the catalog read empty, all without an error. And
+# api/main.py explicitly supports being run from elsewhere.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
 def webapp_dir() -> Path:
-    d = Path(os.environ.get("BASEERA_WEBAPP_DIR", "outputs/webapp"))
+    """Where all web-app state lives. `BASEERA_WEBAPP_DIR` still overrides it (tests, containers);
+    a RELATIVE override is resolved against the repo, never against the launch directory."""
+    raw = os.environ.get("BASEERA_WEBAPP_DIR", "outputs/webapp")
+    d = Path(raw)
+    if not d.is_absolute():
+        d = _REPO_ROOT / d
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -157,9 +175,18 @@ class UserStore:
 
     def _save(self, data: dict[str, Any]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(self._path)
+        # A temp file private to this writer — a shared `users.json.tmp` lets two threads publish
+        # each other's partial bytes (and raises PermissionError on Windows).
+        tmp = self._path.with_suffix(f".json.{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp.replace(self._path)
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
 
     @staticmethod
     def _public(user: dict) -> dict:
@@ -168,20 +195,29 @@ class UserStore:
                 "full_name": user.get("full_name", ""), "created_at": user.get("created_at")}
 
     def create(self, email: str, password: str, full_name: str = "") -> Optional[dict]:
-        """Create a user. Returns the PUBLIC user dict, or None if the email already exists."""
+        """Create a user. Returns the PUBLIC user dict, or None if the email already exists.
+
+        The whole check-then-write runs under one lock. It used to be a bare read-modify-write, and
+        signup is a sync endpoint, so FastAPI ran two of them on separate threadpool threads: both
+        loaded the same base dict and the second `_save` overwrote the first user completely. The
+        victim held a validly signed token for an account that no longer existed, so `require_user`
+        401'd them and the app logged out someone who had just registered successfully. The same
+        window let one address be registered TWICE — both callers passed the `email in data` check
+        and the second hash replaced the first."""
         email = (email or "").strip().lower()
-        data = self._load()
-        if not email or email in data:
-            return None
-        user = {
-            "id": secrets.token_hex(8),
-            "email": email,
-            "full_name": (full_name or "").strip(),
-            "password_hash": hash_password(password),
-            "created_at": int(time.time()),
-        }
-        data[email] = user
-        self._save(data)
+        with _USERS_LOCK:
+            data = self._load()
+            if not email or email in data:
+                return None
+            user = {
+                "id": secrets.token_hex(8),
+                "email": email,
+                "full_name": (full_name or "").strip(),
+                "password_hash": hash_password(password),
+                "created_at": int(time.time()),
+            }
+            data[email] = user
+            self._save(data)
         return self._public(user)
 
     def authenticate(self, email: str, password: str) -> Optional[dict]:
@@ -195,3 +231,11 @@ class UserStore:
             if user.get("id") == user_id:
                 return self._public(user)
         return None
+
+    def get_by_email(self, email: str) -> Optional[dict]:
+        user = self._load().get((email or "").strip().lower())
+        return self._public(user) if user else None
+
+    def emails(self) -> list[str]:
+        """Registered addresses — used by `python -m api.claim_brands --list`."""
+        return list(self._load().keys())

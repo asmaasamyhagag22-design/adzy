@@ -7,20 +7,39 @@ plan/images) enriches the SAME stored object.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any, Optional
 from urllib.parse import urlparse
 
 
 # ---------------------------------------------------------------------
-# domain_key — MUST match the frontend's domainKeyFromUrl (index.html:3762)
-#   new URL(url).hostname.replace(/^www\./,"").replace(/\./g,"_").replace(/-/g,"_")
+# domain_key — MUST match the frontend's domainKeyFromUrl (index.html)
+#   hostname.replace(/^www\./,"").replace(/\./g,"_").replace(/-/g,"__")
 # ---------------------------------------------------------------------
 
 def domain_key_from_url(url: str) -> str:
+    """A filesystem-safe key that identifies ONE site.
+
+    "." and "-" both used to map to "_", which made `foo-bar.com` and `foo.bar.com` the same key —
+    and the key is the brand file's name, so the second site scraped silently overwrote the first
+    and every later stage ran on a blend of two companies.
+
+    "-" now maps to "__". A valid web hostname is `[a-z0-9]` labels joined by "." with only INTERNAL
+    hyphens, so it contains no "_" and no two adjacent separators; runs of underscores in the result
+    are therefore exactly one (from ".") or two (from "-"), which makes the mapping injective.
+    Because "." is untouched, every key already on disk keeps its name.
+
+    A host outside that charset (an underscore, punycode oddity, anything unexpected) cannot be
+    encoded unambiguously, so it gets a short digest suffix instead of being allowed to alias."""
     host = (urlparse(url).hostname or urlparse("http://" + str(url)).hostname or "") or ""
     host = re.sub(r"^www\.", "", host.lower())
-    return host.replace(".", "_").replace("-", "_") or "brand"
+    if not host:
+        return "brand"
+    if not re.fullmatch(r"[a-z0-9.-]+", host):
+        digest = hashlib.sha1(host.encode("utf-8")).hexdigest()[:8]
+        return (re.sub(r"[^a-z0-9]+", "_", host).strip("_") or "brand") + "_" + digest
+    return host.replace(".", "_").replace("-", "__")
 
 
 # ---------------------------------------------------------------------

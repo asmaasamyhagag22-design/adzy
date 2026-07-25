@@ -68,6 +68,61 @@ async def require_api_key(request: Request, x_api_key: Optional[str] = Header(No
                                 detail=f"Rate limit exceeded ({_RATE_MAX}/min). Slow down.")
 
 
+# --- The same money question, asked at the web app's door -------------------------------------
+# The routes above are gated because they spend. The AdArchitect routers reach the SAME spend
+# (POST /api/scrape drives the Gemini extractor; swot/strategy/marketing-plan drive Gemini Pro and
+# the paid Places API; /api/generate drives the poster pipeline under BASEERA_ENABLE_PAID_IMAGES)
+# but authenticate with a self-issued JWT from an OPEN signup — so "does the caller hold the key?"
+# was answered correctly while "can an unknown caller cause spend?" went unasked. These two guards
+# close that door with the primitives already in this module, not a second rate-limiter.
+
+# A self-service account must never out-spend a key holder, so this budget sits below _RATE_MAX.
+_SPEND_RATE_MAX = int(os.environ.get("WEBAPP_SPEND_RATE_MAX_PER_MIN", "10"))
+
+
+def enforce_spend_rate(bucket: str) -> None:
+    """Throttle one identity's spending calls. Raises 429 past the per-minute budget."""
+    now = time.monotonic()
+    dq = _hits.setdefault(f"spend:{bucket}", deque())
+    while dq and now - dq[0] > _RATE_WINDOW_S:
+        dq.popleft()
+    if len(dq) >= _SPEND_RATE_MAX:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded ({_SPEND_RATE_MAX}/min for generation). Slow down.")
+    dq.append(now)
+
+
+def guard_public_signup(request: Request) -> None:
+    """Refuse account creation from off-machine unless it was deliberately opened.
+
+    Mirrors `require_api_key`'s posture: an unconfigured deployment must not be drainable from the
+    internet. Local development and the owner's own machine are never blocked. A request with no
+    client information (behind a proxy) is read as remote — the safe reading."""
+    if os.environ.get("BASEERA_ALLOW_PUBLIC_SIGNUP") == "1":
+        return
+    if _is_loopback(request):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=("Public signup is closed on this server. Set BASEERA_ALLOW_PUBLIC_SIGNUP=1 to "
+                "open it deliberately — every account can trigger paid generation."))
+
+
+async def require_spend_budget(request: Request,
+                               authorization: Optional[str] = Header(None)) -> None:
+    """Per-user throttle for the web-app routes that spend. Identity comes from the caller's token;
+    an unidentifiable caller is throttled by IP rather than waved through."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    bucket = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        from .user_auth import decode_token
+        payload = decode_token(authorization[7:].strip()) or {}
+        bucket = str(payload.get("sub") or "")
+    enforce_spend_rate(bucket or (request.client.host if request.client else "anon"))
+
+
 # --- P-56: bound the client-supplied profile before it is trusted as grounding evidence ---
 # The poster/reel/swot routes accept a `profile` dict straight from the request body and feed it to
 # the Evidence Ledger. The auth key (above) already restricts WHO can submit one; this bounds its

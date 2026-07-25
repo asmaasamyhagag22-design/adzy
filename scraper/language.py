@@ -21,6 +21,43 @@ except Exception:
 
 from .schemas import LanguageEntry
 
+import re as _re
+
+# A 2-3 letter ALL-CAPS token is an ISO-style code (SA, SAU, AE, ARE, …), never prose.
+_CODE_TOKEN = _re.compile(r"^[A-Z]{2,3}$")
+# The separators dropdown/token dumps are glued with (·•|/ and comma-runs).
+_LIST_SEPARATORS = "·•|"
+
+
+def _prose_only(text: str) -> str:
+    """Keep only the lines a LANGUAGE detector should ever see.
+
+    MEASURED (nanocare, 2026-07-24): a login page's visible text was dominated by a phone
+    country-picker dump — "Saudi Arabia · SA · SAU · UAE · AE · ARE · …" — and langdetect
+    labeled that token salad CATALAN at probability 1.0, shipping languages=['ar','ca'] for
+    an Egyptian brand. A token dump is not prose in ANY language, so it must never vote.
+
+    Universal signals only (D-8 — country pickers/currency lists exist in every market):
+      * ISO-code density: a line whose tokens are ≥20% 2-3-letter ALL-CAPS codes is a code
+        list, not a sentence;
+      * separator density: a line glued by ·/•/| at ≥0.25 per word is an inline list.
+    Whatever prose remains votes; a page left empty contributes nothing — no signal beats
+    a confidently wrong one."""
+    kept: list[str] = []
+    for line in str(text or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        words = stripped.split()
+        seps = sum(stripped.count(s) for s in _LIST_SEPARATORS)
+        if words and seps / len(words) >= 0.25:
+            continue
+        codes = sum(1 for w in words if _CODE_TOKEN.match(w.strip(".,;:()[]")))
+        if words and codes / len(words) >= 0.20:
+            continue
+        kept.append(stripped)
+    return "\n".join(kept)
+
 
 def detect_languages(
     page_texts: list[str],
@@ -34,6 +71,7 @@ def detect_languages(
     counter: Counter[str] = Counter()
     if _LANGDETECT_OK:
         for text in page_texts:
+            text = _prose_only(text)        # token dumps are not a language — see _prose_only
             if not text or len(text.strip()) < 40:
                 continue
             try:

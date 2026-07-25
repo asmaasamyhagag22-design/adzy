@@ -102,14 +102,28 @@ def _remote_image_data_uri(url: str, timeout: int = 8) -> Optional[str]:
 
 
 def _trim_logo_margins(data: bytes, mime: str) -> tuple[bytes, str]:
-    """Crop a raster logo's fully-transparent border so the mark FILLS its chip instead of
-    floating small in a wide empty canvas (MEASURED: WE's we-logo has the mark on the right
-    third of a transparent 496x140 canvas). No-op for SVG / on any failure."""
+    """Key a baked white canvas to alpha, then crop the transparent border.
+
+    WHITE-KEY FIRST — MEASURED (nanocare, 2026-07-24): the brand logo is a JPG (alpha=255
+    everywhere), so its white canvas (a) shipped onto the poster as the owner's dead white
+    plate, resurrected from inside the logo file, and (b) tricked `_logo_luminance` into
+    judging "light logo" -> dark frosted badge -> the gray double-frame. The one-shot
+    compositor already routes through `white_key_logo` (owner ruling "شيل خالص مش تطفية":
+    border-connected flood-fill, guarded so real transparency and colored cards stay
+    byte-stable) — the classic path now reuses the same primitive.
+
+    THEN trim the transparent border so the mark FILLS its chip instead of floating small
+    in a wide empty canvas (MEASURED: WE's we-logo has the mark on the right third of a
+    transparent 496x140 canvas). No-op for SVG / on any failure."""
     if "svg" in mime:
         return data, mime
     try:
         import io
         from PIL import Image
+        from reel.image_quality import white_key_logo
+        keyed = white_key_logo(data)
+        if keyed is not data:                    # keying happened -> PNG with alpha now
+            data, mime = keyed, "image/png"
         im = Image.open(io.BytesIO(data)).convert("RGBA")
         bbox = im.getbbox()                      # bounds of non-zero-alpha pixels
         if bbox and bbox != (0, 0, im.width, im.height):
@@ -120,6 +134,21 @@ def _trim_logo_margins(data: bytes, mime: str) -> tuple[bytes, str]:
     except Exception:
         pass
     return data, mime
+
+
+def _rekeyed_data_uri(uri: str) -> str:
+    """The same white-key+trim for an ALREADY-INLINE logo. The webapp path hands the brief
+    a data URI directly (skipping `_remote_image_data_uri`), and the white matte must not
+    sneak through that door. SVG passes through; any failure returns the original."""
+    try:
+        head, _, b64 = uri.partition(",")
+        if not b64 or "svg" in head[:40]:
+            return uri
+        mime = head.partition(":")[2].partition(";")[0] or "image/png"
+        data, mime = _trim_logo_margins(base64.b64decode(b64), mime)
+        return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
+    except Exception:
+        return uri
 
 
 # --- adaptive logo plate (no fixed white box; no blind removal) -----------------
@@ -731,7 +760,7 @@ def render_poster_html(
     # Brand mark: a real logo image (inlined) on a light plate; else wordmark text.
     logo_src = None
     if brief.logo_url and brief.logo_url.startswith("data:image"):
-        logo_src = brief.logo_url
+        logo_src = _rekeyed_data_uri(brief.logo_url)   # inline logos get the same white-key
     elif brief.logo_url and brief.logo_url.startswith(("http://", "https://")):
         logo_src = _remote_image_data_uri(brief.logo_url)
     # RTL: detect from the actual copy (Arabic headline/brand) -> right-align the
@@ -895,6 +924,14 @@ def render_poster_html(
   }}
   .lockup-flat {{ -webkit-text-stroke:1.3px rgba(6,9,14,.40); }}
   [dir="rtl"] .lockup-headline {{ letter-spacing:normal; line-height:1.08; gap:4px; }}
+  /* MEASURED (nanocare, 2026-07-24): -webkit-text-stroke outlines every GLYPH separately, and
+     Arabic glyphs JOIN — so a seam gets drawn across every letter joint ("folded pipes") and the
+     outline traces internal contours at terminals. Same failure family as the negative tracking
+     above: per-glyph typography on a connected script. The gradient fill + drop-shadows were
+     measured clean, so RTL keeps the designed look and drops ONLY the stroke. */
+  [dir="rtl"] .lockup-headline .lw,
+  [dir="rtl"] .lockup-headline .lw.accent,
+  [dir="rtl"] .lockup-flat {{ -webkit-text-stroke:0; }}
   /* 'highlight' treatment — one word knocked out inside a clean brand-colored block.
      No tilt: a rotated sticker read amateurish over a photo (MEASURED on ITI). */
   .hl-head {{ line-height:1.32; }}

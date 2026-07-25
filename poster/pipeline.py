@@ -69,6 +69,12 @@ class PosterGenResult:
     height: int = 1350
     audit: Optional[dict] = None   # brand-safety trail (claim->source + gate remediation)
     engine: str = "classic"        # "classic" (bg + HTML overlay) | "oneshot" (Gemini-designed)
+    # Set ONLY when every attempt carried a grounding-class defect and the least-bad one is
+    # being returned: an explicit top-level disclosure, because the qa verdict alone was
+    # MEASURED being ignored downstream (nanocare 2026-07-24: fabricated "Lifosemul Iron"
+    # shipped silently). trust_note_ar is the client-facing Arabic line, ready to display.
+    trust_violation: bool = False
+    trust_note_ar: str = ""
 
 
 def _fv(profile: dict, key: str) -> str:
@@ -812,6 +818,29 @@ def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
         return None
 
 
+# The client-facing disclosure when the least-bad attempt still lies (owner principle:
+# «الضعف المُفصح عنه درع»). Owner's OPEN decision D-7: refuse outright vs disclose — until
+# she rules, the result ships flagged + noted, never silently.
+_TRUST_NOTE_AR = ("كل محاولات التوليد رجعت بعيب موثوقية في المشهد (ليبل منتج أو علامة "
+                  "اترسمت غلط). دي أفضل محاولة، بس ماتتنشرش من غير مراجعة بصرية.")
+
+
+def _trust_violation(v: PosterQAVerdict) -> bool:
+    """A verdict that would make the poster LIE — a fabricated product/label presented as the
+    brand's merchandise, another company's mark, or copy whose script is broken. These are
+    grounding failures, not taste failures: a lower-scored honest attempt must always beat a
+    prettier fabrication. MEASURED (nanocare 2026-07-24): the image model redrew "Liposomal
+    Iron" as "Lifosemul Iron"; QA caught it and the score-ranked best returned it anyway."""
+    return ((not v.script_wellformed) or bool(v.invented_product)
+            or bool(v.third_party_mark))
+
+
+def _attempt_rank(r: "PosterGenResult") -> tuple[int, int]:
+    """Best-attempt ordering: honesty first, THEN beauty. Score only breaks ties within the
+    same honesty class."""
+    return (0 if _trust_violation(r.qa) else 1, int(r.qa.score or 0))
+
+
 def _qa_image_fixable(v: PosterQAVerdict) -> bool:
     """True when a QA failure is something REGENERATING THE IMAGE can fix (off-brand colour,
     candid look, baked Latin, a cluttered/competing-focal composition). A pure layout clip or
@@ -1103,8 +1132,8 @@ def generate_poster(
             background_path=str(bg_path), model_used=model_used, prompt=prompt, qa=verdict,
             audit=audit,
         )
-        if best is None or result.qa.score > best.qa.score:
-            best = result
+        if best is None or _attempt_rank(result) > _attempt_rank(best):
+            best = result           # honesty outranks score — see _attempt_rank
         # PERMISSIVE, DELIBERATE (P6 Tier-4): `is not False` — ship on PASS or NOT_CHECKED, block
         # only on an explicit FAIL. Same reasoning as the oneshot branch above; the difference from
         # the old `verdict.overall_pass or not verdict.checked` is that NOT_CHECKED is now visible
@@ -1116,11 +1145,19 @@ def generate_poster(
             continue
         break
 
-    # No attempt fully passed the art bar -> return the BEST-scoring one (never a worse
-    # later attempt), with its honest verdict attached so the caller can flag it.
+    # No attempt fully passed the art bar -> return the best by _attempt_rank (honesty
+    # first, then score), with its honest verdict attached so the caller can flag it.
     assert best is not None
     if not best.qa.overall_pass:
         log(f"[qa] no attempt passed; returning best (score={best.qa.score}): {best.qa.reason}")
+    if _trust_violation(best.qa):
+        # Every attempt lied somewhere. The verdict alone was MEASURED being ignored
+        # downstream, so the disclosure is stamped TOP-LEVEL (D-7 pending: refuse vs disclose).
+        import dataclasses as _dc
+        best = _dc.replace(best, trust_violation=True, trust_note_ar=_TRUST_NOTE_AR)
+        log("[qa] TRUST violation in the returned best -> disclosed on the result "
+            f"(invented_product={best.qa.invented_product} third_party={best.qa.third_party_mark} "
+            f"script={best.qa.script_wellformed})")
     return _emit(best)
 
 

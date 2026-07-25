@@ -15,39 +15,15 @@ from pathlib import Path
 # API layer and to library calls deeper in the pipeline (e.g., OpenAICaller
 # reads os.environ at construction time).
 #
-# We search upwards from this file's directory so the API works whether
-# you `cd scraper_v01 && uvicorn api.main:app` or `uvicorn` from elsewhere.
-try:
-    from dotenv import load_dotenv  # type: ignore
+# Loaded through the ONE shared loader (config_env), which anchors on the repository so the answer
+# does not depend on where uvicorn was started. This module used to hand-roll its own search that
+# looked in the CWD FIRST and stopped at the first `.env` it found — meaning a stray `.env` in the
+# launch directory silently shadowed the project's own credentials. That is precisely the failure
+# config_env.py was written for (a valid Meta token in `.env` the pipeline could not see,
+# 2026-07-20), reproduced in the entry point that boots everything.
+import config_env  # noqa: E402
 
-    _search_roots = []
-    # First, the current working directory (where uvicorn was started from).
-    _search_roots.append(Path.cwd())
-    # Then walk up from the file location (covers running from anywhere).
-    _here = Path(__file__).resolve()
-    _search_roots.append(_here.parent)
-    _search_roots.extend(_here.parents)
-
-    _seen: set[Path] = set()
-    for root in _search_roots:
-        try:
-            root_resolved = root.resolve()
-        except OSError:
-            continue
-
-        if root_resolved in _seen:
-            continue
-
-        _seen.add(root_resolved)
-
-        candidate = root_resolved / ".env"
-        if candidate.is_file():
-            load_dotenv(candidate, override=False)
-            break
-
-except ImportError:
-    # python-dotenv is optional; the API still works if env is set externally.
-    pass
+config_env.load_env()
 
 
 from pathlib import Path  # noqa: E402
@@ -57,7 +33,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from .auth import require_api_key  # noqa: E402
+from .auth import require_api_key, require_spend_budget  # noqa: E402
 from .jobs.store import JobStore  # noqa: E402
 from .routes import (  # noqa: E402
     analysis, auth, brands, generate, health, influencer, jobs, poster, reel, run, scrape,
@@ -132,6 +108,50 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------
+# Security headers
+#
+# The SPA keeps a signed JWT in the browser and renders SCRAPED third-party content — brand names,
+# taglines, offering copy taken off other people's sites — into the same document. Without a CSP,
+# one hostile string in someone's <title> is a path to that token. CORSMiddleware was the only
+# middleware installed.
+#
+# The policy is calibrated to the page that actually ships (tests/test_security_headers.py locks
+# both directions): frontend/index.html uses inline <script> and inline style attributes and pulls
+# webfonts from Google, so `'unsafe-inline'` and those two font hosts stay allowed — a stricter
+# policy would test beautifully and serve a blank page. What it does buy: no framing, no plugins,
+# no form posts to another origin, and images restricted to self/data/https (generated posters
+# arrive as data: URIs). Tightening belongs with moving the inline script to a file, not here.
+# ---------------------------------------------------------------------
+_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: https:",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+])
+
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": _CSP,
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+}
+
+
+@app.middleware("http")
+async def _security_headers(request, call_next):
+    response = await call_next(request)
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
+# ---------------------------------------------------------------------
 # Route mounts
 # ---------------------------------------------------------------------
 
@@ -183,11 +203,15 @@ app.include_router(swot.router, prefix="/api", tags=["swot"], dependencies=_paid
 
 # Web-app routers — gated by JWT (require_user), not the API key. Brands are a shared catalog.
 _authed = [Depends(require_user)]
-app.include_router(scrape.router, prefix="/api", tags=["webapp"], dependencies=_authed)
+# ...but scrape / analysis / generate / influencer reach the SAME paid engines the keyed routes
+# above are gated for, while their token comes from a self-service signup. They additionally carry
+# a per-user spend throttle, so an account cannot loop the paid pipeline (api/auth.py).
+_authed_spend = [Depends(require_user), Depends(require_spend_budget)]
+app.include_router(scrape.router, prefix="/api", tags=["webapp"], dependencies=_authed_spend)
 app.include_router(brands.router, prefix="/api", tags=["webapp"], dependencies=_authed)
-app.include_router(analysis.router, prefix="/api", tags=["webapp"], dependencies=_authed)
-app.include_router(generate.router, prefix="/api", tags=["webapp"], dependencies=_authed)
-app.include_router(influencer.router, prefix="/api", tags=["webapp"], dependencies=_authed)
+app.include_router(analysis.router, prefix="/api", tags=["webapp"], dependencies=_authed_spend)
+app.include_router(generate.router, prefix="/api", tags=["webapp"], dependencies=_authed_spend)
+app.include_router(influencer.router, prefix="/api", tags=["webapp"], dependencies=_authed_spend)
 # ^ AdArchitect web app fully wired: auth · brands · scrape · analysis · generate · influencer.
 
 

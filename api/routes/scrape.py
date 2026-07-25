@@ -13,11 +13,12 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import Depends, APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from scraper.url_utils import is_safe_public_url
 
+from .auth import require_user
 from ..brand_store import BrandStore
 from ..brand_translate import domain_key_from_url, profile_to_brand
 from ..jobs.runner import has_llm, run_pipeline_job
@@ -34,7 +35,8 @@ class ScrapeRequest(BaseModel):
 
 
 @router.post("/scrape")
-async def scrape(req: ScrapeRequest, request: Request) -> dict:
+async def scrape(req: ScrapeRequest, request: Request,
+                 user: dict = Depends(require_user)) -> dict:
     if not is_safe_public_url(req.url):
         raise HTTPException(
             status_code=400,
@@ -45,11 +47,12 @@ async def scrape(req: ScrapeRequest, request: Request) -> dict:
     # never races the brand write.
     job.domain_key = domain_key_from_url(req.url)
     store.attach_loop(job.job_id, asyncio.get_running_loop())
-    asyncio.create_task(_run_scrape_job(job_id=job.job_id, url=req.url, store=store))
+    asyncio.create_task(_run_scrape_job(job_id=job.job_id, url=req.url, store=store,
+                                        owner_id=user["id"]))
     return {"job_id": job.job_id}
 
 
-async def _run_scrape_job(*, job_id: str, url: str, store) -> None:
+async def _run_scrape_job(*, job_id: str, url: str, store, owner_id: str = "") -> None:
     try:
         # The pipeline runs in a worker thread; it lands the final profile on `job.result` via a
         # loop callback (set_result_threadsafe). The `sleep(0)` flushes that callback onto THIS loop
@@ -57,12 +60,12 @@ async def _run_scrape_job(*, job_id: str, url: str, store) -> None:
         await asyncio.to_thread(
             run_pipeline_job, job_id, url, store, skip_llm=not has_llm(), persist_to_disk=False)
         await asyncio.sleep(0)
-        _finish_scrape(job_id, url, store)
+        _finish_scrape(job_id, url, store, owner_id=owner_id)
     except Exception as e:  # noqa: BLE001 — last-resort guard; the runner emits its own error events
         logger.exception("scrape job %s failed outside the pipeline: %s", job_id, e)
 
 
-def _finish_scrape(job_id: str, url: str, store) -> None:
+def _finish_scrape(job_id: str, url: str, store, owner_id: str = "") -> None:
     """Translate the finished profile into a brand and persist it (runs on the loop; fast file I/O)."""
     job = store.get(job_id)
     if job is None or job.result is None:
@@ -75,6 +78,8 @@ def _finish_scrape(job_id: str, url: str, store) -> None:
         job.warning = ("Brand understanding degraded (the AI step was unavailable); "
                        "showing rules-based facts.")
     try:
-        BrandStore().save(brand)
+        # The account that requested the scrape owns the result. Brands stored before ownership
+        # existed carry no owner and are surfaced as `unclaimed` rather than assigned to a guess.
+        BrandStore().save(brand, owner_id=owner_id or None)
     except Exception:  # noqa: BLE001
         logger.exception("failed to persist brand for job %s", job_id)
