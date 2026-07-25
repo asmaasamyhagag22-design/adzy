@@ -1028,6 +1028,32 @@
     padding-top: 8px; border-top: 1px solid var(--border);
   }
 
+  .gen-options-row { display: flex; gap: 6px; margin-bottom: 14px; }
+  .opt-toggle {
+    flex: 1; padding: 8px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: rgba(255,255,255,0.03);
+    color: var(--text3); font-size: 0.82rem; font-family: inherit;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .opt-toggle.selected {
+    background: var(--surface2); color: var(--text); border-color: rgba(255,255,255,0.20);
+    font-weight: 600;
+  }
+  #gen-caption {
+    margin: 10px 0; padding: 14px 16px; border-radius: 12px;
+    border: 1px solid var(--border); background: var(--surface2);
+  }
+  .caption-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .caption-label {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--text2);
+  }
+  .caption-copy { font-size: 0.75rem; padding: 4px 10px; }
+  .caption-text { font-size: 0.9rem; line-height: 1.7; color: var(--text); white-space: pre-wrap; }
+  .caption-trend { font-size: 0.72rem; color: var(--text3); margin-top: 8px; }
+  .caption-trend.warn { color: #FFB020; }
+  .caption-trend a { color: inherit; }
+
   .lang-choice { display: flex; gap: 6px; margin-bottom: 14px; }
   .lang-btn {
     flex: 1; padding: 8px 12px; border-radius: 8px; cursor: pointer;
@@ -1883,6 +1909,20 @@
           <button type="button" class="lang-btn" data-lang="ar" onclick="selectLang(this)">العربية</button>
           <button type="button" class="lang-btn" data-lang="en" onclick="selectLang(this)">English</button>
         </div>
+        <!-- «اضغط قبلها على ترند» — one press shapes the next creative with the brand's top
+             STORED trend (swot.trends, with its source). Off by default: trend-riding is a
+             choice, not a house style. -->
+        <div class="pop-title">Options</div>
+        <div class="gen-options-row">
+          <button type="button" id="studio-trend" class="opt-toggle" data-on="0"
+                  onclick="toggleTrend(this)">
+            <i class="ph ph-trend-up"></i> Trend
+          </button>
+          <button type="button" id="studio-content-only" class="opt-toggle" data-on="0"
+                  onclick="toggleContentOnly(this)">
+            <i class="ph ph-text-aa"></i> Content only
+          </button>
+        </div>
         <div class="pop-title">Copy Override - leave blank, AI writes it</div>
         <div class="copy-fields">
           <input type="text" id="studio-headline" class="input" placeholder="Headline - AI will generate..." />
@@ -1941,6 +1981,7 @@
       <!-- Where the backend's honesty fields land. The API has carried is_preview /
            degraded_reason / trust_violation / trust_note_ar for a while; nothing rendered them, so
            a disclosed image reached the screen looking exactly like a finished one. -->
+      <div id="gen-caption" style="display:none;"></div>
       <div id="gen-disclosure" style="display:none; font-size:0.82rem; line-height:1.5;
            text-align:center; margin-top:8px; padding:10px 14px; border-radius:10px;"></div>
     </div>
@@ -2685,6 +2726,55 @@ function renderMissingData(b) {
       + blockers.map(pretty).join(' \u00b7 ') + '</div>';
   }
   box.innerHTML = html;
+}
+
+function toggleTrend(btn) {
+  btn.dataset.on = btn.dataset.on === '1' ? '0' : '1';
+  btn.classList.toggle('selected', btn.dataset.on === '1');
+}
+
+function toggleContentOnly(btn) {
+  btn.dataset.on = btn.dataset.on === '1' ? '0' : '1';
+  btn.classList.toggle('selected', btn.dataset.on === '1');
+}
+
+function trendOn() {
+  const b = document.getElementById('studio-trend');
+  return !!(b && b.dataset.on === '1');
+}
+
+function contentOnlyOn() {
+  const b = document.getElementById('studio-content-only');
+  return !!(b && b.dataset.on === '1');
+}
+
+// «فوق الريل والبوست يبقى مكتوب كلام زي السوشيال بالظبط» — the caption the owner will actually
+// paste, rendered above the creative with a one-click copy. Escaped: the text is model-written.
+function showCaption(data) {
+  const box = document.getElementById('gen-caption');
+  if (!box) return;
+  const cap = (data && data.social_caption && data.social_caption.caption)
+           || (data && data.caption) || '';
+  if (!cap) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  const trend = data.trend_used
+    ? `<div class="caption-trend">مبني على ترند: <a href="${escHtml(data.trend_used.url || '#')}"
+         target="_blank" rel="noopener noreferrer">${escHtml(data.trend_used.title || '')}</a></div>`
+    : (data.trend_note ? `<div class="caption-trend warn" dir="auto">${escHtml(data.trend_note)}</div>` : '');
+  box.innerHTML = `<div class="caption-head">
+      <span class="caption-label">Caption — ready to post</span>
+      <button class="btn-secondary caption-copy" onclick="copyCaption()">
+        <i class="ph ph-copy"></i> Copy</button>
+    </div>
+    <div class="caption-text" id="gen-caption-text" dir="auto">${escHtml(cap)}</div>${trend}`;
+  box.style.display = 'block';
+}
+
+function copyCaption() {
+  const t = document.getElementById('gen-caption-text');
+  if (!t) return;
+  navigator.clipboard.writeText(t.innerText).then(
+    () => toast('Caption copied', 'success'),
+    () => toast('Could not copy', 'error'));
 }
 
 function selectLang(btn) {
@@ -4535,6 +4625,8 @@ async function generateImage() {
         user_context: userContext,
         mode: 'text_to_image',
         language: chosenLanguage(),
+        trend: trendOn(),
+        content_only: contentOnlyOn(),
         product_url: productUrl,
         product_name: productName,
         product_description: productDesc,
@@ -4543,6 +4635,15 @@ async function generateImage() {
       data = await api('POST', '/api/generate', payload);
     }
 
+    if (data.content_only && !data.image_b64) {
+      // «الكونتنت بس» — a text deliverable. No image to show is the CORRECT outcome here,
+      // not an error state.
+      document.getElementById('gen-loading').classList.remove('active');
+      document.getElementById('gen-placeholder').style.display = 'none';
+      showCaption(data);
+      document.getElementById('generate-btn').disabled = false;
+      return;
+    }
     state.lastGenImageB64 = data.image_b64;
     state.lastGenFilename = data.filename || 'adarchitect_image.png';
 
@@ -4560,6 +4661,7 @@ async function generateImage() {
       state.selectedCT.replace('_',' ') + ' · ' + state.selectedStyle + ' · ' + (state.studioBrand.organization_name || '');
     showDisclosure(data);
     showProductRead(data);
+    showCaption(data);
 
   } catch(e) {
     document.getElementById('gen-loading').classList.remove('active');

@@ -265,8 +265,48 @@ def render_creative_reel(
             # pre-fetch list here resolved the SAME index to a DIFFERENT photo whenever a URL
             # was dropped, seeding scenes with the wrong product. One basis everywhere.
             _seed_photos = list(getattr(creative, "images", None) or photos or [])
+            # THE DNA WAS ON DISK AND NEVER LOADED. `brand_dna=None` here meant the seed prompts'
+            # `dna_lines` were always empty — the brand book existed (outputs/brandbooks/) and the
+            # stills were generated with no imagery style, mood or motifs. Best-effort: no DNA
+            # file degrades to exactly the old behaviour.
+            _dna = None
+            try:
+                # The poster's own resolver: cached brandbook by slug, else None (never builds
+                # here — a reel render must not trigger a Serper+vision DNA build as a side effect).
+                from poster.pipeline import load_or_build_dna
+                _dna = load_or_build_dna(profile, None)
+            except Exception:  # noqa: BLE001
+                _dna = None
+            # THE UNGATED REFERENCE POOL — the fix for «فين المنتجات»: when the display gate
+            # rejects every photo, real brand imagery still reaches the stills as conditioning.
+            _pool: list = []
+            try:
+                from reel.image_quality import reference_pool
+                _pool = reference_pool(profile)
+            except Exception:  # noqa: BLE001
+                _pool = []
+            # THE BRAND'S SELECTED PRESENTER fronts every scene (the owner's influencer flow) —
+            # the same face in the poster and the reel, which is the whole point of picking one.
+            _face = None
+            try:
+                # The brand's SELECTED presenter, resolved through the webapp's own store on disk
+                # (the CLI holds only the profile). `selected_face_bytes` is strict: it returns
+                # the CHOSEN candidate or nothing — never "whoever was generated last".
+                from api.brand_translate import domain_key_from_url
+                from api.brand_store import BrandStore
+                from api.webapp_influencer import selected_face_bytes
+                _src = profile.get("source_url")
+                _src = _src.get("value") if isinstance(_src, dict) else _src
+                _dk = domain_key_from_url(str(_src or ""))
+                if _dk:
+                    _b = BrandStore().get(_dk)
+                    if _b:
+                        _fb, _fm = selected_face_bytes(_b)
+                        _face = (_fb, _fm) if _fb else None
+            except Exception:  # noqa: BLE001 — no store / no selection -> no face, never a crash
+                _face = None
             seeds = generate_scene_seeds(creative, _seed_photos, profile=profile,
-                                         brand_dna=None,
+                                         brand_dna=_dna, ref_pool=_pool, identity_ref=_face,
                                          out_dir=Path(out_path).parent, caller=qa_caller_seed(),
                                          log=print)   # the CLI shows [seedgen] stats
         except Exception as exc:  # noqa: BLE001 — seed generation failing = legacy mode

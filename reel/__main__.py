@@ -78,6 +78,12 @@ def main() -> int:
     ap.add_argument("--no-select", action="store_true",
                     help="skip the vision photo-curator (use ALL scraped content images; "
                          "may include partner logos / QR codes / icons)")
+    ap.add_argument("--template", action="store_true",
+                    help="use the OLD deterministic field-presence storyboard instead of the "
+                         "creative director (kept for debugging; the director is the default).")
+    ap.add_argument("--allow-template-fallback", action="store_true",
+                    help="if the creative director fails, degrade to the template storyboard "
+                         "instead of exiting — the degraded reel is stamped in its audit.")
     ap.add_argument("--creative", action="store_true",
                     help="CREATIVE mode: Opus directs the reel (per-scene Veo 3.1 "
                          "prompts + voice-over) from the identity + real photos. Veo 3.1 "
@@ -204,9 +210,12 @@ def main() -> int:
 
     out = Path(args.out) if args.out else Path("outputs/reels") / f"{profile_path.stem}.mp4"
 
-    # CREATIVE MODE: Opus directs + Veo 3.1 executes + TTS narrates. Falls through to
-    # the deterministic storyboard below if Opus can't design a reel (no key / no photos).
-    if args.creative:
+    # THE CREATIVE DIRECTOR IS THE DEFAULT (owner ruling 2026-07-25: «عايزة البرفكت ريل زي ما
+    # الوكالات الكبيرة بتعمل»). The 2026-07-25 Abu Auf reel shipped story-less because this block
+    # ran only on --creative and the CLI run didn't pass it — the field-presence template rendered
+    # five disconnected scenes while the director sat unused. --creative is now a no-op alias
+    # (the dashboard passes it); --template opts into the old path explicitly.
+    if not args.template:
         from reel.creative import render_creative_reel
         photos = selected if selected is not None else \
             ((profile.get("visual") or {}).get("content_images") or [])
@@ -271,8 +280,18 @@ def main() -> int:
             print(f"     {result.width}x{result.height}  {result.duration_s}s  "
                   f"audio={result.has_audio}  provider={result.provider}")
             return 0
-        print("   [creative] Opus could not design a reel; falling back to storyboard.",
+        if not args.allow_template_fallback:
+            # A weak reel that LOOKS directed is worse than a failed run — the owner reads the
+            # output, not the logs, and the silent fall to the template is exactly how the
+            # story-less Abu Auf reel shipped. Fail loudly; the flag restores the old degrade.
+            print("!! the creative director could not design this reel — stopping rather than "
+                  "shipping a template reel. Re-run with --allow-template-fallback to accept "
+                  "the degraded path explicitly.", file=sys.stderr)
+            return 1
+        print("   [creative] director failed; degrading to the TEMPLATE storyboard "
+              "(--allow-template-fallback) — the audit is stamped path=template_fallback.",
               file=sys.stderr)
+        _audit_path_stamp = "template_fallback"
 
     storyboard = build_storyboard(
         brief, profile=profile, caller=caller,
@@ -328,6 +347,17 @@ def main() -> int:
     )
 
     _append_brand_endcard(profile, result.reel_path, enabled=not args.no_logo)
+
+    # A template reel must never masquerade as a directed one: the sidecar records which path
+    # actually produced this file, so a degraded run is visible in the artifact itself.
+    try:
+        import json as _json
+        _path_kind = (locals().get("_audit_path_stamp")
+                      or ("template_explicit" if args.template else "template"))
+        Path(str(result.reel_path) + ".path.json").write_text(
+            _json.dumps({"path": _path_kind}), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
 
     print(f"\n[ok] reel -> {Path(result.reel_path).resolve()}")
     print(f"     {result.width}x{result.height}  {result.duration_s}s  "

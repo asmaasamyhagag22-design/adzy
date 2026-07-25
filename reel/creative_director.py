@@ -282,9 +282,23 @@ def _locked_register(language: str, profile: Optional[dict] = None) -> str:
     return f"conversational {lang.split('-')[0]}"
 
 
+def _locale_primer(profile: dict) -> str:
+    """The measured-market casting instruction, derived — never a hardcoded nationality (D-8).
+    `poster.locale.brand_locale` already resolves the country from the profile's own evidence and
+    returns the primer the poster and the seeds use; the director now reads the SAME line, so all
+    three surfaces cast from one measured signal."""
+    try:
+        from poster.locale import brand_locale
+        _c, primer = brand_locale(profile)
+        return str(primer or "")
+    except Exception:  # noqa: BLE001 — no locale evidence -> no casting line, never a crash
+        return ""
+
+
 def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
                    featured: Optional[str] = None, compliance: str = "",
-                   product_photo_anchored: bool = False, register: str = "") -> str:
+                   product_photo_anchored: bool = False, register: str = "",
+                   locale_primer: str = "", trend_context: str = "") -> str:
     motion = _MOTION_GUIDANCE.get(mode, _MOTION_GUIDANCE["generic"])
     deliveries = _DELIVERY_EG.get(mode, _DELIVERY_EG["generic"])
     register_note = (f"LOCKED DIALECT — write EVERY voiceover line in: {register}. One register, no "
@@ -293,6 +307,12 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
     # same policy as its poster — no before/after, no clinical claims, no guaranteed results. Empty
     # for categories with no rule beyond brand-safety, so most reels are unchanged.
     compliance_line = (f"{compliance}\n\n" if compliance else "")
+    # «عايزة بوستر أو ريل متأثر بالترند» — a REAL, sourced market signal the owner toggled on.
+    # It may shape the angle only; it must never introduce claims the Ledger has not seen.
+    trend_line = (("CURRENT MARKET SIGNAL (the owner asked this reel to ride it — let it shape "
+                   "the ANGLE and framing, never invent facts from it):\n"
+                   + str(trend_context).strip() + "\n\n")
+                  if str(trend_context or "").strip() else "")
     if featured and product_photo_anchored:
         # ONE picked product WITH its real photo anchoring the pool: SHOTS of the SAME item.
         featured_line = (
@@ -346,6 +366,7 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         # feasible). The coherence gate re-checks each in code.
         + REEL_CRAFT_CONTRACTS + "\n\n"
         + register_note
+        + trend_line
         + "Design a vertical 9:16 ad reel that turns THIS brand's REAL features into short, impactful "
         "stories that SELL, understanding the audience's consumer psychology. The reel's ENERGY and "
         "REGISTER must MATCH THIS BRAND — a luxury house is unhurried and reverent; a youth brand is "
@@ -453,7 +474,14 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         # AGENCY PROMPT FORMULA — the owner's spec for how each veo_prompt is engineered.
         "WRITE EACH veo_prompt WITH THE AGENCY FORMULA — SUBJECT + STYLE + CAMERA + LIGHTING + MOTION, "
         "concrete, never lazy:\n"
-        "- SUBJECT: a SPECIFIC person + the exact product (say 'a woman in her 30s with natural curly "
+        # CASTING IS PART OF THE SUBJECT (D-8: derived from the brand's measured market, never
+        # hardcoded). MEASURED (Abu Auf, 2026-07-25): the seeds carried brand_locale but the
+        # veo_prompts the director wrote did not, and the video model animates PEOPLE from these
+        # prompts — the owner's own words for the result: «هنود معرفش ليه». A person in an
+        # Egyptian brand's ad is Egyptian; the primer below says so from evidence.
+        + ("- CASTING (mandatory in every people-bearing prompt): "
+           + locale_primer.strip() + "\n" if locale_primer.strip() else "")
+        + "- SUBJECT: a SPECIFIC person + the exact product (say 'a woman in her 30s with natural curly "
         "hair', never just 'a person'); the product stays EXACTLY as in the real photo.\n"
         "- STYLE: pick and state ONE — realistic, cinematic, or hand-held UGC.\n"
         "- CAMERA: an EXPLICIT move — Macro close-up, tracking shot, hand-held, a quick dolly-in, or a "
@@ -535,6 +563,7 @@ def design_creative_reel(
     user_note: Optional[str] = None,
     photo_subjects: Optional[list[str]] = None,
     fix_note: Optional[str] = None,
+    trend_context: Optional[str] = None,
 ) -> Optional[CreativeReel]:
     """Gemini 2.5 Pro designs the full creative reel from the identity + real photos (it SEES the
     photos — natively multimodal). When `featured_product` is set, the WHOLE reel is about that ONE
@@ -544,9 +573,12 @@ def design_creative_reel(
     it can pick the product shot for the hero moment. `fix_note` appends explicit corrections for a
     coherence-gate retry (the [BRACKET] contracts still apply)."""
     urls = [u for u in (image_urls or []) if isinstance(u, str) and u.startswith(("http://", "https://"))]
-    if not urls:
-        logger.info("creative_director: no real photos; skipping")
-        return None
+    # ZERO PHOTOS NO LONGER ABORTS. This used to `return None`, and the caller's response was a
+    # silent fall to the template storyboard — which is exactly how the Abu Auf reel shipped with
+    # no story and no products after the photo gate rejected 1/1 images. With no photos the
+    # director designs from the identity + brand DNA (the seeds are generated stills anyway, and
+    # the ungated reference pool supplies real product identity downstream).
+    no_photos = not urls
     if caller is None:
         from business_profile.llm import default_caller
         caller = default_caller(strong=True)          # Gemini 2.5 Pro (the complex vision/copy step)
@@ -573,10 +605,11 @@ def design_creative_reel(
                 else pairs[0][0]
     lang = language or dominant or "en"
 
-    parts, used = _image_parts(urls, max_images=n_scenes + 4)
-    if not parts:
-        logger.warning("creative_director: could not fetch any real photo")
-        return None
+    parts, used = _image_parts(urls, max_images=n_scenes + 4) if urls else ([], [])
+    if not parts and not no_photos:
+        # Photos existed but none could be fetched — same design decision as zero photos.
+        logger.warning("creative_director: could not fetch any real photo; designing from identity")
+        no_photos = True
 
     feat = (f"\n\nFEATURED PRODUCT (advertise ONLY this): {featured_product}. Every scene is the SAME "
             "product — vary the shot/action, not the item." if featured_product else "")
@@ -597,9 +630,17 @@ def design_creative_reel(
     if fix_note and str(fix_note).strip():
         fix_block = ("\n\nCORRECTIONS REQUIRED — fix ALL of these from your previous attempt, "
                      "introduce no new violations:\n" + str(fix_note).strip())
-    user = ("BUSINESS IDENTITY:\n" + _identity_block(profile) + feat + subj_line +
-            f"\n\n{len(used)} real photos are attached in index order 0..{len(used) - 1}. "
-            "Design the reel.")
+    if no_photos:
+        photos_line = ("\n\nNO REAL PHOTOS ARE ATTACHED. Design every scene from the business "
+                       "identity and brand DNA above; set image_index to 0 in every scene. The "
+                       "scenes will be rendered as generated stills conditioned on the brand's "
+                       "real assets downstream — describe each scene's product and world in "
+                       "concrete, brand-specific detail so that conditioning has something exact "
+                       "to hold onto.")
+    else:
+        photos_line = (f"\n\n{len(used)} real photos are attached in index order "
+                       f"0..{len(used) - 1}. Design the reel.")
+    user = ("BUSINESS IDENTITY:\n" + _identity_block(profile) + feat + subj_line + photos_line)
     user = user + note_line + fix_block
 
     register = _locked_register(lang, profile)
@@ -609,7 +650,8 @@ def design_creative_reel(
             _system_prompt(n_scenes, lang, _vertical_mode(profile), featured=featured_product,
                            compliance=compliance_for(_v(profile, "category")),
                            product_photo_anchored=bool(featured_product) and len(used) == 1,
-                           register=register),
+                           register=register, locale_primer=_locale_primer(profile),
+                           trend_context=trend_context or ""),
             user, _ReelResponse, group_name="creative_director", images=parts,
         )
     except Exception as e:  # noqa: BLE001 — a call failure must never break the reel pipeline

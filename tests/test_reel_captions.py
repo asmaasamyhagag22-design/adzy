@@ -105,6 +105,11 @@ def test_arabic_dialect_is_an_option_not_a_hardcode(monkeypatch):
 
 
 def test_ratified_tts_routing_masri_openai_fusha_gemini(monkeypatch):
+    # VERBATIK_API_KEY is in the real .env (the owner added it for the reel voice, 2026-07-25)
+    # and auto-selection now prefers it — so this test must clear it or it measures the
+    # developer's environment instead of the resolution logic. Same class as the Kling
+    # selection tests earlier today.
+    monkeypatch.delenv("VERBATIK_API_KEY", raising=False)
     # Owner listen-test verdict (2026-07-11): fusha -> Gemini (Kore directed);
     # masri -> OpenAI gpt-audio. Explicit REEL_TTS_BACKEND still overrides everything.
     from reel.voiceover import _resolve_backend

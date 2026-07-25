@@ -74,6 +74,11 @@ def test_textlayer_kinetic_stagger_and_frame_count():
 
 
 def test_resolve_backend_explicit_env_and_auto(monkeypatch):
+    # VERBATIK_API_KEY is in the real .env (the owner added it for the reel voice, 2026-07-25)
+    # and auto-selection now prefers it — so this test must clear it or it measures the
+    # developer's environment instead of the resolution logic. Same class as the Kling
+    # selection tests earlier today.
+    monkeypatch.delenv("VERBATIK_API_KEY", raising=False)
     monkeypatch.delenv("REEL_TTS_BACKEND", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)

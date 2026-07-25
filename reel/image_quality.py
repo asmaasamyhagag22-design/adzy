@@ -321,3 +321,57 @@ def white_key_logo(png_bytes: bytes, *, tol: int = 18) -> bytes:
     buf = _io.BytesIO()
     out.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def reference_pool(profile: dict, *, fetch=None, limit: int = 4) -> list[str]:
+    """Every real brand image usable as GENERATION CONDITIONING — held to a different bar than
+    display, because it answers a different question.
+
+    MEASURED (Abu Auf, 2026-07-25): `filter_usable_photos` rejected 1/1 photos on
+    `_MIN_SHORT_SIDE=500`, so the reel's seed generation received ZERO references and the image
+    model invented products and people — «فين المنتجات … هنود معرفش ليه». The display bar is
+    right for display: a 300px photo upscaled to 1080x1920 blurs. But a nano-banana REFERENCE
+    needs the product's IDENTITY — shape, label, palette — not 1080p, and withholding the brand's
+    only real photo from conditioning is what forces invention.
+
+    So the pool: the gate-passing photos first (best of both), then the hero image and the raw
+    content images that FAILED the display gate — screened only for what disqualifies an image as
+    identity evidence: undecodable bytes, a logo-collage/partner wall, a QR code. `original_variant`
+    upgrades CDN thumbnails to their originals where the URL allows it.
+
+    CONDITIONING-ONLY, by contract: nothing returned here may become a scene's `seed_image_url`
+    or Ken Burns material. The caller keeps display refs and pool refs in separate variables, and
+    the seed generator's returned display ref stays the GATED photo or None.
+    """
+    fetch = fetch or _default_fetch
+    visual = (profile.get("visual") or {}) if isinstance(profile, dict) else {}
+    candidates: list[str] = []
+    gated = filter_usable_photos(profile, fetch=fetch)
+    candidates.extend(gated)
+    hero = str(visual.get("hero_image_url") or "").strip()
+    if hero:
+        candidates.append(hero)
+    for u in (visual.get("content_images") or []):
+        u = str(u or "").strip()
+        if u:
+            candidates.append(u)
+
+    pool: list[str] = []
+    seen: set[str] = set()
+    for url in candidates:
+        if url in seen or len(pool) >= limit:
+            continue
+        seen.add(url)
+        if url in gated:                      # already proven — no refetch
+            pool.append(url)
+            continue
+        best = original_variant(url) or url
+        chosen, data = best, fetch(best)
+        if not data and best != url:
+            chosen, data = url, fetch(url)
+        if not data or not measure_bytes(data):
+            continue                          # undecodable — not identity evidence
+        if is_collage_bytes(data) or is_qr_code_bytes(data):
+            continue                          # a partner wall / QR is nobody's product
+        pool.append(chosen)
+    return pool

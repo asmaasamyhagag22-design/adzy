@@ -281,6 +281,26 @@ def coherence_lint(reel: Any, *, profile: Optional[dict] = None, featured: bool 
                  f"generated clip — split into separate scenes", 8)
             break
 
+    # 9) CASTING FROM THE MEASURED MARKET (D-8: derived, never hardcoded). MEASURED (Abu Auf,
+    # 2026-07-25): the veo_prompts put unspecified people into an Egyptian brand's reel and the
+    # video model cast whoever — the owner: «هنود معرفش ليه». A prompt that stages a PERSON must
+    # name the brand's own evidenced country; the gate's fix-note retry then corrects the plan.
+    if profile:
+        try:
+            from poster.locale import country_of
+            _country = str(country_of(profile) or "").strip()
+        except Exception:  # noqa: BLE001
+            _country = ""
+        if _country:
+            _person_re = re.compile(
+                r"\b(woman|man|person|people|customer|model|barista|chef|pharmacist|worker|"
+                r"hand|hands|she |he |girl|boy|family|friends)\b", re.I)
+            for i, v in enumerate(veos):
+                if _person_re.search(v) and _country.lower() not in v.lower():
+                    fail(f"scene {i+1} stages a person without casting them from the brand's "
+                         f"measured market ({_country}) — say it in the prompt", 9)
+                    break
+
     score = max(0, score)
     return CoherenceReport(ok=not issues, score=score, issues=issues,
                            fix_note="; ".join(issues[:8]))

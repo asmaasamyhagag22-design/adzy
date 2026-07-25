@@ -101,12 +101,24 @@ def _ref_bytes(url: Optional[str]) -> Optional[tuple[bytes, str]]:
 
 def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
                          brand_dna: Any = None, out_dir: "str | Path" = "outputs/reels",
-                         caller: Any = None,
+                         caller: Any = None, ref_pool: Optional[List[str]] = None,
+                         identity_ref: Optional[tuple] = None,
                          log=logger.info) -> List[Tuple[Optional[str], Optional[str]]]:
     """One generated, gate-passed 9:16 seed per scene. Returns [(seed_path|None, real_ref_url)]
     aligned with creative.scenes — seed None means BOTH attempts failed the art-critic gate
     and the caller must fall back to the real photo (legacy path, logged loudly).
-    Stats are logged for the cost report: generated / retried / fell_back."""
+    Stats are logged for the cost report: generated / retried / fell_back.
+
+    `ref_pool` — the UNGATED reference pool (`reel.image_quality.reference_pool`): real brand
+    images that failed the DISPLAY gate but still carry the product's identity. Used two ways:
+    as the scene's conditioning when it has no gated photo of its own, and as a 4th "brand-world"
+    attempt after the plain attempt fails — because the measured alternative (Abu Auf) is the
+    model inventing products («فين المنتجات»). Pool refs condition generation only; the returned
+    display ref stays the GATED photo or None.
+
+    `identity_ref` — the brand's SELECTED influencer face as (bytes, mime), attached to every
+    seed via `generate_oneshot_poster(identity_ref=)` so the SAME person fronts every scene:
+    the cross-scene consistency render3 got from its CharacterSheet, without wiring render3."""
     from poster.oneshot import generate_oneshot_poster
     from reel.scene_qa import check_seed_frame
 
@@ -140,9 +152,17 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
         if ref_url not in ref_cache:
             ref_cache[ref_url] = _ref_bytes(ref_url)
         ref = ref_cache[ref_url]
+        # No gated photo for this scene -> condition on the identity pool instead of nothing.
+        pool_refs: list = []
+        if not ref:
+            for pu in (ref_pool or [])[:2]:
+                if pu not in ref_cache:
+                    ref_cache[pu] = _ref_bytes(pu)
+                if ref_cache[pu]:
+                    pool_refs.append(ref_cache[pu])
         prompt = build_seed_prompt(getattr(sc, "veo_prompt", ""), brand_name=name,
                                    dna_lines=dna_lines, locale_line=locale_line,
-                                   n_refs=1 if ref else 0)
+                                   n_refs=(1 if ref else len(pool_refs)))
         seed_path: Optional[str] = None
         # calibration #2 (owner: the raw distant building photo read as "قطع خالص"): a third
         # attempt drops the photo conditioning entirely — a clean on-brief scene beats a
@@ -150,18 +170,35 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
         prompt_plain = build_seed_prompt(getattr(sc, "veo_prompt", ""), brand_name=name,
                                          dna_lines=dna_lines, locale_line=locale_line,
                                          n_refs=0)
-        for attempt in (1, 2, 3):
+        # Attempt plan: 1-2 conditioned on the scene photo (or the pool when there is none);
+        # 3 unconditioned ("clean on-brief beats world-breaking"); 4 pool-conditioned brand-world
+        # — the last chance to keep REAL brand identity in frame before the scene is dropped.
+        for attempt in (1, 2, 3, 4):
             try:
+                if attempt == 4:
+                    if not pool_refs:
+                        for pu in (ref_pool or [])[:2]:
+                            if pu not in ref_cache:
+                                ref_cache[pu] = _ref_bytes(pu)
+                            if ref_cache[pu]:
+                                pool_refs.append(ref_cache[pu])
+                    if not pool_refs:
+                        break        # nothing left to condition on — the caller decides the drop
                 p = out_root / f"seed_{uuid.uuid4().hex[:8]}.png"
                 a_prompt = (prompt if attempt == 1
                             else prompt + "\nNatural anatomy, realistic photographic light, "
                                  "one clean focal point." if attempt == 2
-                            else prompt_plain)
+                            else prompt_plain if attempt == 3
+                            else prompt)
+                attach = ([ref] if (ref and attempt < 3)
+                          else pool_refs if (attempt in (1, 2) and not ref) or attempt == 4
+                          else None)
                 generate_oneshot_poster(
                     a_prompt,
                     p, logo_bytes=None,
                     model=_SEED_IMAGE_MODEL,          # EXPLICIT pro lane (see :88) — never the poster's env
-                    product_images=([ref] if (ref and attempt < 3) else None))
+                    product_images=(attach or None),
+                    identity_ref=identity_ref)
                 stats["generated"] += 1
                 v = check_seed_frame(p, caller=caller, brand_hint=name)
                 # FAIL-CLOSED (P6 #7): only an explicit PASS animates. This was

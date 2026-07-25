@@ -84,7 +84,15 @@ def generate_with_refs(prompt: str, out_path: "str | Path", *,
                                 import base64
                                 data = base64.b64decode(data)
                             out.write_bytes(data)
-                            record("image", 1, est_usd, model=model, detail=out.name)  # metered
+                            # PRICE THE LANE THAT SERVED, not the one that was requested.
+                            # MEASURED: `est_usd` above is computed from the REQUESTED flag, so a
+                            # pro request that 404s and is rescued by flash used to land in the
+                            # ledger as model=flash at the pro price — a 3x over-report on every
+                            # rescued still. `guard_image` keeps the requested price: worst-case
+                            # is correct for the budget CHECK, only the RECORD must be true.
+                            from vertex_spend import est_image_cost_usd
+                            record("image", 1, est_image_cost_usd(1, model),
+                                   model=model, detail=out.name)  # metered, honestly
                             log(f"[nano] {model}@{location} -> {out.name} "
                                 f"({len(refs or [])} ref(s))")   # resolved id per request
                             return out

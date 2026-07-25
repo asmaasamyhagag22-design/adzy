@@ -232,7 +232,8 @@ def product_from_link(url: str):
     return info, ""
 
 
-def _render_real(brand: dict, *, headline: str, language: str, product=None) -> RealRender:
+def _render_real(brand: dict, *, headline: str, language: str, product=None,
+                 trend_context: str = "") -> RealRender:
     """Real poster via poster.pipeline.generate_poster.
 
     Returns a RealRender whose `png` is None when the paid path could not deliver. Raises nothing:
@@ -249,6 +250,7 @@ def _render_real(brand: dict, *, headline: str, language: str, product=None) -> 
     caller = default_caller(strong=True)
     res = generate_poster(profile, caller=caller, engine="oneshot", language=language,
                           headline_override=headline or None,
+                          trend_context=trend_context or None,
                           product_image=(getattr(product, "image", "") or None) if product else None,
                           product_name=(getattr(product, "name", "") or None) if product else None)
     import base64
@@ -264,9 +266,30 @@ class MissingProfile(RuntimeError):
 # public API
 # ---------------------------------------------------------------------
 
+def top_trend_context(brand: dict) -> tuple[str, dict, str]:
+    """(trend_context, trend_used, note) from the brand's STORED trends — the ones serialized
+    into `swot.trends` with their sources. «اضغط قبلها على ترند» works only if pressing it does
+    something real: the plumbing (`generate_poster(trend_context=)` -> concept -> research) has
+    existed all along and nothing in the webapp ever passed it.
+
+    No stored trends -> ("", {}, an honest note) — a toggle that silently does nothing teaches
+    the owner it is decorative."""
+    trends = ((brand.get("swot") or {}).get("trends") or [])
+    for t in trends:
+        title = str((t or {}).get("title") or "").strip()
+        if not title:
+            continue
+        url = str(t.get("url") or "").strip()
+        terms = [str(x) for x in (t.get("matched_terms") or []) if x]
+        ctx = title + (f" (terms: {', '.join(terms)})" if terms else "")
+        return ctx, {"title": title, "url": url}, ""
+    return "", {}, ("مفيش ترندات محفوظة للبراند ده لسه — شغّلي التحليل (SWOT) الأول وهيتسحبوا "
+                    "بمصادرهم، وبعدها زرار الترند هيشتغل.")
+
+
 def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: str = "",
                    language: str = "auto", content_type: str = "post",
-                   product_url: str = "") -> dict:
+                   product_url: str = "", trend: bool = False) -> dict:
     """Return the image plus an honest account of HOW it was produced. Always succeeds.
 
     Beyond {image_b64, filename, headline, subtext, cta}:
@@ -291,9 +314,16 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
     # note rather than a silently generic poster.
     product, product_note = product_from_link(product_url)
 
+    # «متأثر بالترند» — the owner pressed Trend. The top stored trend (with its source) shapes
+    # the concept; the response names it so she knows exactly what influenced the creative.
+    trend_context, trend_used, trend_note = ("", {}, "")
+    if trend:
+        trend_context, trend_used, trend_note = top_trend_context(brand)
+
     if paid_images_enabled():
         try:
-            real = _render_real(brand, headline=headline, language=language, product=product)
+            real = _render_real(brand, headline=headline, language=language, product=product,
+                                trend_context=trend_context)
             png = real.png
             if png is None:
                 degraded_reason = "the image model returned no image"
@@ -343,7 +373,22 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
         "product": ({"name": product.name, "image": product.image, "price": product.price,
                      "currency": product.currency, "url": product.url} if product else None),
         "product_note": product_note,
+        "trend_used": trend_used or None,
+        "trend_note": trend_note,
+        # «فوق الريل والبوست يبقى مكتوب كلام زي السوشيال» — every creative ships with the caption
+        # to post it with. Failure degrades to a grounded tagline caption, never breaks the image.
+        "social_caption": _caption_for(brand, language=language, trend_context=trend_context),
     }
+
+
+def _caption_for(brand: dict, *, language: str, trend_context: str = "") -> dict:
+    try:
+        from api.webapp_social_copy import social_caption
+        return social_caption(brand.get("_profile") or {}, language=language,
+                              trend_context=trend_context)
+    except Exception:  # noqa: BLE001 — a caption must never cost the client their image
+        logger.exception("caption generation failed")
+        return {}
 
 
 # ---------------------------------------------------------------------

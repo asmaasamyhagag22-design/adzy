@@ -317,10 +317,11 @@ def _elevenlabs_voice_for(profile: Any = None, override: Optional[str] = None) -
 
 
 def _elevenlabs_segment(text: str, out_mp3: Path, *, voice: str, model: str,
-                        api_key: str, timeout: float = 120.0) -> bool:
+                        api_key: str, timeout: float = 120.0, _urlopen=None) -> bool:
     """One TTS segment via ElevenLabs (native Egyptian library voices — needs a Creator-tier key).
     Stdlib urllib; returns True on a written mp3, False on any failure (caller degrades)."""
     import json as _json
+    import urllib.error
     import urllib.request
     if not voice:
         logger.warning("elevenlabs: no voice id (set REEL_ELEVENLABS_VOICE); skipping")
@@ -332,15 +333,74 @@ def _elevenlabs_segment(text: str, out_mp3: Path, *, voice: str, model: str,
     req = urllib.request.Request(
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice}", data=body, method="POST",
         headers={"xi-api-key": api_key, "Content-Type": "application/json", "Accept": "audio/mpeg"})
+    opener = _urlopen or urllib.request.urlopen
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with opener(req, timeout=timeout) as r:
             data = r.read()
         if data:
             Path(out_mp3).write_bytes(data)
             return Path(out_mp3).is_file()
+    except urllib.error.HTTPError as e:
+        # THE STATUS AND BODY ARE THE DIAGNOSIS. This logged only `type(e).__name__`, so the
+        # 2026-07-25 Abu Auf run showed "HTTPError" and nothing else — indistinguishable between
+        # wrong-tier (a library voice on a free key), a bad key, and quota. ElevenLabs puts the
+        # cause in the JSON body (`detail.status`: voice_not_found / quota_exceeded / …).
+        try:
+            body = e.read()[:300].decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001
+            body = ""
+        logger.warning("elevenlabs TTS failed: HTTP %s %s :: %s", e.code, e.reason, body)
     except Exception as e:  # noqa: BLE001
         logger.warning("elevenlabs TTS failed: %s", type(e).__name__)
     return False
+
+
+def _verbatik_segment(text: str, out_mp3: Path, *, voice: str = "",
+                      api_key: str = "", timeout: float = 120.0,
+                      _urlopen=None) -> bool:
+    """One TTS segment via Verbatik (the owner added VERBATIK_API_KEY for the reel voice,
+    2026-07-25: «حطيت كي للصوت»). Bearer-token REST; SSML body; returns audio bytes.
+
+    Endpoint and voice are env-overridable (`VERBATIK_TTS_URL`, `REEL_VERBATIK_VOICE`) because the
+    vendor's surface is a fact about the vendor: if their path or voice ids shift, the fix is a
+    variable, not a release. Default voice is an Egyptian-Arabic one for the same reason the edge
+    fallback uses ar-EG — this project's brands are addressed in their own dialect.
+
+    Same honesty rule as ElevenLabs above: an HTTP failure logs its status AND body."""
+    import urllib.error
+    import urllib.request
+    key = api_key or os.environ.get("VERBATIK_API_KEY") or ""
+    if not key:
+        return False
+    url = os.environ.get("VERBATIK_TTS_URL", "https://api.verbatik.com/api/v1/tts")
+    voice = voice or os.environ.get("REEL_VERBATIK_VOICE", "ar-EG-SalmaNeural")
+    ssml = (f'<speak version="1.0" xml:lang="ar-EG">'
+            f'<voice name="{voice}">{_xml_escape(text)}</voice></speak>')
+    req = urllib.request.Request(
+        url, data=ssml.encode("utf-8"), method="POST",
+        headers={"Authorization": f"Bearer {key}",
+                 "Content-Type": "application/ssml+xml", "Accept": "audio/mpeg"})
+    opener = _urlopen or urllib.request.urlopen
+    try:
+        with opener(req, timeout=timeout) as r:
+            data = r.read()
+        if data:
+            Path(out_mp3).write_bytes(data)
+            return Path(out_mp3).is_file()
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read()[:300].decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001
+            body = ""
+        logger.warning("verbatik TTS failed: HTTP %s %s :: %s", e.code, e.reason, body)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("verbatik TTS failed: %s", type(e).__name__)
+    return False
+
+
+def _xml_escape(s: str) -> str:
+    return (str(s or "").replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
 
 
 def _resolve_backend(backend: Optional[str]) -> str:
@@ -351,8 +411,12 @@ def _resolve_backend(backend: Optional[str]) -> str:
     reel always gets a voice instead of going silent. Set REEL_TTS_BACKEND=edge to force
     the free native-Egyptian voice and skip the paid TTS spend entirely."""
     b = (backend or os.environ.get("REEL_TTS_BACKEND") or "").lower()
-    if b in ("gemini", "openai", "edge", "elevenlabs"):
+    if b in ("gemini", "openai", "edge", "elevenlabs", "verbatik"):
         return b   # elevenlabs is EXPLICIT-ONLY (never auto-selected) — a paid native-EG library voice
+    # Verbatik: the owner added its key FOR the reel voice (2026-07-25), so a present key means
+    # "use it" — unlike ElevenLabs, whose library voices need a tier we cannot verify up front.
+    if os.environ.get("VERBATIK_API_KEY"):
+        return "verbatik"
     # OWNER-RATIFIED (2026-07-11 listen test): فصحى (fusha) -> Gemini Kore DIRECTED (variant 2);
     # عامية (masri) -> OpenAI gpt-audio (variant 4). The dialect itself is the USER's choice
     # (REEL_ARABIC_DIALECT / the studio UI); this only routes the ratified voice per register.
@@ -497,9 +561,22 @@ def synth_voiceover(
             ok = _edge_segment(script, raw, voice=voice, rate=_e_rate, pitch=_e_pitch)
         elif chosen == "elevenlabs":
             ok = _elevenlabs_segment(script, raw, voice=voice, model=model, api_key=el_key)
+        elif chosen == "verbatik":
+            ok = _verbatik_segment(script, raw)
         else:
             ok = _tts_segment(oa_client, script, raw, model=model, voice=voice,
                               instructions=instructions)
+        if not ok and chosen != "edge":
+            # NEVER-SILENT (owner ruling, after the 2026-07-25 Abu Auf reel shipped with
+            # audio=False): a paid backend failing must not cost the reel its voice. `edge` is
+            # free, keyless, and carries a native Egyptian voice — a working voice from the free
+            # tier beats silence from the paid one, every time. The primary's failure was already
+            # logged above with its HTTP status and body, so nothing is hidden by recovering.
+            logger.warning("[voiceover] %s failed -> edge fallback", chosen)
+            raw = tmpd / "vo_full.mp3"       # edge writes mp3 whatever the primary wanted
+            _e_rate, _e_pitch = _edge_prosody_for_tone(tone)
+            ok = _edge_segment(script, raw, voice=_edge_voice_for(script, None, profile),
+                               rate=_e_rate, pitch=_e_pitch)
         if not ok:
             return None
 

@@ -6,6 +6,11 @@ import reel.voiceover as vo
 
 
 def test_resolve_backend_accepts_elevenlabs_only_when_explicit(monkeypatch):
+    # VERBATIK_API_KEY is in the real .env (the owner added it for the reel voice, 2026-07-25)
+    # and auto-selection now prefers it — so this test must clear it or it measures the
+    # developer's environment instead of the resolution logic. Same class as the Kling
+    # selection tests earlier today.
+    monkeypatch.delenv("VERBATIK_API_KEY", raising=False)
     for k in ("REEL_TTS_BACKEND", "GOOGLE_CLOUD_PROJECT", "GEMINI_API_KEY", "OPENAI_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     assert vo._resolve_backend("elevenlabs") == "elevenlabs"                # explicit arg

@@ -31,6 +31,21 @@ from typing import Any, Optional
 DEFAULT_ONESHOT_MODEL = os.getenv("ONESHOT_IMAGE_MODEL", "gemini-3.1-flash-image-preview")
 DEFAULT_LOCATION = "global"
 
+
+def resolve_oneshot_model() -> str:
+    """The effective default image model, honouring the owner's lane preference.
+
+    OWNER RULING 2026-07-25: «نانو بنانا لايت كوالتي وحشة خليك برو». `IMAGE_LANE=pro` puts
+    `gemini-3-pro-image-preview` ($0.12) first for poster backgrounds and any caller that does not
+    pin its own model; unset keeps the flash default ($0.04). PROBED LIVE the same day: pro
+    SERVES on this project now (it 404'd on 2026-07-21 — Google opened it since), and if it ever
+    404s again the `_MODEL_CHAIN` failover rescues the render while the ledger records the model
+    that actually served, at that model's price. An explicit `model=` argument always wins —
+    `reel/seed_gen.py`'s pro pin is unaffected."""
+    if (os.getenv("IMAGE_LANE") or "").strip().lower() == "pro":
+        return "gemini-3-pro-image-preview"
+    return DEFAULT_ONESHOT_MODEL
+
 # tashkeel (064B-065F) + superscript alef (0670) + tatweel (0640) + Quranic marks (06D6-06ED)
 _TASHKEEL_RE = re.compile("[ً-ٰٟـۖ-ۭ]")
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
@@ -340,7 +355,7 @@ def _is_missing_model(e: Exception) -> bool:
 
 
 def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
-                            model: str = DEFAULT_ONESHOT_MODEL,
+                            model: Optional[str] = None,
                             location: str = DEFAULT_LOCATION,
                             logo_bytes: Optional[bytes] = None,
                             logo_mime: str = "image/png",
@@ -354,6 +369,8 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
     failure — the caller decides the fallback; nothing here ships unmeasured."""
     from google.genai import types
 
+    # None -> the resolved default, which honours IMAGE_LANE=pro. An explicit model always wins.
+    model = model or resolve_oneshot_model()
     cl = client or _client(location)
     # SPEND GUARD: meter each generated poster and refuse if over the monthly Vertex cap.
     from vertex_spend import guard_image, record
@@ -417,7 +434,14 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
                     import base64
                     data = base64.b64decode(data)
                 out_path.write_bytes(data)
-                record("image", 1, est_usd, model=model, detail=Path(out_path).name)  # metered
+                # Price the model that SERVED. `est_usd` was computed from the requested model
+                # before the failover chain ran, so a pro request rescued by flash used to be
+                # recorded at the pro price — same 3x over-report as reel/render3/nano.py, fixed
+                # the same way. The guard above keeps the requested price: worst-case is right
+                # for the budget CHECK; only the RECORD must be true.
+                from vertex_spend import est_image_cost_usd
+                record("image", 1, est_image_cost_usd(1, model),
+                       model=model, detail=Path(out_path).name)  # metered, honestly
                 return out_path
     raise RuntimeError(f"one-shot poster: {model} returned no image")
 

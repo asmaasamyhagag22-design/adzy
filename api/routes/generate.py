@@ -51,14 +51,15 @@ _IGNORED_UPLOAD_DEFAULT = ("Your uploaded image does not feed the generation yet
 
 def _emit(brand: dict, *, headline: str, subtext: str, cta: str, style: str,
           content_type: str, owner_id: str = "", ignored_upload: str = "",
-          product_url: str = "", language: str = "auto") -> dict:
+          product_url: str = "", language: str = "auto", trend: bool = False) -> dict:
     # `product_url` is the owner's «بحط اللينك بتاعه»: an ad for ONE named item rather than for the
     # brand in general. `generate_poster` has accepted `product_image`/`product_name` all along —
     # this function was simply the wall they never got past, which is also why the
     # `product_name`/`product_description` form fields below reached nothing.
     out = images.generate_image(brand, headline=headline, subtext=subtext, cta=cta,
                                 content_type=content_type, product_url=product_url,
-                                language=(language if language in ("ar", "en") else "auto"))
+                                language=(language if language in ("ar", "en") else "auto"),
+                                trend=trend)
     if ignored_upload:
         lang = images.brand_language(brand)
         out = {**out, "applied_upload": False,
@@ -85,6 +86,8 @@ class GenerateRequest(BaseModel):
     user_context: str = ""
     mode: str = "text_to_image"
     language: str = "auto"         # "ar" | "en" | "auto" — the owner's choice, not an inference
+    trend: bool = False            # «اضغط قبلها على ترند» — shape the creative with the top stored trend
+    content_only: bool = False     # «الكونتنت بس» — caption alone, no image, zero render spend
     product_url: str = ""          # paste a product page; the poster is built around THAT item
     product_name: str = ""
     product_description: str = ""
@@ -93,9 +96,21 @@ class GenerateRequest(BaseModel):
 @router.post("/generate")
 def generate(req: GenerateRequest, user: dict = Depends(require_user)) -> dict:
     brand = _brand_or_404(req.domain_key, user["id"])
+    if req.content_only:
+        # «الكونتنت بس من غير ريل ولا صورة» — the caption alone. No renderer in the call path,
+        # so zero image spend by construction; the trend toggle still shapes the words.
+        from api.webapp_images import top_trend_context
+        from api.webapp_social_copy import content_only as _content_only
+        ctx, used, note = top_trend_context(brand) if req.trend else ("", {}, "")
+        out = _content_only(brand.get("_profile") or {},
+                            language=(req.language if req.language in ("ar", "en") else "auto"),
+                            trend_context=ctx)
+        out["trend_used"] = used or None
+        out["trend_note"] = note
+        return out
     return _emit(brand, headline=req.headline, subtext=req.subtext, cta=req.cta,
                  style=req.style, content_type=req.content_type, owner_id=user["id"],
-                 product_url=req.product_url, language=req.language)
+                 product_url=req.product_url, language=req.language, trend=req.trend)
 
 
 # ---- multipart: + a logo ----

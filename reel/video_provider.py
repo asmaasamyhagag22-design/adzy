@@ -826,8 +826,21 @@ class KlingProvider:
         if image:
             body["image"] = image
             path = _KLING_SUBMIT
+            print("[kling] mode=i2v", file=sys.stderr)
         else:
+            # T2V IS A REFUSAL HERE, NOT A DOWNGRADE. The owner's plan is stills animated by
+            # Kling; a clip with no seed frame is the model inventing footage — the exact opposite.
+            # MEASURED (Abu Auf, runs/kling_spend.jsonl): 3 of 5 scenes silently went t2v because
+            # only intro/outro had a reference, and the only trace was a ledger row nobody reads
+            # mid-run. Raising is safe: the compositor already catches a provider error and falls
+            # back to Ken Burns over the seed frame — real footage, not invented.
+            if os.getenv("KLING_ALLOW_T2V") != "1":
+                raise RuntimeError(
+                    "Kling t2v refused: this scene has no seed frame to animate. Generate a seed "
+                    "still (the default pipeline does), or set KLING_ALLOW_T2V=1 to permit "
+                    "text-to-video explicitly.")
             path = _KLING_TEXT_SUBMIT
+            print("[kling] mode=t2v (KLING_ALLOW_T2V=1)", file=sys.stderr)
 
         res = self.transport.post(self.base_url + path, headers=headers, json_body=body)
         task_id = (((res or {}).get("data") or {}).get("task_id") or "")
