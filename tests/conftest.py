@@ -23,6 +23,12 @@ def _vertex_spend_tmp_ledger(tmp_path, monkeypatch):
     # ...and the PER-RUN Veo budget (C1). Without this the shipped $8 default would silently bind
     # for any test that drives a real guard_video. Tests that exercise the ceiling set their own.
     monkeypatch.setenv("VEO_MAX_USD_PER_RUN", "100000")
+    # KLING'S LEDGER, for the same reason and after the same mistake. Two rows reading
+    # `task_id: "task_abc"` — a value that exists only in this suite's fake transport — turned up
+    # in the REAL runs/kling_spend.jsonl. Individual Kling tests do override the path, so this is
+    # the guard that makes it impossible to forget in the next one: a spend ledger is a financial
+    # record, and a test that can write to it can also make it lie.
+    monkeypatch.setenv("KLING_SPEND_LEDGER", str(tmp_path / "kling_spend.jsonl"))
 
 
 @pytest.fixture(autouse=True)
