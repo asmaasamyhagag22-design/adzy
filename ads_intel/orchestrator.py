@@ -23,7 +23,32 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .consumer import DEFAULT_SNAPSHOTS_DIR, ref_slug
-from .live import UrllibTransport, iter_ad_pages, page_hint_from_website
+from .live import (UrllibTransport, iter_competitor_ads, page_hint_from_website,
+                   resolve_page_id)
+
+# Which QUESTION produced a set of ads — and therefore what they are worth.
+#
+#   page_id         we resolved the advertiser and pulled THEIR page. Every row is provably theirs.
+#   keyword         no page could be identified; rows are ad-COPY matches and only the relevance
+#                   gate stands between them and the analysis.
+#   keyword_legacy  a snapshot from before this distinction existed.
+#
+# MEASURED, and the reason this field has to exist: every file in `runs/ad_snapshots/` was pulled
+# with `search_terms`, which searches ad copy rather than advertisers. 260 ads across the set and
+# NOT ONE belongs to the competitor it was pulled for — "Vodafone Egypt" returned Vodafone
+# Foundation, "Joe's cafe" returned Goodnovel Lovers. The relevance gate drops them all and is
+# working correctly; the data was wrong. Once the puller is corrected those old files become
+# indistinguishable from good ones unless they say what they are, so ABSENT reads as
+# `keyword_legacy` — never as trustworthy.
+_BASIS_LEGACY = "keyword_legacy"
+
+
+def snapshot_basis(snap) -> str:
+    """The basis a snapshot was pulled with. Absent -> the keyword era, i.e. do not trust it."""
+    if not isinstance(snap, dict):
+        return _BASIS_LEGACY
+    value = str(snap.get("basis") or "").strip()
+    return value if value in ("page_id", "keyword") else _BASIS_LEGACY
 from .providers.meta_ad_library import ads_from_snapshot
 from .pull_ledger import DEFAULT_LEDGER, check_calls, record_call
 from .schemas import AdPresence, ad_presence
@@ -86,17 +111,39 @@ def adaptive_pull_competitor(name: str, *, country: str, token: str, caller: Any
     ref = ref_slug(name)
     bundle = CompetitorIntelBundle(ref=ref)
     query = name
+    basis = _BASIS_LEGACY
 
     def _pages(q: str):
-        return iter_ad_pages(q, country=country, token=token, fields=_FIELDS,
-                             transport=transport, batch_size=policy.batch_size,
-                             hard_cap=policy.hard_cap)
+        """ADVERTISER FIRST, ad copy only as a fallback.
+
+        This called `iter_ad_pages` — the keyword-only search — while `iter_competitor_ads`, which
+        resolves the advertiser's page and pulls THAT page's ads, sat fully written and tested with
+        no caller anywhere in production. The good code existed; nothing was plugged into it. The
+        cost of that: 260 ads on disk, zero of them a competitor's.
+
+        THE RESOLUTION IS A REAL API CALL AND IS BUDGETED AS ONE. Identifying the advertiser costs
+        one extra request before the first page. `_run` guards each `next()` with a single
+        `check_calls(1)`, so wiring this in naively would have spent two requests against one unit
+        — an under-count in the one place this project cannot afford one. It is checked and
+        recorded here, on its own, before the generator starts."""
+        nonlocal basis
+        page_id = None
+        ok, _msg = check_calls(1, ledger=ledger)
+        if ok:
+            page_id = resolve_page_id(q, country=country, token=token, transport=transport)
+            record_call(f"ads_archive?resolve={q}", 1 if page_id else 0, ledger=ledger)
+        for rows, how in iter_competitor_ads(q, country=country, token=token, fields=_FIELDS,
+                                             transport=transport, batch_size=policy.batch_size,
+                                             hard_cap=policy.hard_cap, page_id=page_id):
+            basis = str((how or {}).get("basis") or _BASIS_LEGACY)
+            yield rows
 
     def _analyze() -> None:
         """Re-run ش2+ش3 over everything collected so far (cheap, in-memory). The relevance gate
         (1.1) lives in the parse chokepoint: facts + intel run over the COMPETITOR'S ads only,
         and the strangers the broad keyword query dragged in are counted, not analyzed."""
         snap = {"brand_ref": ref, "query": query, "website": website,
+                "basis": basis,          # what question produced these rows — see `snapshot_basis`
                 "pulled_at": datetime.now(timezone.utc).isoformat(),
                 "ads": bundle.raw_rows}
         raw = ads_from_snapshot(snap, only_competitor=False)

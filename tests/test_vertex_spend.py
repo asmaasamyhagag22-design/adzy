@@ -94,15 +94,21 @@ def test_a_TRUNCATED_SPEND_line_never_opens_budget(ledger):
     assert vs.corrupt_line_count(ledger) == 1
 
 
-def test_the_SHIPPED_default_vertex_cap_is_50(monkeypatch):
+def test_the_SHIPPED_default_vertex_cap_is_unlimited(monkeypatch):
     """P6 #5 — tests/conftest.py raises VERTEX_MONTHLY_CAP_USD to 100000 for EVERY test, so
     nothing in the suite bound the LIVE default: you could edit the "50" literal to "50000" and
     all tests would still pass. This reads the cap exactly as production does with the env seam
     DEFEATED — the tests/test_ssrf_coverage.py pattern — so it fails if the shipped default moves.
     This is the guard built after the 2026-07-14 $228/4-days scare; its value must be pinned.
+
+    OWNER RULING 2026-07-25: «شيل اي حدود ع اي ميزانيه». The shipped default is now UNLIMITED, and
+    this test pins THAT — with the env seam still defeated, which is the property that made this
+    test worth having. The guard it was built for (the 2026-07-14 $228/4-days scare) is not gone:
+    spend is still metered to the cent in `runs/vertex_spend.jsonl`, and setting the env var to a
+    number restores a hard ceiling. What changed is that refusing is now opt-in.
     """
     monkeypatch.delenv("VERTEX_MONTHLY_CAP_USD", raising=False)
-    assert vs.monthly_cap_usd() == 50.0
+    assert vs.monthly_cap_usd() == float("inf")
 
 
 def test_veo_provider_refuses_render_over_cap_before_any_network(monkeypatch, tmp_path):

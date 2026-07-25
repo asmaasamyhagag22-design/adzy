@@ -49,6 +49,17 @@ from .extractors.metadata import extract_metadata, merge_metadata
 from .extractors.text_blocks import extract_text_blocks
 from .extractors.visual import build_visual_identity, extract_from_page
 from .fetcher import fetch_page, make_browser_context
+
+
+def _looks_like_http2_failure(result) -> bool:
+    """Did this fetch die on the HTTP/2 transport itself?
+
+    The signature Chromium reports is `net::ERR_HTTP2_PROTOCOL_ERROR`, raised before any page can
+    load — which is why the site that hit it (lcwaikiki.eg) attempted 1 page and succeeded on 0.
+    Matched on the message rather than on a status, because there is no HTTP response at all when
+    the protocol negotiation is what failed."""
+    blob = f"{getattr(result, 'error_message', '') or ''} {getattr(result, 'error_code', '') or ''}"
+    return "http2" in blob.lower().replace("_", "").replace("-", "").replace(" ", "")
 from .language import detect_languages
 from .readiness import compute_readiness
 from .robots import can_fetch, load_robots
@@ -739,12 +750,26 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
     all_next_data_phones: list = []
 
     with sync_playwright() as pw:
-        # --disable-http2: some servers/CDNs reset HTTP/2 from headless Chromium,
-        # causing net::ERR_HTTP2_PROTOCOL_ERROR before any page can load (MEASURED
-        # on lcwaikiki.eg, 2026-06-11: 1 page attempted, 0 succeeded, RENDER_ERROR).
-        # Forcing HTTP/1.1 is a universally-safe transport fallback (works
-        # everywhere, marginally slower) — NOT anti-bot evasion.
-        browser = pw.chromium.launch(headless=True, args=["--disable-http2"])
+        # HTTP/2 STAYS ON UNTIL A SITE ACTUALLY BREAKS ON IT.
+        #
+        # `--disable-http2` was added for one measured case — lcwaikiki.eg reset HTTP/2 from
+        # headless Chromium (net::ERR_HTTP2_PROTOCOL_ERROR, 1 page attempted, 0 succeeded) — and
+        # was then applied to every site on the grounds that HTTP/1.1 is "universally safe". It is
+        # not. Forcing HTTP/1.1 changes our connection fingerprint, and MEASURED on
+        # alfouadpharmacies.com (2026-07-25, same URL, seconds apart, the flag the only difference):
+        #
+        #     args = []                   ->  HTTP 200 · 1,328,616 bytes · 5,570 chars rendered
+        #     args = ['--disable-http2']  ->  HTTP 429 ·       169 bytes ·     18 chars rendered
+        #
+        # and that 429 was then reported to the owner as "this site blocks crawlers, retrying will
+        # not help" — about a site that serves us 1.3 MB happily. A workaround for one site had
+        # become a handicap on the rest.
+        #
+        # So: try HTTP/2 first, and fall back to HTTP/1.1 only when the homepage fails with the
+        # protocol error that motivated the flag in the first place. lcwaikiki still works; nobody
+        # else pays for it.
+        browser = pw.chromium.launch(headless=True)
+        _http2_disabled = False
         try:
             context = make_browser_context(browser)
             try:
@@ -756,6 +781,32 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
                                          rate_limit_retries=HOMEPAGE_RATE_LIMIT_RETRIES,
                                          two_phase=two_phase)
                 manifest.scrape_meta.pages_attempted += 1
+
+                # THE HTTP/2 FALLBACK, now fired by the error that motivated it rather than by
+                # default. lcwaikiki.eg resets HTTP/2 from headless Chromium and cannot load a
+                # single page; when we see that specific transport error, relaunch on HTTP/1.1 and
+                # try once more. Every other site keeps HTTP/2 — and keeps the 200 that forcing
+                # HTTP/1.1 was costing it.
+                if not home_result.ok and _looks_like_http2_failure(home_result) \
+                        and not _http2_disabled:
+                    manifest.notes.append("http2_protocol_error_retried_over_http1")
+                    if home_result._page is not None:
+                        try:
+                            home_result._page.close()
+                        except Exception:
+                            pass
+                    try:
+                        context.close()
+                        browser.close()
+                    except Exception:
+                        pass
+                    browser = pw.chromium.launch(headless=True, args=["--disable-http2"])
+                    _http2_disabled = True
+                    context = make_browser_context(browser)
+                    home_result = fetch_page(context, home_fetch_url, keep_page=True,
+                                             rate_limit_retries=HOMEPAGE_RATE_LIMIT_RETRIES,
+                                             two_phase=two_phase)
+                    manifest.scrape_meta.pages_attempted += 1
                 if deep_root and not home_result.ok and home_fetch_url != normalized:
                     manifest.notes.append(
                         f"root_anchor_unreachable_fell_back_to_seed:{home_result.error_code}")

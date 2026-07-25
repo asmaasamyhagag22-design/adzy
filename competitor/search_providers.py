@@ -79,8 +79,13 @@ class SerperProvider:
         # on a corrupt ledger (an unreadable ledger is an unenforceable cap).
         from ads_intel.pull_ledger import check_calls, record_call
         _ledger = os.getenv("SERPER_LEDGER", "runs/serper_calls.jsonl")
-        _cap = int(os.getenv("SERPER_MONTHLY_CALL_CAP", "500"))
-        ok, msg = check_calls(1, ledger=_ledger, monthly_cap=_cap)
+        # UNLIMITED by default (owner ruling 2026-07-25). This cap silently returning [] for the
+        # 501st call of the month is what made discovery and trends look broken across the whole
+        # dashboard. `service="Serper"` so a refusal names the meter that actually refused —
+        # it used to report itself as a Meta cap.
+        _raw = str(os.getenv("SERPER_MONTHLY_CALL_CAP") or "").strip()
+        _cap = float(_raw) if _raw.replace(".", "", 1).isdigit() else None
+        ok, msg = check_calls(1, ledger=_ledger, monthly_cap=_cap, service="Serper")
         if not ok:
             self.last_error = f"refused: {msg}"
             return []

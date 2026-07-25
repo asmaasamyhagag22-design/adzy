@@ -60,8 +60,22 @@ def test_confidence_predicate_table():
     assert enough_evidence(_mi(offers=2, pains=4), pres_no, pol) is False
 
 
+# ONE EXTRA FETCH, ON PURPOSE — and it is budgeted. The pull now identifies the ADVERTISER before
+# asking for ads (`iter_competitor_ads`), because the old keyword-only query searched AD COPY and
+# produced 260 stored ads of which not one belonged to the competitor it was pulled for. Resolving
+# the page costs one request, so every fetch count below is the old count + 1. The invariants these
+# tests exist to protect are unchanged and still asserted: the hard cap still binds, the confidence
+# early-stop still fires on batch 1, and an error still fails closed with whatever was collected.
+# The resolution is checked and recorded against the pull ledger separately (`orchestrator._pages`),
+# so the budget sees two calls where two calls were made.
+#
+# These fixtures keep taking the KEYWORD path: `_row()` carries `page_name` but no `page_id`, so
+# `resolve_page_id` finds nothing to match and honestly returns None.
+
+
 def test_confidence_stops_after_first_batch(tmp_path):
-    # 5 pages available; the extractor returns 3 verbatim offers on batch 1 -> EXACTLY 1 fetch.
+    # 5 pages available; the extractor returns 3 verbatim offers on batch 1 -> 1 page fetch
+    # (+1 for the advertiser lookup that precedes it).
     pages = [[_row(i + b * 20) for i in range(20)] for b in range(5)]
     tr = FakeTransport(pages)
     items = [_RawItem(kind="offer", text=f"offer {i}",
@@ -70,7 +84,7 @@ def test_confidence_stops_after_first_batch(tmp_path):
     b = adaptive_pull_competitor("Rival A", country="EG", token="tkn", caller=caller,
                                  transport=tr, snapshots_dir=str(tmp_path),
                                  ledger=str(tmp_path / "ledger.jsonl"), today=date(2026, 7, 19))
-    assert tr.fetches == 1 and b.stopped == "confidence" and b.ads_pulled == 20
+    assert tr.fetches == 2 and b.stopped == "confidence" and b.ads_pulled == 20
     assert b.ref == ref_slug("Rival A")
     snap = json.loads((tmp_path / f"{b.ref}.json").read_text(encoding="utf-8"))
     assert len(snap["ads"]) == 20                       # snapshot in the pull-script shape
@@ -88,12 +102,15 @@ def test_hard_cap_never_exceeded(tmp_path):
                                  transport=tr, snapshots_dir=str(tmp_path),
                                  ledger=str(tmp_path / "l.jsonl"),
                                  policy=PullPolicy(hard_cap=60), today=date(2026, 7, 19))
-    assert b.ads_pulled <= 60 and b.stopped == "hard_cap" and tr.fetches == 3
+    assert b.ads_pulled <= 60 and b.stopped == "hard_cap" and tr.fetches == 4
 
 
 def test_transport_error_stops_fail_closed_with_partial(tmp_path):
     pages = [[_row(i + b * 20, start="2026-07-18") for i in range(20)] for b in range(5)]
-    tr = FakeTransport(pages, boom_on=2)                 # second fetch explodes
+    # The third fetch explodes = the SECOND page of ads (fetch 1 is the advertiser
+    # lookup). Keeping the boom on a mid-pull page is what makes this a test of
+    # "partial kept" rather than of "first request failed".
+    tr = FakeTransport(pages, boom_on=3)
     caller = MockCaller({"ads_competitor_intel": _RawResponse(items=[])})
     b = adaptive_pull_competitor("Rival A", country="EG", token="tkn", caller=caller,
                                  transport=tr, snapshots_dir=str(tmp_path),

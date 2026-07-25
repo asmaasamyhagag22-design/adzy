@@ -188,6 +188,18 @@ def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
         except Exception:
             themes = []
 
+        # ...and the brand's OWN customers. `ReviewThemeExtractor` reads PEER reviews only
+        # (`themes.py:116` iterates `competitors`), so without this the only customer voice about
+        # THIS brand — saved comments and saved reviews — never entered the analysis on this route
+        # either. Same collector as the dashboard path, deliberately: this file and
+        # `api/webapp_analysis.py` are two serializers for one product, and every divergence
+        # between them so far has been a silent hole in whichever one nobody was looking at.
+        try:
+            from api.webapp_analysis import _customer_voice_themes
+            themes = list(themes) + _customer_voice_themes(profile or {})
+        except Exception:  # noqa: BLE001
+            pass
+
         # On-topic market trends -> brand-level Opportunities/Threats (best-effort; [] on failure).
         trends: list = []
         try:

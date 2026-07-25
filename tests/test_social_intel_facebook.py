@@ -89,11 +89,15 @@ def test_a_TRUNCATED_SPEND_line_never_opens_the_apify_budget(tmp_path):
     assert corrupt_line_count(ledger, month="2026-07") == 1
 
 
-def test_the_SHIPPED_default_apify_cap_is_20(monkeypatch):
-    """P6 #5 (sibling) — pin the LIVE default the way production reads it, env seam defeated."""
+def test_the_SHIPPED_default_apify_cap_is_unlimited(monkeypatch):
+    """Pin the LIVE default the way production reads it, env seam defeated.
+
+    RENAMED AND REPOINTED, owner ruling 2026-07-25: «شيل اي حدود ع اي ميزانيه». The default is now
+    unlimited; the meter (`runs/apify_spend.jsonl`) is untouched, and an explicit env value still
+    binds — which the sibling test below still proves."""
     from social_intel.spend_guard import monthly_cap_usd
     monkeypatch.delenv("APIFY_MONTHLY_CAP_USD", raising=False)
-    assert monthly_cap_usd() == 20.0
+    assert monthly_cap_usd() == float("inf")
 
 
 def test_spend_guard_refuses_over_the_monthly_cap(tmp_path):

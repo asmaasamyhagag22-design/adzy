@@ -79,6 +79,17 @@ def _compute_swot(profile: dict):
     except Exception:  # noqa: BLE001
         peers = result.competitors
 
+    # WHY THE MARKET LOOKED EMPTY. `route_discovery` already writes the reason a lane returned
+    # nothing — which engine ran, what it was asked, and whether the search was REFUSED rather than
+    # unproductive — and this path dropped every one of those notes.
+    #
+    # MEASURED LIVE on abuauf.com: the Serper monthly cap was spent, so every search returned [],
+    # so the SWOT shipped "Standalone Strategic Analysis (No Competitors Found)". Two completely
+    # different facts — "her market has no comparable business" and "we stopped searching" — and
+    # the client was shown the first. Carrying these notes is what makes that distinguishable.
+    _discovery_notes = [str(n).strip() for n in (getattr(result, "notes", None) or [])
+                        if str(n).strip()]
+
     subject_places = None
     if client is not None:
         try:
@@ -99,7 +110,7 @@ def _compute_swot(profile: dict):
     # quotes a customer instead of describing a website, and the comments were already being
     # collected, analysed and dropped. They join the SAME theme list, so `synthesize_swot` routes
     # them with the mapping it already has: own complaint -> Weakness, peer complaint -> Opportunity.
-    themes = list(themes) + _social_themes_for(profile)
+    themes = list(themes) + _customer_voice_themes(profile)
 
     # THE SAME SOURCES THE CLI FEEDS IT. `competitor/full_run.py` passes unique_insights, trends
     # and ad_presence; this path passed themes and profile only, so the SWOT the owner looks at in
@@ -121,11 +132,69 @@ def _compute_swot(profile: dict):
     except Exception:  # noqa: BLE001 — ads-intel must never break a run
         ad_pres = []
 
-    trends = _trends_for(profile)
+    try:
+        trends = _trends_for(profile)
+    except Exception:  # noqa: BLE001 — a trend source must never break a grounded SWOT
+        logger.exception("trend fetch failed; continuing without trends")
+        trends = []
+    # THE TREND TAB'S ACTUAL CONTENT. These are fetched, paid for and fed into the SWOT as
+    # Opportunities/Threats — and the LIST was dropped here, so the one tab named after them
+    # rendered SWOT bookkeeping instead ("quadrant counts", "benchmark quality"). Attached to the
+    # SWOT object so it travels through the same serializer as everything else.
+    _trend_rows = []
+    for t in (trends or []):
+        title = str(getattr(t, "title", "") or "").strip()
+        url = str(getattr(t, "url", "") or "").strip()
+        if not title:
+            continue
+        _trend_rows.append({
+            "title": title,
+            "url": url,
+            "matched_terms": [str(x) for x in (getattr(t, "matched_terms", ()) or ()) if x],
+        })
 
-    return synthesize_swot(matrix, themes=themes, profile=profile,
+    swot = synthesize_swot(matrix, themes=themes, profile=profile,
                            unique_insights=insights, trends=trends,
-                           ad_presence=ad_pres), peers
+                           ad_presence=ad_pres)
+    swot.market_trends = _trend_rows
+    # Only when the discovery lane came back empty: with peers on the board the notes are
+    # bookkeeping, and a client does not need the plumbing narrated at them. With no peers they
+    # are the ONLY explanation of the analysis they are looking at.
+    if not peers and _discovery_notes:
+        swot.notes.extend(_discovery_notes)
+    return swot, peers
+
+
+def _customer_voice_themes(profile: dict) -> list:
+    """EVERY source of "what a real customer said about THIS brand", behind one door.
+
+    Two holes closed here, and they were the same defect wearing two faces:
+
+      * `reviews/absa.py` — the only producer of `is_own_brand=True` themes from reviews — was
+        called from `competitor/full_run.py` and NOWHERE else. `grep absa` over this module and
+        `api/routes/swot.py` returned zero. A brand with 200 Google reviews therefore got, in the
+        dashboard, zero strengths and zero weaknesses out of them: `ReviewThemeExtractor` reads
+        PEER reviews only (`themes.py:116` iterates `competitors`), which route to O/T.
+      * `synthesize_swot_standalone` passed no `themes=` at all — on the path its own docstring
+        calls "the most likely path for a brand whose automatic discovery finds nothing".
+
+    ONE COLLECTOR, so a source can never again be wired into one caller and forgotten in the other.
+    That is the whole reason this is a function and not two more inline try/excepts.
+
+    SPEND: nothing here starts billing on a brand we have no data for. Social themes are read off
+    disk (deterministic, no model). The review path returns [] before it builds a caller when the
+    brand has no saved voice file, and `extract_aspect_themes` returns [] on a null caller.
+
+    Never raises: a voice source that fails contributes nothing and the SWOT builds without it."""
+    out = list(_social_themes_for(profile))
+    try:
+        from competitor.full_run import _own_voice_themes
+        url = str((profile or {}).get("source_url") or "").strip()
+        if url:
+            out += list(_own_voice_themes(url, profile, lambda *_a, **_k: None) or [])
+    except Exception:  # noqa: BLE001 — customer voice must never break a grounded SWOT
+        logger.exception("own-voice themes unavailable; continuing without them")
+    return out
 
 
 def _social_themes_for(profile: dict) -> list:
@@ -197,11 +266,18 @@ def synthesize_swot_standalone(profile: dict):
     except Exception:  # noqa: BLE001 — a missing registry must never break the analysis
         peers = []
 
+    # THE CUSTOMER'S VOICE BELONGS HERE MOST OF ALL. This path used to call `synthesize_swot` with
+    # no `themes=` whatsoever, so a brand with no discoverable peers — by this function's own
+    # description, the commonest case — lost every comment and every review theme it had. That is
+    # exactly backwards: with no peers there are no comparison gaps either, so customer voice is
+    # the ONLY evidence left that is about the business rather than about the website.
+    themes = _customer_voice_themes(profile)
+
     if not peers:
         matrix = build_matrix(profile, [], subject_name="You")
-        return synthesize_swot(matrix, profile=profile), []
+        return synthesize_swot(matrix, themes=themes, profile=profile), []
     matrix = build_matrix(profile, peers, subject_name="You", scrape_fn=lite_peer_dims)
-    return synthesize_swot(matrix, profile=profile), peers
+    return synthesize_swot(matrix, themes=themes, profile=profile), peers
 
 
 def _items(items) -> list[dict]:
@@ -255,6 +331,9 @@ def _swot_to_frontend(swot) -> dict:
         # on nanocare: 4 items). A quadrant they were moved OUT of is only honest if the place they
         # were moved TO is on the wire.
         "site_readiness": _items(getattr(swot, "site_readiness", []) or []),
+        # The market signals themselves, each with the source that makes it checkable. The Trend
+        # tab had no trends to show because this key did not exist.
+        "trends": list(getattr(swot, "market_trends", []) or []),
         "mode": getattr(swot, "mode", "competitive"),
         "notes": list(getattr(swot, "notes", []) or []),
         "strategic_summary": {

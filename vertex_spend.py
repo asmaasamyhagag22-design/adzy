@@ -33,7 +33,22 @@ class SpendRefused(RuntimeError):
 
 
 def monthly_cap_usd() -> float:
-    return float(os.getenv("VERTEX_MONTHLY_CAP_USD", "50"))
+    """UNLIMITED unless `VERTEX_MONTHLY_CAP_USD` says otherwise.
+
+    OWNER RULING 2026-07-25, «شيل اي حدود ع اي ميزانيه», taken with the exposure stated first:
+    Veo bills $0.40/SECOND, and an uncapped renderer is exactly what produced this project's
+    $228-in-four-days incident. She was shown that and chose to lift this one too.
+
+    THE METER SURVIVES: `record` still writes every render to `runs/vertex_spend.jsonl` with its
+    cost, and `guard_image`/`guard_video` still price each call — so "how much did today cost?"
+    stays answerable to the cent. Set the env var to a number to put a ceiling back."""
+    raw = str(os.getenv("VERTEX_MONTHLY_CAP_USD") or "").strip()
+    if not raw:
+        return float("inf")
+    try:
+        return float(raw)
+    except ValueError:
+        return float("inf")
 
 
 def _veo_usd_per_sec() -> float:

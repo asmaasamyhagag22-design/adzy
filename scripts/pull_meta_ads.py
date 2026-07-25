@@ -44,22 +44,31 @@ def main() -> int:
         return 2
 
     from ads_intel.consumer import ref_slug
-    from ads_intel.live import UrllibTransport, iter_ad_pages
+    from ads_intel.live import UrllibTransport, iter_competitor_ads
     from ads_intel.pull_ledger import check_calls, record_call
     brand_ref = args.brand_ref or ref_slug(args.query)
 
     rows: list = []
+    basis = "keyword_legacy"
     transport = UrllibTransport()
     try:
-        for page in iter_ad_pages(args.query, country=args.country, token=token, fields=_FIELDS,
-                                  transport=transport, batch_size=100, hard_cap=max(1, args.max)):
+        # ASK FOR THE ADVERTISER, NOT FOR THEIR WORDS. This used `iter_ad_pages`, whose
+        # `search_terms` query searches AD COPY — so it returns whoever happens to use the words
+        # and never the competitor. Measured over every snapshot this script produced: 260 ads,
+        # zero of them a competitor's ("Vodafone Egypt" -> Vodafone Foundation, "Joe's cafe" ->
+        # Goodnovel Lovers). `iter_competitor_ads` resolves the advertiser's page first and falls
+        # back to keywords only when no page can be identified — and says which it did.
+        for page, how in iter_competitor_ads(args.query, country=args.country, token=token,
+                                             fields=_FIELDS, transport=transport,
+                                             batch_size=100, hard_cap=max(1, args.max)):
+            basis = str((how or {}).get("basis") or basis)
             ok, msg = check_calls(1)
             if not ok:
                 print(f"[x] {msg}", file=sys.stderr)
                 break
             record_call(f"ads_archive?q={args.query}", len(page))
             rows.extend(page)
-            print(f"  … {len(rows)} ads so far")
+            print(f"  … {len(rows)} ads so far  (basis: {basis})")
     except Exception as exc:  # noqa: BLE001 — fail-closed: keep the partial, never retry-storm
         print(f"[!] pull stopped early ({type(exc).__name__}) — keeping {len(rows)} ads",
               file=sys.stderr)
@@ -69,6 +78,11 @@ def main() -> int:
         "brand_ref": brand_ref,
         "query": args.query,
         "country": args.country,
+        # WHAT QUESTION PRODUCED THESE ROWS. Without it, a file pulled by advertiser and a file
+        # pulled by ad copy look identical on disk — and every snapshot written before this field
+        # existed is the second kind. `ads_intel.orchestrator.snapshot_basis` reads absent as
+        # `keyword_legacy`, so old noise can never be mistaken for evidence.
+        "basis": basis,
         "pulled_at": datetime.now(timezone.utc).isoformat(),
         "ads": rows,
     }

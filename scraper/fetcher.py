@@ -239,7 +239,20 @@ def _detect_bot_protection(text: str, title: str, *, http_status: Optional[int] 
         return ErrorCode.BOT_PROTECTION
 
     # (b) a block status returned with almost no visible text — a block in ANY language.
-    if http_status in (403, 429, 503) and len((text or "").strip()) < MIN_RENDERED_CHARS:
+    #
+    # 429 IS NOT IN THIS LIST, AND THAT IS THE POINT. A 429 means "you are going too fast", which
+    # is a statement about timing, not about permission. Reporting it as BOT_PROTECTION printed
+    # "مش هيتفتح بإعادة المحاولة" — it will not open on a retry — to an owner whose site opens
+    # fine on the next attempt. Worse, it short-circuited the patience this file already builds
+    # for exactly this case: `_is_rate_limited` + the caller's `rate_limit_retries` budget exist
+    # to wait a 429 out, and they only run while the result is classified transient.
+    #
+    # MEASURED (alfouadpharmacies.com, 2026-07-25): HTTP 429 + 169 bytes, reported as a permanent
+    # block on a site that returns 1.3 MB and HTTP 200 over an ordinary connection.
+    #
+    # A 429 that carries a real challenge marker is still caught above, by (a) — narrowing this
+    # inference does not blind it.
+    if http_status in (403, 503) and len((text or "").strip()) < MIN_RENDERED_CHARS:
         return ErrorCode.BOT_PROTECTION
     return None
 

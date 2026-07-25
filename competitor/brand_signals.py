@@ -152,9 +152,37 @@ def weaknesses_from_readiness(profile: Any, ledger: Any = None) -> list[SWOTItem
 
 
 # A trend title signalling a category HEADWIND (a Threat) rather than an opening (Opportunity).
+#
+# BILINGUAL, AND IT MATTERS THAT IT IS. The router below is an if/else with no third branch: a
+# title carrying a headwind word becomes a Threat, and EVERYTHING ELSE becomes an Opportunity. So
+# for as long as this list was English-only, «حظر استيراد المكملات الغذائية» — a ban, written in
+# the brand's own language — matched nothing and fell through to the else, and the client was shown
+# their own category's crackdown labelled as an opening. A silent misfile, not an empty box.
+#
+# The omission is easy to see once named: the two OTHER keyword lists in this same pipeline were
+# already bilingual (`swot.py:_GROWTH_SIGNALS` carries «نمو» «توسع» «حجم السوق»,
+# `swot.py:_COMMODITIZATION_SIGNALS` carries «المعيار» «يحل محل»). The lesson was learned once and
+# this list was left behind.
+#
+# D-8: this ADDS terms, it does not add a language check — no branch anywhere asks what language a
+# brand is in. A script we carry no terms for degrades to the previous behaviour, never worse.
+#
+# Arabic terms are matched as SUBSTRINGS like the English ones, so each is chosen to be specific
+# enough not to over-reach: «تراجع» (decline) is a headwind, but the test locks that «مراجعة»
+# (review) — which shares letters — is not dragged in with it.
 _TREND_THREAT_KEYS = (
+    # English
     "ban", "banned", "decline", "declining", "shortage", "regulation", "regulat", "lawsuit",
     "recall", "boycott", "crackdown", "tariff", "restrict", "crisis", "shutdown", "layoff",
+    # Arabic — bans, rules and enforcement
+    "حظر", "منع استيراد", "تنظيم جديد", "قيود", "تشريع", "غرامة", "إغلاق", "اغلاق",
+    # Arabic — supply, demand and price shocks
+    "نقص", "شح ", "أزمة", "ازمة", "تراجع", "انخفاض الطلب", "ركود", "ارتفاع أسعار",
+    "ارتفاع اسعار", "غلاء", "تضخم",
+    # Arabic — legal, safety and reputation
+    "دعوى", "قضية", "سحب دفعات", "سحب منتج", "مقاطعة", "تحذير", "غش", "تسمم", "تلوث",
+    # Arabic — contraction
+    "تسريح", "خسائر", "إفلاس", "افلاس",
 )
 
 

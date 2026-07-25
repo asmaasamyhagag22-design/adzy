@@ -174,11 +174,73 @@ class RealRender:
     result: object = None
 
 
-def _render_real(brand: dict, *, headline: str, language: str) -> RealRender:
+try:                                         # module seam, so a test can stub the scrape
+    from scraper.product_page import scrape_product_page
+except Exception:  # noqa: BLE001 — Playwright may be unavailable; the feature degrades, nothing breaks
+    scrape_product_page = None  # type: ignore[assignment]
+
+_PRODUCT_NOTES = {
+    "unsafe": "الرابط ده مش رابط عام صالح — اتجاهل، والصورة اتعملت من بيانات البراند العامة.",
+    "unreachable": ("مقدرناش نفتح صفحة المنتج دي (الموقع رفض الطلب أو الصفحة مش موجودة) — "
+                    "الصورة اتعملت من بيانات البراند العامة."),
+    "empty": ("فتحنا الصفحة بس مالقيناش فيها بيانات منتج نقدر نستعملها (لا اسم ولا صورة) — "
+              "الصورة اتعملت من بيانات البراند العامة."),
+    "unavailable": ("قراءة روابط المنتجات مش متاحة في التشغيلة دي — الصورة اتعملت من بيانات "
+                    "البراند العامة."),
+}
+
+
+def product_from_link(url: str):
+    """(ProductInfo|None, note) for a user-pasted product URL. Never raises.
+
+    THE POINT OF THE NOTE. This project has already been burned by accepting a user's input and
+    dropping it: an uploaded logo was read, bounded and discarded, and `/generate/upload` still
+    accepts `product_name`/`product_description` form fields that reach nothing. Someone who pastes
+    a link and gets a generic poster back has been told, silently, that the link worked. So every
+    way this can fail returns a sentence the client can read.
+
+    SSRF: the URL comes from a browser. Same gate as every other user-supplied URL here."""
+    u = str(url or "").strip()
+    if not u:
+        return None, ""
+    # REJECT A FOREIGN SCHEME BEFORE NORMALISING, not after. `ensure_scheme` exists to turn
+    # "shop.test/p/1" into "https://shop.test/p/1", and handed `file:///etc/passwd` it produces
+    # something whose HOST is `file` — which then passes a public-IP check on any resolver that
+    # answers for it. Exactly the hole already found and closed in `competitor/manual.py`; the
+    # order of these two lines is the whole fix.
+    scheme = u.split(":", 1)[0].lower() if ":" in u.split("/", 1)[0] else ""
+    if scheme and scheme not in ("http", "https"):
+        return None, _PRODUCT_NOTES["unsafe"]
+    try:
+        from scraper.url_utils import ensure_scheme, is_safe_public_url
+        u = ensure_scheme(u)
+        if not u.lower().startswith(("http://", "https://")) or not is_safe_public_url(u):
+            return None, _PRODUCT_NOTES["unsafe"]
+    except Exception:  # noqa: BLE001 — no gate available means we do not fetch, not that we risk it
+        return None, _PRODUCT_NOTES["unsafe"]
+    if scrape_product_page is None:
+        return None, _PRODUCT_NOTES["unavailable"]
+    try:
+        info = scrape_product_page(u)
+    except Exception:  # noqa: BLE001 — a bad link must never cost the client their image
+        logger.exception("product link scrape failed: %s", u)
+        return None, _PRODUCT_NOTES["unreachable"]
+    if info is None:
+        return None, _PRODUCT_NOTES["unreachable"]
+    if not getattr(info, "usable", False):
+        return None, _PRODUCT_NOTES["empty"]
+    return info, ""
+
+
+def _render_real(brand: dict, *, headline: str, language: str, product=None) -> RealRender:
     """Real poster via poster.pipeline.generate_poster.
 
     Returns a RealRender whose `png` is None when the paid path could not deliver. Raises nothing:
-    the CALLER decides what to tell the user, and must be told the reason (see `generate_image`)."""
+    the CALLER decides what to tell the user, and must be told the reason (see `generate_image`).
+
+    `product`: a `ProductInfo` read from a link the owner pasted. `generate_poster` has taken
+    `product_image` / `product_name` all along — the webapp simply never passed them, so "make me
+    an ad for THIS item" was not expressible."""
     profile = brand.get("_profile") or {}
     if not profile:
         raise MissingProfile("no stored _profile for this brand — nothing to ground a render on")
@@ -186,7 +248,9 @@ def _render_real(brand: dict, *, headline: str, language: str) -> RealRender:
     from poster.pipeline import generate_poster
     caller = default_caller(strong=True)
     res = generate_poster(profile, caller=caller, engine="oneshot", language=language,
-                          headline_override=headline or None)
+                          headline_override=headline or None,
+                          product_image=(getattr(product, "image", "") or None) if product else None,
+                          product_name=(getattr(product, "name", "") or None) if product else None)
     import base64
     png = base64.b64decode(res.image_base64) if res and res.image_base64 else None
     return RealRender(png=png, result=res)
@@ -201,7 +265,8 @@ class MissingProfile(RuntimeError):
 # ---------------------------------------------------------------------
 
 def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: str = "",
-                   language: str = "auto", content_type: str = "post") -> dict:
+                   language: str = "auto", content_type: str = "post",
+                   product_url: str = "") -> dict:
     """Return the image plus an honest account of HOW it was produced. Always succeeds.
 
     Beyond {image_b64, filename, headline, subtext, cta}:
@@ -220,9 +285,13 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
     trust_violation = False
     trust_note_ar = ""
 
+    # "Make me an ad for THIS product" — resolved BEFORE the render so its failure is a stated
+    # note rather than a silently generic poster.
+    product, product_note = product_from_link(product_url)
+
     if paid_images_enabled():
         try:
-            real = _render_real(brand, headline=headline, language=language)
+            real = _render_real(brand, headline=headline, language=language, product=product)
             png = real.png
             if png is None:
                 degraded_reason = "the image model returned no image"
@@ -255,6 +324,10 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
         "degraded_reason": degraded_reason,
         "trust_violation": trust_violation,
         "trust_note_ar": trust_note_ar,
+        # What we actually read from the pasted link, and why it did not work when it did not.
+        "product": ({"name": product.name, "image": product.image, "price": product.price,
+                     "currency": product.currency, "url": product.url} if product else None),
+        "product_note": product_note,
     }
 
 

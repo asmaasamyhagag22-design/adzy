@@ -945,6 +945,56 @@
      scoring layer, kept out at the rendering layer too. */
   .evidence-chip-claim { opacity: 0.75; font-style: italic; }
   .quadrant-card.q-readiness { border-left-color: var(--silver-line); margin-top: 20px; }
+  /* Product read-back — quiet by default, amber only when the link did not work. */
+  .product-read {
+    display: flex; gap: 12px; align-items: center; margin: 8px 0 4px;
+    padding: 10px 12px; border-radius: 10px; font-size: 0.8rem; line-height: 1.55;
+    border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text3);
+  }
+  .product-read.warn {
+    border-color: rgba(255,159,10,0.35); background: rgba(255,159,10,0.10); color: #FFB020;
+  }
+  .product-read-img {
+    width: 52px; height: 52px; object-fit: cover; border-radius: 8px; flex: 0 0 auto;
+    background: var(--surface2);
+  }
+  .product-read-name { color: var(--text); font-weight: 600; }
+  .product-read-price { font-variant-numeric: tabular-nums; }
+  .product-read-tag { font-size: 0.72rem; opacity: 0.8; margin-top: 2px; }
+  .field-label {
+    display: flex; align-items: center; gap: 6px; font-size: 0.8rem; font-weight: 600;
+    color: var(--text2); margin-bottom: 6px;
+  }
+  .field-hint { font-weight: 400; font-size: 0.72rem; color: var(--text3); }
+  .field-divider {
+    display: flex; align-items: center; gap: 10px; margin: 14px 0 8px;
+    font-size: 0.72rem; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .field-divider::before, .field-divider::after {
+    content: ""; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* Market signals — a readable list of sources, not chips. The link is the point. */
+  .trend-row {
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .trend-row:last-child { border-bottom: none; }
+  .trend-title {
+    font-size: 0.88rem; color: var(--text); line-height: 1.5; text-decoration: none;
+    display: block; margin-bottom: 5px;
+  }
+  a.trend-title:hover { color: var(--accent, #8FB6C9); text-decoration: underline; }
+  .trend-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .trend-host {
+    font-family: var(--mono, ui-monospace, Consolas, monospace);
+    font-size: 0.68rem; color: var(--text3);
+  }
+  .trend-term {
+    font-size: 0.66rem; color: var(--silver-dim, var(--text3));
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    padding: 1px 7px; border-radius: 999px;
+  }
+
   .swot-notes-box {
     background: var(--surface2); border: 1px solid var(--border); border-radius: 12px;
     padding: 14px 16px; margin-top: 16px;
@@ -1711,13 +1761,22 @@
           </button>
         </div>
         <div class="ad-mode-product-fields" id="ad-mode-product-fields" style="display:none;">
+          <!-- THE FASTEST PATH FIRST. Pasting the product's own page gives us its real name,
+               description, price and PHOTO in one step, and the poster is then built around that
+               item instead of around the brand in general. The typed fields below stay for a
+               product that has no page. -->
+          <label class="field-label" for="studio-product-url">
+            <i class="ph ph-link-simple"></i> Product link
+            <span class="field-hint">paste the product's page — we read its name, price and photo</span>
+          </label>
+          <input type="url" id="studio-product-url" class="input"
+                 placeholder="https://yourstore.com/products/..." />
+          <div id="studio-product-read" class="product-read" style="display:none;"></div>
+
+          <div class="field-divider"><span>or describe it yourself</span></div>
           <input type="text" id="studio-product-name" class="input" placeholder="Product / dish name - e.g. Warm Chocolate Cake" />
           <textarea id="studio-product-desc" class="input" style="min-height:64px; resize:vertical;"
             placeholder="Description - e.g. A rich chocolate sponge cake layered with buttercream in warm chocolate sauce, served with vanilla ice cream."></textarea>
-          <label style="display:block; margin-top:8px; font-size:0.78rem; color:var(--text3);">
-            Reference photo (optional) - stored with the request. It does not condition the render yet, so the visual is built from your brand profile; we'll say so on the result
-            <input type="file" id="studio-product-reference" accept="image/*" class="input" style="margin-top:4px;" />
-          </label>
         </div>
       </div>
 
@@ -1897,6 +1956,20 @@
 
     <!-- Trend view -->
     <div class="strat-view active" id="strat-view-trend">
+      <!-- THE MARKET SIGNALS THEMSELVES. This tab is called "Trend" and until now showed only
+           SWOT bookkeeping — quadrant counts and benchmark quality — because the fetched trends
+           were never serialized. They lead now; the analysis-quality chips stay, below, under a
+           name that says what they are. -->
+      <div class="info-section" id="trend-signals-section" style="display:none;">
+        <div class="info-label">Market signals · what is being written about your terms</div>
+        <div id="trend-signals"></div>
+      </div>
+      <div class="empty-state" id="trend-signals-empty" style="display:none; padding:20px 0;">
+        <p style="font-size:0.85rem; color:var(--text3);">
+          No on-topic market coverage was found for this brand's terms in this run.
+        </p>
+      </div>
+
       <div id="trend-content" style="display:none;">
         <div class="info-section">
           <div class="info-label">Quadrant balance</div>
@@ -2519,6 +2592,31 @@ function swotItemHtml(item) {
 // the client read none of them: a free placeholder, a paid render that failed and silently fell
 // back, and a render the pipeline itself flagged as containing a fabricated element all arrived
 // on screen looking identical to a finished, trustworthy image.
+// WHAT WE ACTUALLY READ FROM THE LINK. Someone who pastes a product page and gets a picture back
+// has no way to tell whether we read that product or ignored the link — and this project has
+// already shipped a control that silently discarded its input once. So the page states the facts
+// it recovered, or the reason it recovered none.
+function showProductRead(data) {
+  const box = document.getElementById('studio-product-read');
+  if (!box) return;
+  const p = data && data.product;
+  const note = (data && data.product_note) || '';
+  if (!p && !note) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  if (p) {
+    const price = [p.price, p.currency].filter(Boolean).join(' ');
+    box.className = 'product-read ok';
+    box.innerHTML =
+      (p.image ? `<img src="${escHtml(p.image)}" alt="" class="product-read-img" />` : '')
+      + `<div><div class="product-read-name">${escHtml(p.name)}</div>`
+      + (price ? `<div class="product-read-price">${escHtml(price)}</div>` : '')
+      + '<div class="product-read-tag">read from your link — the poster is built around this item</div></div>';
+  } else {
+    box.className = 'product-read warn';
+    box.innerHTML = `<div dir="auto">${escHtml(note)}</div>`;
+  }
+  box.style.display = 'flex';
+}
+
 function showDisclosure(data) {
   const box = document.getElementById('gen-disclosure');
   if (!box) return;
@@ -3311,6 +3409,30 @@ function renderStrategyDashboard(b) {
 
   // ── Trend view - surfaced from swot.strategic_context (quality/benchmark
   // signals produced alongside the SWOT; there's no separate trend.json) ──
+  // The real trends, each with the source that makes it checkable. A trend line asserts only
+  // that coverage on the brand's terms EXISTS — nothing upstream measures direction — so the
+  // wording here says "written about", never "rising".
+  const signals = swot.trends || [];
+  const sigSection = document.getElementById('trend-signals-section');
+  const sigEmpty = document.getElementById('trend-signals-empty');
+  if (sigSection) {
+    sigSection.style.display = signals.length ? '' : 'none';
+    if (sigEmpty) sigEmpty.style.display = (hasSwot && !signals.length) ? '' : 'none';
+    document.getElementById('trend-signals').innerHTML = signals.map(t => {
+      const terms = (t.matched_terms || []).map(x =>
+        `<span class="trend-term">${escHtml(x)}</span>`).join('');
+      const title = escHtml(t.title);
+      const head = t.url
+        ? `<a href="${escHtml(t.url)}" target="_blank" rel="noopener noreferrer" class="trend-title">${title}</a>`
+        : `<span class="trend-title">${title}</span>`;
+      let host = '';
+      try { host = t.url ? new URL(t.url).hostname.replace(/^www\./, '') : ''; } catch (e) { host = ''; }
+      return `<div class="trend-row" dir="auto">${head}
+        <div class="trend-meta">${host ? `<span class="trend-host">${escHtml(host)}</span>` : ''}${terms}</div>
+      </div>`;
+    }).join('');
+  }
+
   const ctx = swot.strategic_context || {};
   const hasTrend = hasSwot && Object.keys(ctx).length > 0;
   document.getElementById('trend-empty').style.display = hasTrend ? 'none' : '';
@@ -4221,14 +4343,18 @@ async function generateImage() {
   const cta      = document.getElementById('studio-cta').value;
   const logoFile = document.getElementById('logo-upload').files[0];
 
-  let productName = '', productDesc = '', referenceFile = null;
+  let productName = '', productDesc = '', productUrl = '';
   if (state.adMode === 'product') {
+    productUrl  = document.getElementById('studio-product-url').value.trim();
     productName = document.getElementById('studio-product-name').value.trim();
     productDesc = document.getElementById('studio-product-desc').value.trim();
-    referenceFile = document.getElementById('studio-product-reference').files[0] || null;
-    if (!productName) {
-      toast('Enter a product/dish name for Product Ad mode', 'error');
-      document.getElementById('studio-product-name').focus();
+    // A LINK IS ENOUGH. The reference-photo file input that used to live here was removed: its own
+    // label admitted it "does not condition the render yet", i.e. the file was uploaded, bounded
+    // and discarded. The link does what that control only looked like it did — we fetch the
+    // product's page and build the poster around its real name, price and photo.
+    if (!productUrl && !productName) {
+      toast('Paste the product link, or type a product name', 'error');
+      document.getElementById('studio-product-url').focus();
       return;
     }
   }
@@ -4243,7 +4369,7 @@ async function generateImage() {
 
   try {
     let data;
-    if (referenceFile) {
+    if (false) {   // reference-photo branch retired with its input (see above)
       // Product Ad + a real reference photo: img2img conditions on the
       // actual product instead of letting the model imagine it, so its
       // identity (shape, packaging, exact look) is preserved.
@@ -4281,6 +4407,7 @@ async function generateImage() {
       formData.append('cta', cta);
       formData.append('ai_text', (!headline && !subtext && !cta) ? 'true' : 'false');
       formData.append('logo', logoFile);
+      formData.append('product_url', productUrl);
       formData.append('product_name', productName);
       formData.append('product_description', productDesc);
       const r = await fetch('/api/generate/upload', { method: 'POST', headers: authHeaders(), body: formData });
@@ -4303,6 +4430,7 @@ async function generateImage() {
         headline, subtext, cta,
         user_context: userContext,
         mode: 'text_to_image',
+        product_url: productUrl,
         product_name: productName,
         product_description: productDesc,
       };
@@ -4326,6 +4454,7 @@ async function generateImage() {
     document.getElementById('gen-image-meta').textContent =
       state.selectedCT.replace('_',' ') + ' · ' + state.selectedStyle + ' · ' + (state.studioBrand.organization_name || '');
     showDisclosure(data);
+    showProductRead(data);
 
   } catch(e) {
     document.getElementById('gen-loading').classList.remove('active');
@@ -4467,6 +4596,7 @@ async function applyMaskEdit() {
       toast('Region edited', 'success');
     }
     showDisclosure(data);
+    showProductRead(data);
   } catch (e) {
     toast('Edit failed: ' + e.message, 'error');
   } finally {

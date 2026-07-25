@@ -25,8 +25,16 @@ def test_waf_header_marker_caught():
 
 
 def test_block_status_with_empty_body_caught_in_any_language():
-    # 429/503 with a near-empty body is a block regardless of language.
-    assert _detect_bot_protection("Erişim engellendi", "", http_status=429, html="") is ErrorCode.BOT_PROTECTION
+    """403/503 with a near-empty body is a block regardless of language.
+
+    429 WAS ASSERTED HERE AND HAS BEEN MOVED OUT, with the measurement. A 429 is a rate limit —
+    "slower", not "no" — and treating it as a permanent block told the owner that
+    alfouadpharmacies.com refuses crawlers when the same URL returns HTTP 200 and 1.3 MB over an
+    ordinary connection. It also skipped the 429-specific patience budget this project already
+    built (`_is_rate_limited` + `HOMEPAGE_RATE_LIMIT_RETRIES`). The Turkish phrase still proves the
+    language-independence this file exists for — via a status that really does mean refusal.
+    See tests/test_http2_workaround_is_not_global.py."""
+    assert _detect_bot_protection("Erişim engellendi", "", http_status=403, html="") is ErrorCode.BOT_PROTECTION
     assert _detect_bot_protection("", "", http_status=503, html="") is ErrorCode.BOT_PROTECTION
 
 

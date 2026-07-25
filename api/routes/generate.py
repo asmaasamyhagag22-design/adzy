@@ -50,9 +50,14 @@ _IGNORED_UPLOAD_DEFAULT = ("Your uploaded image does not feed the generation yet
 
 
 def _emit(brand: dict, *, headline: str, subtext: str, cta: str, style: str,
-          content_type: str, owner_id: str = "", ignored_upload: str = "") -> dict:
+          content_type: str, owner_id: str = "", ignored_upload: str = "",
+          product_url: str = "") -> dict:
+    # `product_url` is the owner's «بحط اللينك بتاعه»: an ad for ONE named item rather than for the
+    # brand in general. `generate_poster` has accepted `product_image`/`product_name` all along —
+    # this function was simply the wall they never got past, which is also why the
+    # `product_name`/`product_description` form fields below reached nothing.
     out = images.generate_image(brand, headline=headline, subtext=subtext, cta=cta,
-                                content_type=content_type)
+                                content_type=content_type, product_url=product_url)
     if ignored_upload:
         lang = images.brand_language(brand)
         out = {**out, "applied_upload": False,
@@ -78,6 +83,7 @@ class GenerateRequest(BaseModel):
     cta: str = ""
     user_context: str = ""
     mode: str = "text_to_image"
+    product_url: str = ""          # paste a product page; the poster is built around THAT item
     product_name: str = ""
     product_description: str = ""
 
@@ -86,7 +92,8 @@ class GenerateRequest(BaseModel):
 def generate(req: GenerateRequest, user: dict = Depends(require_user)) -> dict:
     brand = _brand_or_404(req.domain_key, user["id"])
     return _emit(brand, headline=req.headline, subtext=req.subtext, cta=req.cta,
-                 style=req.style, content_type=req.content_type, owner_id=user["id"])
+                 style=req.style, content_type=req.content_type, owner_id=user["id"],
+                 product_url=req.product_url)
 
 
 # ---- multipart: + a logo ----
@@ -99,6 +106,7 @@ async def generate_with_logo(
     subtext: str = Form(""),
     cta: str = Form(""),
     ai_text: str = Form("false"),
+    product_url: str = Form(""),
     product_name: str = Form(""),
     product_description: str = Form(""),
     logo: Optional[UploadFile] = File(None),
@@ -111,7 +119,7 @@ async def generate_with_logo(
         # nor the paid path. The response now says so — see `_IGNORED_UPLOAD_NOTE`.
         await read_bounded(logo, field="logo")
     return _emit(brand, headline=headline, subtext=subtext, cta=cta, style=style,
-                 content_type=content_type, owner_id=user["id"],
+                 content_type=content_type, owner_id=user["id"], product_url=product_url,
                  ignored_upload="logo" if logo is not None else "")
 
 
@@ -126,6 +134,7 @@ async def generate_with_reference(
     cta: str = Form(""),
     ai_text: str = Form("false"),
     reference_strength: str = Form("0.55"),
+    product_url: str = Form(""),
     product_name: str = Form(""),
     product_description: str = Form(""),
     reference_image: Optional[UploadFile] = File(None),
@@ -136,7 +145,7 @@ async def generate_with_reference(
         # Same as the logo above: bounded and consumed, but not plumbed into any renderer.
         await read_bounded(reference_image, field="reference_image")
     return _emit(brand, headline=headline, subtext=subtext, cta=cta, style=style,
-                 content_type=content_type, owner_id=user["id"],
+                 content_type=content_type, owner_id=user["id"], product_url=product_url,
                  ignored_upload="reference_image" if reference_image is not None else "")
 
 

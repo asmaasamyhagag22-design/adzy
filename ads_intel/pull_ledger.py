@@ -14,8 +14,30 @@ from typing import Optional, Tuple
 DEFAULT_LEDGER = "runs/meta_pulls.jsonl"
 
 
-def meta_monthly_call_cap() -> int:
-    return int(os.getenv("META_MONTHLY_CALL_CAP", "500"))
+_UNLIMITED = float("inf")
+
+
+def _cap_from_env(var: str) -> float:
+    """A cap from the environment, or UNLIMITED when unset.
+
+    OWNER RULING (2026-07-25): «شيل اي حدود ع اي ميزانيه». What prompted it was this very cap
+    silently refusing the 501st Serper call of the month, which made every web-discovery feature
+    look broken instead of paused — abuauf.com shipped "No Competitors Found", a claim about her
+    market, when the truth was a fact about our meter.
+
+    LIFTED IS NOT UNMETERED. `record_call` still writes every call and `_month_calls` still counts
+    them; only the refusal is gone. Setting the env var to a number brings the ceiling back."""
+    raw = str(os.getenv(var) or "").strip()
+    if not raw:
+        return _UNLIMITED
+    try:
+        return float(raw)
+    except ValueError:
+        return _UNLIMITED
+
+
+def meta_monthly_call_cap() -> float:
+    return _cap_from_env("META_MONTHLY_CALL_CAP")
 
 
 def month_key(dt: Optional[datetime] = None) -> str:
@@ -42,14 +64,22 @@ def _month_calls(ledger: str, month: str) -> Tuple[int, int]:
 
 
 def check_calls(planned: int, *, ledger: str = DEFAULT_LEDGER,
-                monthly_cap: Optional[int] = None, month: Optional[str] = None) -> Tuple[bool, str]:
+                monthly_cap: Optional[float] = None, month: Optional[str] = None,
+                service: str = "Meta") -> Tuple[bool, str]:
+    """`service` NAMES THE METER THAT REFUSED. This function is shared by the Meta ad puller and by
+    Serper, and the message hardcoded "Meta" — so an exhausted Serper budget reported itself as
+    "monthly Meta call cap reached", which is what made the live abuauf.com failure take far longer
+    to identify than it should have. A guard that misnames itself is worse than a silent one."""
     cap = monthly_cap if monthly_cap is not None else meta_monthly_call_cap()
     mk = month or month_key()
     calls, corrupt = _month_calls(ledger, mk)
+    # UNCAPPED IS NOT UNGUARDED. A ledger we cannot read means spend cannot be accounted for at
+    # all, and that still stops the run — this refusal is about integrity, not about budget, so
+    # lifting the caps must not lift it.
     if corrupt:
         return False, f"ledger has {corrupt} corrupt line(s) — refusing (fail-closed)"
     if calls + planned > cap:
-        return False, f"monthly Meta call cap reached ({calls}+{planned} > {cap})"
+        return False, f"monthly {service} call cap reached ({calls}+{planned} > {cap})"
     return True, ""
 
 

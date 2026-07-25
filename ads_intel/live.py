@@ -72,9 +72,12 @@ def iter_ad_pages(search_terms: str, *, country: str, token: str, fields: str,
             return
 
 
+_UNRESOLVED = object()      # "resolve it yourself", distinct from "resolved to nothing" (None)
+
+
 def iter_competitor_ads(name: str, *, country: str, token: str, fields: str,
                         transport: MetaAdsTransport, batch_size: int = 20,
-                        hard_cap: int = 200) -> Iterator[tuple[list, dict]]:
+                        hard_cap: int = 200, page_id=_UNRESOLVED) -> Iterator[tuple[list, dict]]:
     """Yield (page_of_ads, basis) for ONE competitor, strongest evidence first.
 
     1. Resolve the advertiser's page by NAME and pull that page's ads — every row is provably
@@ -87,7 +90,11 @@ def iter_competitor_ads(name: str, *, country: str, token: str, fields: str,
     NOT fall back: "they aren't advertising" is a real finding, and replacing it with strangers'
     ads would turn a true answer into a false one.
     """
-    page_id = resolve_page_id(name, country=country, token=token, transport=transport)
+    # `page_id` may be supplied by a caller that already resolved it — the orchestrator does,
+    # because identifying the advertiser is a real API request and has to be checked and recorded
+    # against the pull budget on its own rather than riding along inside the first page's budget unit.
+    if page_id is _UNRESOLVED:
+        page_id = resolve_page_id(name, country=country, token=token, transport=transport)
     if page_id:
         basis = {"basis": "page_id", "page_id": page_id}
         pulled, after = 0, None
