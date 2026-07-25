@@ -68,4 +68,15 @@ def test_text_fidelity_verbatim_pass_garble_fail_extra_flagged():
     extra = text_fidelity(expected, ["المسافات بينا كلام", "اعرف أكتر", "عرض خاص %50"])
     assert extra["rate"] == 1.0 and extra["extra_lines"] == ["عرض خاص %50"]  # invented label flagged
 
-    assert text_fidelity({}, ["anything"])["rate"] == 1.0            # nothing to verify
+    # REVERSED, and the reason belongs here. This line pinned `rate == 1.0` for "nothing to
+    # verify" — and the caller's gate is `if rate < 1.0: continue`, so an empty expectation set
+    # certified ANY image, including one whose Arabic is scrambled glyph-soup. That is the whole
+    # failure this gate exists to prevent, since the image model cannot write Arabic (Abu Auf:
+    # three attempts, fidelity 0.0 each) while the fallback behind it renders the same copy
+    # correctly (same brand, next run, 9/10, script_wellformed true).
+    #
+    # There are three states, not two. `verified` is the one a gate may act on.
+    unverifiable = text_fidelity({}, ["anything"])
+    assert unverifiable["verified"] is False
+    assert unverifiable["rate"] == 0.0            # never looks like a perfect render
+    assert ok["verified"] is True                 # a genuinely checked pass still passes

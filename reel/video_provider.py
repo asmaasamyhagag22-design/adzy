@@ -679,6 +679,234 @@ class AimlVeoProvider:
 
 
 
+# ---------------------------------------------------------------------------
+# Kling — image-to-video (the owner's video stack from 2026-07-25)
+# ---------------------------------------------------------------------------
+
+_KLING_BASE = "https://api-singapore.klingai.com"
+_KLING_SUBMIT = "/v1/videos/image2video"
+_KLING_TEXT_SUBMIT = "/v1/videos/text2video"
+
+
+class _UrllibKlingTransport:
+    """The ONLY class here that touches the network (timeout-bounded), so every test injects a
+    fake and nothing in the suite can reach Kling by accident. Same shape as the Meta seam."""
+
+    def post(self, url, *, headers=None, json_body=None):
+        import json as _json
+        import urllib.request
+        data = _json.dumps(json_body or {}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method="POST",
+                                     headers={"Content-Type": "application/json",
+                                              **(headers or {})})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return _json.loads(r.read().decode("utf-8"))
+
+    def get(self, url, *, headers=None):
+        import json as _json
+        import urllib.request
+        req = urllib.request.Request(url, headers=headers or {})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return _json.loads(r.read().decode("utf-8"))
+
+    def download(self, url, dest):
+        import shutil
+        import urllib.request
+        from pathlib import Path as _P
+        _P(dest).parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(url, timeout=300) as r, open(dest, "wb") as f:
+            shutil.copyfileobj(r, f)
+        return dest
+
+
+def _kling_jwt(access_key: str, secret_key: str, *, now: Optional[int] = None) -> str:
+    """Kling signs each request with a short-lived JWT built from the access/secret PAIR.
+
+    The secret is a long-lived credential and must never travel in a header: it signs, it is not
+    sent. Encoded here rather than pulled from a JWT library so the provider has no new dependency
+    — the token is three base64url segments and an HMAC-SHA256, and writing it out keeps the
+    "never send the secret" property visible at the point it matters.
+    """
+    import base64
+    import hashlib
+    import hmac
+    import json as _json
+    import time as _time
+
+    def _b64(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+    iat = int(now if now is not None else _time.time())
+    header = _b64(_json.dumps({"alg": "HS256", "typ": "JWT"},
+                              separators=(",", ":")).encode("utf-8"))
+    # 30-minute validity, backdated 5s for clock skew — Kling's documented envelope.
+    payload = _b64(_json.dumps({"iss": access_key, "exp": iat + 1800, "nbf": iat - 5},
+                               separators=(",", ":")).encode("utf-8"))
+    signing_input = f"{header}.{payload}".encode("ascii")
+    sig = hmac.new(secret_key.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    return f"{header}.{payload}.{_b64(sig)}"
+
+
+class KlingProvider:
+    """Kling image-to-video: animate a still instead of inventing a scene from text.
+
+    OWNER RULING 2026-07-25: «kling هعمل بيه فيديوهات بدل veo هطلع صور من نانو بانانا لايت
+    واحركها» — stills from Nano Banana Lite, animated by Kling, replacing Veo text-to-video. The
+    driver is cost: Veo bills $0.40/SECOND, and an uncapped Veo renderer is what produced this
+    project's $228-in-four-days incident.
+
+    IMAGE-TO-VIDEO IS THE POINT, so `reference_image` is not decoration here: given a still we
+    submit to the i2v endpoint with that frame attached. With no still we fall back to t2v, which
+    is honest but is not what this provider exists for.
+
+    It implements the SAME `VideoProvider` protocol as Veo, so the compositor, its Ken Burns
+    fallback and every QA gate downstream work unchanged — no parallel path.
+
+    RAISES on failure, deliberately. `reel/compositor.py` already catches a provider error and
+    falls back to Ken Burns stills; returning a path to nothing instead would defeat that.
+    """
+    name = "kling"
+
+    def __init__(self, *, access_key: Optional[str] = None, secret_key: Optional[str] = None,
+                 model: Optional[str] = None, transport: Any = None,
+                 poll_seconds: int = 6, max_wait_seconds: int = 600,
+                 base_url: Optional[str] = None):
+        # ONE VALUE OR TWO. Kling's open platform issues an access/secret PAIR and signs a JWT with
+        # it; some consoles hand out a single token instead. The owner has a single secret
+        # («هو سكرت بس»), so `KLING_API_KEY` is accepted and sent as a plain bearer — the pair is
+        # still preferred and still signs when both are present. Guessing an access key from a
+        # secret would produce a token that fails on every call for no visible reason.
+        self.access_key = access_key or os.getenv("KLING_ACCESS_KEY") or ""
+        self.secret_key = (secret_key or os.getenv("KLING_SECRET_KEY")
+                           or os.getenv("KLING_API_KEY") or "")
+        self.single_token = bool(not self.access_key and self.secret_key)
+        self.model = model or os.getenv("KLING_MODEL") or "kling-v1-6"
+        self.transport = transport or _UrllibKlingTransport()
+        self.poll_seconds = poll_seconds
+        self.max_wait_seconds = max_wait_seconds
+        self.base_url = (base_url or os.getenv("KLING_BASE_URL") or _KLING_BASE).rstrip("/")
+
+    # ---- auth ----
+    def _headers(self) -> dict:
+        if not self.secret_key:
+            raise RuntimeError(
+                "No Kling credentials. Set KLING_ACCESS_KEY + KLING_SECRET_KEY in .env, or "
+                "KLING_API_KEY if your console issued a single token.")
+        token = (self.secret_key if self.single_token
+                 else _kling_jwt(self.access_key, self.secret_key))
+        return {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+
+    # ---- the still ----
+    @staticmethod
+    def _image_field(reference_image: Optional[str]) -> Optional[str]:
+        """Kling takes the frame as base64 or as a public URL. A local path is read and encoded;
+        an http(s) URL is passed through."""
+        if not reference_image:
+            return None
+        src = str(reference_image)
+        if src.lower().startswith(("http://", "https://")):
+            return src
+        try:
+            import base64
+            from pathlib import Path as _P
+            raw = _P(src).read_bytes()
+        except Exception:  # noqa: BLE001 — an unreadable still is "no still", never a crash
+            return None
+        return base64.b64encode(raw).decode("ascii")
+
+    def generate(self, prompt: str, *, out_path, duration_s: float, width: int, height: int,
+                 palette: Optional[list] = None, reference_image: Optional[str] = None):
+        from pathlib import Path as _P
+        headers = self._headers()
+        image = self._image_field(reference_image)
+        # Kling bills in whole 5s/10s clips; ask for the tier that covers what was requested.
+        seconds = 10 if float(duration_s or 5) > 5 else 5
+        body = {"model_name": self.model, "prompt": str(prompt or "")[:2000],
+                "duration": str(seconds), "aspect_ratio": _kling_ratio(width, height)}
+        if image:
+            body["image"] = image
+            path = _KLING_SUBMIT
+        else:
+            path = _KLING_TEXT_SUBMIT
+
+        res = self.transport.post(self.base_url + path, headers=headers, json_body=body)
+        task_id = (((res or {}).get("data") or {}).get("task_id") or "")
+        if not task_id:
+            raise RuntimeError(f"Kling did not return a task id: {str(res)[:200]}")
+
+        video_url = self._await_video(task_id, path, headers)
+        out = _P(out_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        self.transport.download(video_url, out)
+        _record_kling_spend(seconds=seconds, model=self.model, task_id=task_id,
+                            image_to_video=bool(image))
+        return out
+
+    def _await_video(self, task_id: str, path: str, headers: dict) -> str:
+        import time as _time
+        deadline = _time.time() + max(0, self.max_wait_seconds)
+        while True:
+            res = self.transport.get(f"{self.base_url}{path}/{task_id}", headers=headers)
+            data = (res or {}).get("data") or {}
+            status = str(data.get("task_status") or "").lower()
+            if status in ("succeed", "succeeded", "success"):
+                videos = ((data.get("task_result") or {}).get("videos") or [])
+                url = (videos[0] or {}).get("url") if videos else ""
+                if not url:
+                    raise RuntimeError("Kling reported success with no video url")
+                return url
+            if status in ("failed", "fail", "error"):
+                raise RuntimeError(f"Kling task failed: {str(data.get('task_status_msg'))[:200]}")
+            if _time.time() >= deadline:
+                raise TimeoutError(
+                    f"Kling task {task_id} still '{status}' after {self.max_wait_seconds}s")
+            _time.sleep(max(0, self.poll_seconds))
+
+
+def _kling_ratio(width: int, height: int) -> str:
+    """Nearest ratio Kling accepts. A vertical reel is 9:16; anything square-ish is 1:1."""
+    try:
+        r = float(width) / float(height)
+    except Exception:  # noqa: BLE001
+        return "9:16"
+    if r < 0.75:
+        return "9:16"
+    if r > 1.4:
+        return "16:9"
+    return "1:1"
+
+
+# Published Kling pricing is per CLIP, not per second — the reason this stack is cheaper than Veo
+# at $0.40/s. Configurable, because a price list is a fact about the vendor and not about us.
+def _kling_usd(seconds: int) -> float:
+    key = "KLING_USD_PER_10S" if seconds > 5 else "KLING_USD_PER_5S"
+    default = "0.56" if seconds > 5 else "0.28"
+    try:
+        return float(os.getenv(key, default))
+    except ValueError:
+        return float(default)
+
+
+def _record_kling_spend(*, seconds: int, model: str, task_id: str,
+                        image_to_video: bool) -> None:
+    """Every paid clip lands in a ledger. The monthly CAPS were lifted on the owner's instruction;
+    the METERS were not, and a new paid path that recorded nothing would be the single place spend
+    became invisible. Never raises — a ledger write must not cost a finished clip."""
+    import json as _json
+    import time as _time
+    from pathlib import Path as _P
+    try:
+        led = _P(os.getenv("KLING_SPEND_LEDGER", "runs/kling_spend.jsonl"))
+        led.parent.mkdir(parents=True, exist_ok=True)
+        row = {"ts": _time.time(), "provider": "kling", "model": model,
+               "duration_s": seconds, "usd": _kling_usd(seconds),
+               "mode": "i2v" if image_to_video else "t2v", "task_id": task_id}
+        with open(led, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def default_video_provider() -> VideoProvider:
     """Pick a video provider from the environment.
 
@@ -700,6 +928,8 @@ def default_video_provider() -> VideoProvider:
     backend = (os.getenv("REEL_VIDEO_BACKEND") or "").lower()
 
     # Explicit backend selection wins, whatever keys happen to be present.
+    if backend == "kling":
+        return KlingProvider()
     if backend in ("veo", "vertex"):
         return VeoProvider()
     if backend == "aiml":
@@ -707,7 +937,14 @@ def default_video_provider() -> VideoProvider:
     if backend == "stub":
         return StubVideoProvider()
 
-    # AUTO: prefer our own Vertex/Veo; only fall to the AIML gateway if Vertex is absent.
+    # AUTO: KLING FIRST when its credentials exist. The owner's 2026-07-25 ruling is that Kling
+    # REPLACES Veo for video — stills from Nano Banana Lite, animated — and the driver is cost:
+    # Veo bills $0.40/SECOND against Kling's per-clip price. Making it the default rather than an
+    # opt-in backend means nothing has to remember to set a variable before every run, which is
+    # exactly how a stale third-party key silently hijacked this pipeline once before (Runway,
+    # removed 2026-07-05). Veo stays the fallback and is still reachable via REEL_VIDEO_BACKEND.
+    if (os.getenv("KLING_ACCESS_KEY") and os.getenv("KLING_SECRET_KEY"))             or os.getenv("KLING_API_KEY"):
+        return KlingProvider()
     if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_CLOUD_PROJECT"):
         return VeoProvider()
     if os.getenv("AIML_API_KEY"):

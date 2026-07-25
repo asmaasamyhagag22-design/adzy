@@ -780,7 +780,12 @@ def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
                            and not _is_asset_text(l)]
             log(f"[oneshot] attempt {attempt}: fidelity={verdict['rate']} "
                 f"brand_lines={brand_lines} junk_extras={len(junk_extras)}")
-            if verdict["rate"] < 1.0 or brand_lines > 2 or len(junk_extras) >= 3:
+            # `verified` — not `rate` — because those are three states and only one may open this
+            # gate. A run with nothing to check used to score 1.0 and pass, which is how an image
+            # of scrambled Arabic could ship past the gate whose entire job is reading the copy
+            # back. Failed and could-not-be-checked both continue to the next attempt, and after
+            # the attempts run out the classic overlay renders the same copy correctly.
+            if not verdict.get("verified") or brand_lines > 2 or len(junk_extras) >= 3:
                 continue    # hard gates: verbatim copy / no painted branding / no label junk
 
             # ART-CRITIC pass (was classic-path only): clutter, weak contrast,

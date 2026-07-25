@@ -457,8 +457,24 @@ def text_fidelity(expected: dict, seen_lines: list[str]) -> dict:
     """The gate verdict: each requested copy field must appear VERBATIM (normalized) in the
     rendered image, and any rendered line that matches no expected field is flagged as EXTRA
     text (reported for the measurement; the logo's own fine print will show up here too).
-    Returns {'fields': {name: bool}, 'rate': float, 'extra_lines': [...]}. rate=1.0 with no
-    expected fields (nothing to verify)."""
+    Returns {'fields': {name: bool}, 'rate': float, 'verified': bool, 'extra_lines': [...]}.
+
+    "NOTHING TO VERIFY" IS NOT "VERIFIED", and this used to return `rate=1.0` for it — a default
+    the old docstring stated so plainly that it read as a decision rather than as the hole it was.
+    MEASURED:
+
+        text_fidelity({}, ["آخرياع شأفب الن عدبل"])  ->  rate 1.0
+
+    and the caller's gate is `if verdict["rate"] < 1.0: continue`. So an empty expectation set
+    opened the gate for any image at all, including one whose Arabic is scrambled glyph-soup —
+    which is exactly what this gate exists to stop, because the image model cannot write Arabic
+    (Abu Auf: three attempts, fidelity 0.0 every time) while the fallback behind it renders the
+    same copy correctly (same brand, next run, 9/10 with `script_wellformed: true`).
+
+    So there are THREE states, not two: verified, failed, and could-not-be-verified. `verified` is
+    True only when there was something to check AND all of it was found. `rate` keeps its meaning
+    for the caller that wants a number, and is 0.0 when nothing could be checked — an unverifiable
+    render must never look like a perfect one."""
     seen_norm = [_norm_text(l) for l in (seen_lines or [])]
     joined = " ".join(seen_norm)
     fields: dict[str, bool] = {}
@@ -470,5 +486,7 @@ def text_fidelity(expected: dict, seen_lines: list[str]) -> dict:
     expected_norms = [_norm_text(t) for t in (expected or {}).values() if (t or "").strip()]
     extra = [l for l, n in zip(seen_lines or [], seen_norm)
              if n and not any(n in e or e in n for e in expected_norms)]
-    rate = (sum(fields.values()) / len(fields)) if fields else 1.0
-    return {"fields": fields, "rate": round(rate, 3), "extra_lines": extra}
+    rate = (sum(fields.values()) / len(fields)) if fields else 0.0
+    verified = bool(fields) and rate >= 1.0
+    return {"fields": fields, "rate": round(rate, 3), "verified": verified,
+            "extra_lines": extra}
