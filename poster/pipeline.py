@@ -659,6 +659,7 @@ def _gather_product_props(profile, caller, log,
 def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
                  out_dir, variation, max_retries, log,
                  qa_caller=None, product_image: Optional[str] = None,
+                 identity_image: Optional[tuple] = None, identity_persona: str = "",
                  prompt_override: Optional[str] = None) -> Optional[PosterGenResult]:
     """ONE-SHOT engine: a Gemini image model composes the ENTIRE creative (layout +
     typography + graphics) in one call — the measured pilot (poster/oneshot.py:
@@ -712,6 +713,9 @@ def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
             product_placement=(getattr(concept, "product_placement", "") or ""),
             n_products=(len(product_imgs) if asset_role == "prop" else 0),
             n_places=(len(product_imgs) if asset_role == "place" else 0),
+            # Tell the prompt a PERSON is attached, or `_props_rules` describes the brand's
+            # presenter as merchandise and the model composites a face onto a counter.
+            n_identity_refs=1 if identity_image else 0,
             locale_line=locale_line, category=str(brief.category or ""))
         cue = concept_variation_cue(variation)
         if cue:
@@ -743,7 +747,8 @@ def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
                 # Do NOT attach the logo to generation — the model garbles it (esp. Arabic).
                 # The prompt reserves a clean corner; we composite the REAL logo in below.
                 oneshot.generate_oneshot_poster(prompt, out_path, logo_bytes=None,
-                                                product_images=product_imgs)
+                                                product_images=product_imgs,
+                                                identity_ref=identity_image)
             except Exception as e:  # noqa: BLE001
                 log(f"[oneshot] attempt {attempt} generation failed: {type(e).__name__}: {e}")
                 continue
@@ -922,6 +927,11 @@ def generate_poster(
     product_name: Optional[str] = None,
     prompt_override: Optional[str] = None,
     canonical_out: Optional[str] = None,
+    # The brand's SELECTED presenter, as bytes. Its own parameter on purpose: `product_images` is
+    # capped at two and everything downstream — the prompt's props block and the art critic's
+    # `expect_real_products` — treats those attachments as merchandise. A face is a person.
+    identity_image: Optional[tuple] = None,
+    identity_persona: str = "",
     log=_safe_log,
 ) -> PosterGenResult:
     """The one pipeline. `caller` = a (multimodal) Gemini caller; `qa_caller` defaults to it.
@@ -1057,7 +1067,8 @@ def generate_poster(
         r = _try_oneshot(profile, brief, concept, brand_dna, caller, arabic=arabic,
                          audit=audit, out_dir=out_dir, variation=variation,
                          max_retries=max_qa_retries, log=log, qa_caller=qa_caller,
-                         product_image=product_image, prompt_override=prompt_override)
+                         product_image=product_image, prompt_override=prompt_override,
+                         identity_image=identity_image, identity_persona=identity_persona)
         if r is not None:
             return _emit(r)
         log("[oneshot] gate not passed / unavailable -> classic overlay pipeline")

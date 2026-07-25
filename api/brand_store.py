@@ -53,7 +53,17 @@ def _write_atomic(path: Path, payload: str) -> None:
 
 
 def _merge_one_level(base: dict, patch: dict) -> dict:
-    """Apply `patch` to `base`, merging dict values one level deep.
+    """Apply `patch` to `base`, merging DICT values at every depth. Lists and scalars replace.
+
+    MEASURED LIVE (2026-07-25): with the merge stopping after one level, generating a second
+    influencer candidate left the brand holding ONE — the patch
+    `{"ai_influencer": {"candidates": {c2: …}}}` replaced the whole candidates map rather than
+    adding to it. The owner would pay for a second face and lose the first.
+
+    The principle the one-level version got wrong: a patch is a statement about the keys it NAMES.
+    Silently replacing a sibling key the patch never mentioned is not merging, it is deleting.
+    Recursing on dicts states exactly what was said and nothing more; lists still replace, so a
+    regenerated calendar overwrites the old one rather than accumulating onto it.
 
     A plain `dict.update` loses data even when the writes are perfectly serialised. The enrichment
     jobs read the brand at T0 and build their patch from that copy — `webapp_influencer` does
@@ -68,9 +78,7 @@ def _merge_one_level(base: dict, patch: dict) -> dict:
     for key, value in patch.items():
         prior = out.get(key)
         if isinstance(value, dict) and isinstance(prior, dict):
-            merged = dict(prior)
-            merged.update(value)
-            out[key] = merged
+            out[key] = _merge_one_level(prior, value)      # recurse: dicts merge at every depth
         else:
             out[key] = value
     return out

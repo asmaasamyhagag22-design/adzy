@@ -99,6 +99,9 @@ def test_the_spending_webapp_routers_carry_the_spend_gate():
     spending_paths = {"/api/scrape", "/api/swot/generate", "/api/strategy/generate",
                       "/api/marketing-plan/generate", "/api/generate", "/api/generate/upload",
                       "/api/generate/reference", "/api/edit/inpaint", "/api/influencer/create",
+                      # Every route that can reach an image model belongs on this audit surface —
+                      # `another` generates one more face, `poster` runs the whole poster pipeline.
+                      "/api/influencer/another", "/api/influencer/poster",
                       "/api/calendar/generate-image"}
     checked = 0
     for route in app.routes:

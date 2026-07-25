@@ -52,6 +52,24 @@ def _norm_text(s: str) -> str:
     return " ".join(s.casefold().split())
 
 
+def _identity_rules(n_identity_refs: int) -> str:
+    """The attached face is a PERSON to keep, not merchandise to composite.
+
+    Without this the very next block tells the model every attachment is a "REAL PRODUCT PROP" with
+    the first one as the hero product — so the brand's presenter would be placed on a counter like
+    packaging. The lock wording follows `reel/render3/prompts.character_block`, which is the phrasing
+    measured to hold an identity across renders in this repo."""
+    if not n_identity_refs:
+        return ""
+    return (
+        "IDENTITY REFERENCE: attached image 1 is the brand's PRESENTER — a real person, NOT a "
+        "product and NOT a prop. Render the SAME person in this scene: face, hair and build must "
+        "match the reference exactly. Do not change their face, their hair, or their identity in "
+        "any way, and do not place any label, packaging or text on them. They are a human being in "
+        "the scene, lit and posed naturally for the composition."
+    )
+
+
 def _props_rules(n_products: int, n_places: int, product_placement: str = "") -> str:
     """The REAL-asset rules for the scene: the brand's own product photos as props, its own
     premises as the place, and — the 2026-07-20 owner fix — the PHYSICS of where the product sits.
@@ -128,7 +146,8 @@ def build_oneshot_prompt(copy: dict, *, brand_name: str = "", palette_names: str
                          single_message: str = "", visual_idea: str = "",
                          product_placement: str = "",
                          n_products: int = 0, n_places: int = 0,
-                         locale_line: str = "", category: str = "") -> str:
+                         locale_line: str = "", category: str = "",
+                         n_identity_refs: int = 0) -> str:
     """The one-shot design brief. The copy fields are OUR gated text and must be rendered
     EXACTLY — and they are the ONLY drawable words, fenced between BEGIN TEXT / END TEXT.
 
@@ -165,6 +184,10 @@ def build_oneshot_prompt(copy: dict, *, brand_name: str = "", palette_names: str
         "on a dark calm area or dark text on a light calm area; if needed, design a "
         "soft panel or gradient behind the text; NEVER place text over busy detail."
     )
+    identity_rules = _identity_rules(n_identity_refs)
+    if identity_rules:
+        # BEFORE the props block, matching the attachment order: image 1 is the person.
+        parts.append(identity_rules)
     props_rules = _props_rules(n_products, n_places, product_placement)
     if props_rules:
         parts.append(props_rules)
@@ -322,6 +345,7 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
                             logo_bytes: Optional[bytes] = None,
                             logo_mime: str = "image/png",
                             product_images: Optional[list[tuple[bytes, str]]] = None,
+                            identity_ref: Optional[tuple[bytes, str]] = None,
                             client: Any = None) -> Path:
     """ONE generate_content call -> the complete designed poster PNG. The real brand logo is
     passed as an INPUT IMAGE part when available (these models composite an attached image;
@@ -334,7 +358,15 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
     # SPEND GUARD: meter each generated poster and refuse if over the monthly Vertex cap.
     from vertex_spend import guard_image, record
     est_usd = guard_image(1, model, detail=Path(out_path).name)
-    contents: list[Any] = [prompt]
+    # IDENTITY FIRST, and on its own parameter. It leads because `reel/render3/nano.py` — the one
+    # path in this repo measured to hold a face across renders — attaches refs before the prompt
+    # with refs[0] as the identity. It is NOT part of `product_images`: that list is truncated to
+    # two, and everything downstream treats its members as merchandise (see `_identity_rules`).
+    contents: list[Any] = []
+    if identity_ref and identity_ref[0]:
+        contents.append(types.Part.from_bytes(data=identity_ref[0],
+                                              mime_type=identity_ref[1] or "image/png"))
+    contents.append(prompt)
     if logo_bytes:
         contents.append(types.Part.from_bytes(data=logo_bytes, mime_type=logo_mime))
     for data, mime in (product_images or [])[:2]:

@@ -52,6 +52,32 @@ _MEDIUM_GAP = 0.25
 
 _LEVEL_WEIGHT = {"high": 1.0, "medium": 0.6, "low": 0.25, "unknown": 0.0}
 
+# HOW MANY PEERS IT TOOK TO SAY THIS. MEASURED DEFECT: one peer who had a capability produced
+# `rank=1.00 importance=high focus=True`, while three peers of whom one had it produced
+# `rank=0.29 low False` — weaker evidence shouting louder. That is the same shape as the
+# `score_size_similarity` bug this project already paid for (a "peer median" computed from a pool
+# of one is the subject's own value, so the ratio was a guaranteed 1.0).
+#
+# Two dampeners, both applied to a MEASURED prevalence rather than replacing it:
+#   * a single observation cannot call a dimension table stakes, so importance is capped below
+#     `high` — which also makes `focus` (high AND behind) unreachable on one peer;
+#   * rank is scaled by how much of the pool was actually there.
+_IMPORTANCE_CAP_BY_PEERS = {1: "medium"}          # 2+ peers: uncapped
+_EVIDENCE_WEIGHT = {0: 0.0, 1: 0.6, 2: 0.85}      # 3+ peers: 1.0
+_RANK_ORDER = ["unknown", "low", "medium", "high"]
+
+
+def _cap_importance(level: str, peers: int) -> str:
+    cap = _IMPORTANCE_CAP_BY_PEERS.get(peers)
+    if not cap or level == "unknown":
+        return level
+    return cap if _RANK_ORDER.index(level) > _RANK_ORDER.index(cap) else level
+
+
+def _thin_pool_note(peers: int) -> str:
+    return (f"مقيس على منافس واحد فقط — إشارة استرشادية لا حكم."
+            if peers == 1 else "")
+
 # The epistemic ladder already computed in swot.py. A self-claim is the paper's "factors represent
 # opinions not fact" — the subject's own marketing copy about itself — so it is capped below
 # anything that survived a comparison, no matter how confident its wording.
@@ -62,6 +88,10 @@ _NO_PEERS_BASIS = ("لا توجد مقارنة: لم يُقَس أي منافس 
                    "والقوة أو الضعف لا يكونان إلا بالمقارنة.")
 _SELF_CLAIM_BASIS = ("ادعاء البراند عن نفسه (من موقعه)، لم يُقارَن بأحد — "
                      "يُعرَض كوعد معلَن لا كميزة مُثبتة.")
+# A reading taken OFF the site, not a claim the brand makes. "No CTA on the page" is a measurement;
+# calling it the brand's own claim is a true sentence about a different kind of item.
+_SITE_OBSERVATION_BASIS = ("قراءة مباشرة من موقعك، لم تُقارَن بأي منافس — "
+                           "معلومة عن الموقع لا حكم على وضعك في السوق.")
 
 
 @dataclass
@@ -112,6 +142,34 @@ def _level(fraction: float, high: float, medium: float) -> str:
     return "low"
 
 
+def _is_magnitude(gap: Any) -> bool:
+    """Is this dimension a QUANTITY rather than a yes/no?
+
+    `Dimension.kind` already carries it ("bool" | "count" | "numeric" | "categorical"), so the
+    scorer reads the shape the matrix declared instead of guessing from the value."""
+    kind = str(getattr(getattr(gap, "dimension", None), "kind", "") or "")
+    if kind in ("count", "numeric"):
+        return True
+    if kind:
+        return False
+    # No declared kind (a synthetic gap): fall back to the values themselves.
+    vals = [v for v in _known(getattr(gap, "competitor_values", {}) or {})]
+    vals.append(getattr(gap, "subject_value", None))
+    return any(isinstance(v, (int, float)) and not isinstance(v, bool) for v in vals)
+
+
+def _relative_delta(gap: Any) -> Optional[tuple[float, float, float]]:
+    """(signed relative delta, subject, peer median) — or None when it cannot be measured."""
+    known = [n for n in (_numeric(v) for v in _known(getattr(gap, "competitor_values", {}) or {}))
+             if n is not None]
+    subject = _numeric(getattr(gap, "subject_value", None))
+    if not known or subject is None:
+        return None
+    peer_median = median(known)
+    denom = peer_median if peer_median > 0 else 1.0
+    return (subject - peer_median) / denom, subject, peer_median
+
+
 def _importance_from_prevalence(gap: Any, *, ahead: bool) -> tuple[str, str, int]:
     """How much this dimension matters here — measured against the peer set.
 
@@ -124,6 +182,12 @@ def _importance_from_prevalence(gap: Any, *, ahead: bool) -> tuple[str, str, int
       * AHEAD — importance is RARITY. Being the only one with a capability is precisely what makes
         it a competitive advantage, which the paper names as the firm's task; being ahead on
         something everyone already has is barely a strength at all.
+
+    RARITY IS NOT THE SAME QUESTION ON A COUNT. MEASURED: with the subject on 50 and peers on
+    {1, 2}, the boolean reading of rarity said "all measured competitors have Trust too" — true,
+    and an answer to a different question than the one asked, which cost the client a 25x lead to
+    Kotler's removal rule. On a quantity, being ahead is a matter of BY HOW MUCH, so the lead is
+    measured against the peer median on the same scale the impact axis uses.
     """
     known = _known(getattr(gap, "competitor_values", {}) or {})
     if not known:
@@ -131,6 +195,15 @@ def _importance_from_prevalence(gap: Any, *, ahead: bool) -> tuple[str, str, int
     present = sum(1 for v in known if _is_present(v))
     fraction = present / len(known)
     label = getattr(getattr(gap, "dimension", None), "label", "this dimension")
+
+    if ahead and _is_magnitude(gap):
+        measured = _relative_delta(gap)
+        if measured is not None:
+            lead, subject, peer_median = measured
+            basis = (f"{subject:g} مقابل وسيط المنافسين {peer_median:g} على «{label}» — "
+                     f"تفوّق مقيس.")
+            return _level(max(0.0, lead), _HIGH_GAP, _MEDIUM_GAP), basis, len(known)
+
     if ahead:
         basis = (f"{len(known) - present} من {len(known)} منافس مقيس ليس عندهم «{label}» — "
                  "تميّز نادر." if present < len(known)
@@ -141,40 +214,78 @@ def _importance_from_prevalence(gap: Any, *, ahead: bool) -> tuple[str, str, int
 
 
 def _impact_from_gap_size(gap: Any) -> tuple[str, str]:
-    """How big the shortfall is against the peer median — the size of what is at stake."""
-    known = [n for n in (_numeric(v) for v in _known(getattr(gap, "competitor_values", {}) or {}))
-             if n is not None]
-    subject = _numeric(getattr(gap, "subject_value", None))
-    if not known or subject is None:
+    """How big the distance is against the peer median — the size of what is at stake.
+
+    SYMMETRIC ON PURPOSE. The first version clamped the delta at zero, so a subject standing far
+    ahead scored `impact=low` — indistinguishable from a subject standing exactly level. A lead of
+    25x and a dead heat are not the same amount at stake, and the removal rule reads this axis."""
+    measured = _relative_delta(gap)
+    if measured is None:
         return "unknown", ""
-    peer_median = median(known)
+    delta, subject, peer_median = measured
     if peer_median <= 0:
-        return ("low", "") if subject <= 0 else ("low", "")
-    shortfall = max(0.0, (peer_median - subject) / peer_median)
-    label = _level(shortfall, _HIGH_GAP, _MEDIUM_GAP)
-    if shortfall <= 0:
+        # No scale to be relative to. "1 against a median of 0" is a lead, but its SIZE cannot be
+        # expressed as a fraction of nothing, and D-8 forbids an absolute yardstick that would mean
+        # different things for CTAs and for review counts. Caught by an existing test when the
+        # symmetric delta briefly reported this case as `high`. The rarity axis still carries it.
+        return "unknown", ""
+    size = _level(abs(delta), _HIGH_GAP, _MEDIUM_GAP)
+    if abs(delta) <= 0:
         return "low", ""
-    return label, f"الفجوة: {subject:g} مقابل وسيط المنافسين {peer_median:g}."
+    word = "الفجوة" if delta < 0 else "الفارق لصالحك"
+    return size, f"{word}: {subject:g} مقابل وسيط المنافسين {peer_median:g}."
 
 
 _VERDICT_TO_PERFORMANCE = {"ahead": "ahead", "behind": "behind", "par": "parity",
                            "parity": "parity"}
 
 
+def _whitespace_priority(gap: Any, peers: int) -> Priority:
+    """An unoccupied dimension — nobody measured offers it.
+
+    MEASURED DEFECT: `whitespace` was scored on the same two axes as everything else, and both
+    are structurally zero for it — prevalence is 0 because nobody has it, and the peer median is 0
+    so the gap is 0 — so Kotler's removal rule fired on EVERY whitespace opportunity. The matrix
+    that is the whole reason this module exists could never once fire on a measured opportunity.
+
+    What is genuinely known here is the supply side (nobody offers it) and not the demand side
+    (whether anyone wants it), so the basis says both — the unmeasured half out loud."""
+    label = getattr(getattr(gap, "dimension", None), "label", "this dimension")
+    basis = (f"لا أحد من المنافسين المقيسين ({peers}) يقدّم «{label}» — مساحة غير مشغولة. "
+             "حجم الطلب عليها غير مقيس.")
+    note = _thin_pool_note(peers)
+    return Priority(importance="medium", performance="unknown", impact="unknown",
+                    probability="unknown",
+                    basis="  ".join(p for p in (basis, note) if p),
+                    rank=round(0.65 * _LEVEL_WEIGHT["medium"] * _EVIDENCE_WEIGHT.get(peers, 1.0),
+                               4),
+                    focus=False, drop=False, peers_measured=peers)
+
+
 def score_gap(gap: Any) -> Priority:
     """Score one measured dimension gap on both of the paper's matrices."""
-    performance = _VERDICT_TO_PERFORMANCE.get(str(getattr(gap, "verdict", "")), "unknown")
+    verdict = str(getattr(gap, "verdict", ""))
+    performance = _VERDICT_TO_PERFORMANCE.get(verdict, "unknown")
+    peer_count = len(_known(getattr(gap, "competitor_values", {}) or {}))
+    if verdict == "whitespace" and peer_count:
+        return _whitespace_priority(gap, peer_count)
+
     importance, basis, peers = _importance_from_prevalence(gap, ahead=performance == "ahead")
+    importance = _cap_importance(importance, peers)
     impact, impact_basis = _impact_from_gap_size(gap)
 
-    # A threat/opportunity that most of the market has already acted on is not a forecast; its
-    # probability IS its prevalence. Stated on the same measured footing as importance.
-    probability = importance
+    # `probability` IS NOT `importance`. It used to be assigned from it outright, so the client was
+    # shown two axes of which one was a copy — a declared measurement that measures nothing, which
+    # is worse than an absent one. Probability is about whether something WILL occur; a comparative
+    # gap is an observation of the present, and nothing here forecasts. It stays unknown until a
+    # generator with a genuine occurrence signal (a trend, an active ad campaign) fills it in.
+    probability = "unknown"
 
-    parts = [p for p in (basis, impact_basis) if p]
+    parts = [p for p in (basis, impact_basis, _thin_pool_note(peers)) if p]
     rank = round(min(1.0, 0.65 * _LEVEL_WEIGHT[importance] + 0.35 * _LEVEL_WEIGHT[impact]), 4)
     if performance == "behind":
         rank = round(min(1.0, rank * 1.15), 4)          # a shortfall outranks a matching parity
+    rank = round(rank * _EVIDENCE_WEIGHT.get(peers, 1.0), 4)
 
     focus = importance == "high" and performance == "behind"
     # Kotler's removal rule — only ever applied to something that WAS measured. An unknown score
@@ -188,14 +299,22 @@ def score_gap(gap: Any) -> Priority:
 
 
 def score_opinion_item(*, claim_strength: str = "internally_supported",
-                       basis: str = "") -> Priority:
+                       basis: str = "", kind: str = "self_claim") -> Priority:
     """Score a factor that came from a CLAIM rather than a measured comparison.
 
     The brand's own value propositions are mined into Strengths by `brand_signals`. They are the
     paper's "factors represent opinions not fact", and the opinion is the subject's own about
     itself, so they are capped below anything that survived a comparison. They are not deleted —
     a promise a brand makes is real information about its positioning — but they can never sit at
-    the top of the list as if they had been checked."""
+    the top of the list as if they had been checked.
+
+    `kind` DISTINGUISHES THE TWO REASONS AN ITEM CAN BE UNCOMPARED, because they are not the same
+    statement. MEASURED by running the page's own renderer over the shipped nanocare payload: all
+    four site-readiness items came out reading «ادعاء البراند عن نفسه (من موقعه)» under titles like
+    "No clear call-to-action on the page". A missing CTA is something the crawler READ off the
+    site — no brand advertises its own missing CTA — so that sentence was true of a different kind
+    of item entirely: failure class #6, a true statement answering a different question. The score
+    is identical either way; only the sentence the client reads changes."""
     weight = _CLAIM_WEIGHT.get(str(claim_strength or ""), 0.2)
     if claim_strength == "validated":
         importance = "medium"
@@ -203,8 +322,14 @@ def score_opinion_item(*, claim_strength: str = "internally_supported",
         importance = "low"
     else:
         importance = "low"
+    if basis:
+        written = basis
+    elif kind == "site_observation":
+        written = _SITE_OBSERVATION_BASIS
+    elif claim_strength == "internally_supported":
+        written = _SELF_CLAIM_BASIS
+    else:
+        written = ""
     return Priority(importance=importance, performance="unknown", impact="unknown",
-                    probability="unknown",
-                    basis=basis or (_SELF_CLAIM_BASIS if claim_strength == "internally_supported"
-                                    else ""),
+                    probability="unknown", basis=written,
                     rank=round(weight * 0.6, 4), focus=False, drop=False, peers_measured=0)

@@ -119,9 +119,17 @@ _MAX_PER_TYPE = {"SO": 3, "ST": 2, "WO": 2, "WT": 2}
 
 
 def _quadrant(swot: SWOT, prefix: str) -> List[Tuple[str, SWOTItem]]:
+    """(id, item) pairs — reading the id OFF the item, exactly as `swot_item_ids` does.
+
+    `swot_item_ids` was taught to prefer the stored id; this function, which is what actually
+    supplies the anchors for every strategy and every priority action, was left deriving them from
+    `enumerate`. So the two disagreed the moment a quadrant was reordered by priority — and
+    ordering by priority is the entire point of the prioritisation pass. The visible symptom: step
+    1 of the plan cited the anchor that had been in position 1 BEFORE sorting, which after sorting
+    was a different factor. Same fallback as `swot_item_ids` for items stored before ids existed."""
     items = {"S": swot.strengths, "W": swot.weaknesses,
              "O": swot.opportunities, "T": swot.threats}[prefix]
-    return [(f"{prefix}{i}", it) for i, it in enumerate(items, 1)]
+    return [(getattr(it, "id", "") or f"{prefix}{i}", it) for i, it in enumerate(items, 1)]
 
 
 def _rules_strategies(swot: SWOT, ids: Dict[str, SWOTItem]) -> List[TowsStrategy]:

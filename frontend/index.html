@@ -922,6 +922,42 @@
     font-size: 0.65rem; color: var(--silver-dim); background: rgba(255,255,255,0.04);
     border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px;
   }
+  /* Priority, source and basis — the Pickton & Wright apparatus, made visible.
+     Deliberately quiet: the badge is a label on a finding, not a finding of its own. Only `focus`
+     ("important AND behind" — the one verdict the ranking exists to produce) is allowed to carry
+     colour, so a page of nine badges still has exactly one thing that pulls the eye. */
+  .quadrant-item-basis {
+    font-size: 0.7rem; color: var(--text3); opacity: 0.85; line-height: 1.5;
+    margin-bottom: 6px; padding-left: 8px; border-left: 2px solid var(--border);
+  }
+  .quadrant-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .swot-badge {
+    font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border);
+    color: var(--text3); background: rgba(255,255,255,0.03); white-space: nowrap;
+  }
+  .swot-badge-focus {
+    color: #FFB020; border-color: rgba(255,159,10,0.35); background: rgba(255,159,10,0.12);
+  }
+  .swot-badge-high { color: var(--text2); border-color: rgba(255,255,255,0.18); }
+  .swot-badge-unknown { opacity: 0.65; }
+  /* A self-claim must never read like a measured advantage — the defect the rebuild removed at the
+     scoring layer, kept out at the rendering layer too. */
+  .evidence-chip-claim { opacity: 0.75; font-style: italic; }
+  .quadrant-card.q-readiness { border-left-color: var(--silver-line); margin-top: 20px; }
+  .swot-notes-box {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; margin-top: 16px;
+  }
+  .swot-notes-title {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text2); margin-bottom: 8px;
+  }
+  .swot-note {
+    font-size: 0.78rem; color: var(--text3); line-height: 1.65; margin-bottom: 6px;
+  }
+  .swot-note:last-child { margin-bottom: 0; }
+
   .strat-summary-box {
     background: var(--surface2); border-radius: 12px; padding: 16px 18px;
     font-size: 0.85rem; color: var(--text2); line-height: 1.6; margin-bottom: 20px;
@@ -1917,6 +1953,8 @@
       </div>
       <div class="strat-summary-box" id="swot-summary" style="display:none;"></div>
       <div class="quadrant-grid" id="swot-quadrants"></div>
+      <div class="quadrant-card q-readiness" id="swot-readiness" style="display:none;"></div>
+      <div class="swot-notes-box" id="swot-notes" style="display:none;"></div>
       <div class="empty-state" id="swot-empty">
         <i class="ph ph-chart-donut"></i>
         <p>No SWOT generated yet for this brand.<br>Click "Generate SWOT" above to run it.</p>
@@ -1926,6 +1964,7 @@
     <!-- Strategy view -->
     <div class="strat-view" id="strat-view-strategy">
       <div id="strategy-content" style="display:none;">
+        <div class="swot-notes-box" id="strategy-notes" style="display:none;"></div>
         <div class="positioning-hero" id="strategy-positioning"></div>
 
         <div class="info-section">
@@ -2400,6 +2439,78 @@ async function addCompetitor() {
   } catch (e) {
     toast('Could not add: ' + e.message, 'error');
   } finally { btn.disabled = false; }
+}
+
+// --- SWOT item rendering helpers ------------------------------------------------------------
+// SWOT text is not ours: it comes from scraped pages and from customer comments, and it goes into
+// innerHTML. Escape before interpolating.
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// WHERE DID THIS ITEM COME FROM? The owner's fourth ask, and a guard against the defect the SWOT
+// rebuild removed at the scoring layer: the brand's own marketing copy reading, on screen, exactly
+// like a measured competitive advantage. Derived from what the item actually carries — nothing is
+// asserted that the payload does not already prove.
+function swotItemSource(item) {
+  const p = item.priority || {};
+  const cites = item.citation || (item.evidence_ref ? [item.evidence_ref] : []);
+  const link = cites.find(c => /^https?:\/\//i.test(String(c)));
+  if (link) return { label: 'Customer comment', tone: 'evidence', href: link };
+  if ((p.peers_measured || 0) > 0) {
+    return { label: `Compared against ${p.peers_measured} competitor${p.peers_measured > 1 ? 's' : ''}`,
+             tone: 'evidence', href: '' };
+  }
+  if (/theme|review|comment/i.test(String(item.reasoning || ''))) {
+    return { label: 'Customer voice', tone: 'evidence', href: '' };
+  }
+  // A READING OFF THE SITE IS NOT A CLAIM THE BRAND MADE. Measured on the shipped nanocare payload:
+  // "No clear call-to-action on the page" was chipped "The brand's own claim" — nobody advertises
+  // their own missing CTA. The backend now writes the right sentence for each; this reads the same
+  // distinction rather than re-deriving it from `claim_strength`, which cannot tell them apart.
+  const basis = (p.basis || '');
+  if (/قراءة مباشرة من موقعك/.test(basis)) {
+    return { label: 'Read from your site — not compared', tone: 'signal', href: '' };
+  }
+  if (item.claim_strength === 'internally_supported') {
+    return { label: "The brand's own claim — not compared", tone: 'claim', href: '' };
+  }
+  return { label: 'Market signal', tone: 'signal', href: '' };
+}
+
+// The priority badge. `focus` is Pickton & Wright's "pay particular attention" verdict — important
+// AND behind — and it is the single thing the whole ranking exists to produce, so it reads loudest.
+// `basis` is the measurement in words; it goes in the title attribute so a client can check any
+// number they are shown rather than take it on trust.
+function swotPriorityBadge(item) {
+  const p = item.priority;
+  if (!p) return '';
+  const basis = escHtml(p.basis || '');
+  if (p.focus) {
+    return `<span class="swot-badge swot-badge-focus" title="${basis}">Priority — act on this</span>`;
+  }
+  if (p.importance === 'unknown') {
+    return `<span class="swot-badge swot-badge-unknown" title="${basis}">Not compared</span>`;
+  }
+  const perf = p.performance && p.performance !== 'unknown' ? ` · ${escHtml(p.performance)}` : '';
+  return `<span class="swot-badge swot-badge-${escHtml(p.importance)}" title="${basis}">`
+       + `${escHtml(p.importance)} importance${perf}</span>`;
+}
+
+function swotItemHtml(item) {
+  const src = swotItemSource(item);
+  const basis = (item.priority && item.priority.basis) || '';
+  const srcChip = src.href
+    ? `<a class="evidence-chip" href="${escHtml(src.href)}" target="_blank" rel="noopener noreferrer"><i class="ph ph-link-simple"></i> ${escHtml(src.label)}</a>`
+    : `<span class="evidence-chip evidence-chip-${src.tone}">${escHtml(src.label)}</span>`;
+  return `<div class="quadrant-item">
+    <div class="quadrant-item-title">${escHtml(item.title)}</div>
+    <div class="quadrant-item-reason">${escHtml(item.reasoning)}</div>
+    ${basis ? `<div class="quadrant-item-basis">${escHtml(basis)}</div>` : ''}
+    <div class="quadrant-item-meta">${swotPriorityBadge(item)}${srcChip}</div>
+  </div>`;
 }
 
 // --- provenance banner -------------------------------------------------------------------
@@ -3166,7 +3277,11 @@ function _stratChipRow(elId, items, ranked = false) {
 function renderStrategyDashboard(b) {
   const swot     = b.swot || {};
   const strategy = b.marketing_strategy || {};
-  const hasSwot = ['strengths', 'weaknesses', 'opportunities', 'threats']
+  // site_readiness belongs in this gate. Site mechanics are MOVED there rather than deleted, so a
+  // brand whose four strategic quadrants are empty can still have real, cited findings to show —
+  // measured on nanocare: 4 readiness items and 0 strategic ones. Without it here that client saw
+  // a blank page and no explanation.
+  const hasSwot = ['strengths', 'weaknesses', 'opportunities', 'threats', 'site_readiness']
     .some(k => (swot[k] || []).length > 0);
   // Real cloned-repo schema doesn't have positioning_statement - use
   // strategic_posture (always present once the Strategy Agent has run) as
@@ -3277,19 +3392,42 @@ function renderStrategyDashboard(b) {
       if (!items.length) {
         html += '<div class="quadrant-item-reason">None identified.</div>';
       } else {
-        items.forEach(item => {
-          // evidence_ref (my schema) or source_theme (real cloned-repo schema)
-          const ref = item.evidence_ref || item.source_theme;
-          html += `<div class="quadrant-item">
-            <div class="quadrant-item-title">${item.title || ''}</div>
-            <div class="quadrant-item-reason">${item.reasoning || ''}</div>
-            ${ref ? `<span class="evidence-chip"><i class="ph ph-link-simple"></i> ${ref}</span>` : ''}
-          </div>`;
-        });
+        items.forEach(item => { html += swotItemHtml(item); });
       }
       card.innerHTML = html;
       quadGrid.appendChild(card);
     });
+  }
+
+  // ── Site readiness ──
+  // Facts about the WEBSITE that were moved out of the strategic quadrants because nothing was
+  // compared against them: true, useful, and not strategy. Until now they had no renderer at all,
+  // so on the owner's ruling they were "moved" into a place the client could not see — a deletion
+  // wearing the word move. Measured on nanocare: 4 items.
+  const readiness = swot.site_readiness || [];
+  const readyBox = document.getElementById('swot-readiness');
+  if (readyBox) {
+    readyBox.style.display = readiness.length ? '' : 'none';
+    readyBox.innerHTML = readiness.length
+      ? `<div class="quadrant-title">Site readiness <span class="count">${readiness.length}</span></div>`
+        + '<div class="quadrant-item-reason">Facts about the website itself. Correct, but not '
+        + 'compared against any competitor — so not strengths or weaknesses.</div>'
+        + readiness.map(swotItemHtml).join('')
+      : '';
+  }
+
+  // ── What the analysis says about its own limits ──
+  // swot.notes carries every honest sentence the synthesis writes: how many items Kotler's removal
+  // rule took out and why, how many moved to readiness, and the one action that turns a
+  // comparison-less run into a real analysis. All of it was written and none of it was rendered.
+  const notesBox = document.getElementById('swot-notes');
+  if (notesBox) {
+    const notes = swot.notes || [];
+    notesBox.style.display = notes.length ? '' : 'none';
+    notesBox.innerHTML = notes.length
+      ? '<div class="swot-notes-title">About this analysis</div>'
+        + notes.map(n => `<div class="swot-note">${escHtml(n)}</div>`).join('')
+      : '';
   }
 
   // ── Strategy view ──
@@ -3302,6 +3440,18 @@ function renderStrategyDashboard(b) {
       || (strategy.strategic_posture
           ? `Strategic posture: ${strategy.strategic_posture}. ${strategy.posture_rationale || ''}`
           : '');
+    // P-11: `readiness.ready_for_strategy` is computed and named its blockers, and had ZERO
+    // readers — so a plan the system itself judged unsupported shipped looking like any other.
+    // Same treatment the SWOT notes get, one level down.
+    const stratNotes = strategy.notes || [];
+    const stratNotesBox = document.getElementById('strategy-notes');
+    if (stratNotesBox) {
+      stratNotesBox.style.display = stratNotes.length ? '' : 'none';
+      stratNotesBox.innerHTML = stratNotes.length
+        ? '<div class="swot-notes-title">About this plan</div>'
+          + stratNotes.map(n => `<div class="swot-note">${escHtml(n)}</div>`).join('')
+        : '';
+    }
     document.getElementById('strategy-positioning').textContent = positioningText;
     document.getElementById('strategy-value-prop').textContent  = strategy.value_proposition || '';
     document.getElementById('strategy-tone').innerHTML =

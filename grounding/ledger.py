@@ -465,6 +465,11 @@ class EvidenceLedger:
         # deterministic + lenient (the project's designed number-only grounding), no regression.
         self._subject_judge = subject_judge
         self._judge_cache: dict = {}
+        # P-24: WHICH MODE DID THIS GATE ACTUALLY RUN IN? The leniency above is deliberate and
+        # documented, and it was also invisible — a ledger built with no judge certified text under
+        # a weaker rule than the one its callers describe, and nothing downstream could tell the
+        # difference. Exposed as state so a caller can disclose it instead of guessing.
+        self.strict_subject_gate: bool = subject_judge is not None
         # Precomputed blobs for fast checks.
         self._digit_blob = " ".join(e.norm for e in self.entries)
         self._word_set: set[str] = set()

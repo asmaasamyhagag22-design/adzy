@@ -338,6 +338,28 @@ def _voice_files_for(url: str, dirs=None) -> list:
     return hits
 
 
+def competitor_ref_slugs(competitors) -> list:
+    """Ad-snapshot refs for a peer set — reading the name from WHERE IT ACTUALLY IS.
+
+    This used to be `getattr(c, "name", "")` inline. `CompetitorProfile`'s fields are
+    candidate/selection/reviews/has_scrapable_site/is_local — there is no `.name`, so every ref came
+    out as the empty string and `ad_presence_for_refs([])` returned nothing. `ad_presence` has
+    therefore been empty on EVERY run since it was written, silently, while
+    `ads_intel/orchestrator.py:182` does the same lookup correctly a few files away.
+
+    Accepts a dataclass or a stored dict, because both shapes exist in this codebase."""
+    from ads_intel import ref_slug
+
+    out = []
+    for c in (competitors or []):
+        cand = c.get("candidate") if isinstance(c, dict) else getattr(c, "candidate", None)
+        name = (cand or {}).get("name") if isinstance(cand, dict) else getattr(cand, "name", None)
+        slug = ref_slug(str(name or "").strip())
+        if slug:
+            out.append(slug)
+    return out
+
+
 def _own_voice_themes(url: str, profile_dict, say, *, caller=None) -> list:
     """SWOT-ready ReviewThemes from the subject's OWN saved customer voice (Google-Maps
     reviews + Facebook signals). Parse-only; hashing already happened at ingestion."""
@@ -647,9 +669,8 @@ def main():
     # disk -> [] -> zero threats added.
     ad_pres: list = []
     try:
-        from ads_intel import ad_presence_for_refs, ref_slug
-        _refs = [ref_slug(getattr(c, "name", "")) for c in matrix_competitors]
-        ad_pres = ad_presence_for_refs([r for r in _refs if r])
+        from ads_intel import ad_presence_for_refs
+        ad_pres = ad_presence_for_refs(competitor_ref_slugs(matrix_competitors))
     except Exception:  # noqa: BLE001 — ads-intel must never break a run
         ad_pres = []
 

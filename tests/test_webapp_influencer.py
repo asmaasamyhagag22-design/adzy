@@ -71,10 +71,23 @@ def test_generate_portrait_patch():
     assert "coffee enthusiast" in ai["config"]["influencer_persona"]
 
 
+def _apply(brand, patch):
+    """Merge a patch the way BrandStore does — `dict.update` REPLACES `ai_influencer` wholesale,
+    which drops the candidates the very next call needs."""
+    ai = dict(brand.get("ai_influencer") or {})
+    for key, value in (patch.get("ai_influencer") or {}).items():
+        if isinstance(value, dict) and isinstance(ai.get(key), dict):
+            merged = dict(ai[key]); merged.update(value); ai[key] = merged
+        else:
+            ai[key] = value
+    brand["ai_influencer"] = ai
+    return brand
+
+
 def test_validate_and_poster_patches():
     b = _brand()
-    b.update(influ.generate_portrait(b, {**_CFG, "domain_key": "volumeqatar_com"}))
-    b.update(influ.validate_portrait(b, True))
+    _apply(b, influ.generate_candidate(b, {**_CFG, "domain_key": "volumeqatar_com"}))
+    _apply(b, influ.select_candidate(b, next(iter(b['ai_influencer']['candidates']))))
     assert b["ai_influencer"]["validated"] is True
     patch = influ.generate_influencer_poster(b, product_hint="cold brew", scene_description="terrace")
     ai = patch["ai_influencer"]
@@ -131,7 +144,7 @@ def test_portrait_job_then_validate_then_poster(client):
         return asyncio.run(run_it())
 
     # 1) portrait
-    assert _drive(lambda b: influ.generate_portrait(b, {**_CFG, "domain_key": dk})) == JobStatus.SUCCEEDED
+    assert _drive(lambda b: influ.generate_candidate(b, {**_CFG, "domain_key": dk})) == JobStatus.SUCCEEDED
     ai = BrandStore().get(dk)["ai_influencer"]
     assert ai["has_portrait"] is True and ai["validated"] is False
     # portrait URL serves a PNG

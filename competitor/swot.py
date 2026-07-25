@@ -241,6 +241,18 @@ def synthesize_swot(
     swot = SWOT()
     n_peers = len(matrix.competitors)
 
+    # SOCIAL AS A COMPARISON. The owner named three evidence sources — Places reviews, social
+    # media, competitors — and social reached this function ZERO times, despite being the widest
+    # source the system collects (82% of stored profiles carry accounts, against 29% with any
+    # Places review). Each platform becomes an ordinary gap, so the loop below and the priority
+    # scoring treat it exactly like any other measured dimension. Never raises: a social signal
+    # must not be able to break a SWOT that worked without it.
+    try:
+        from .social_gaps import social_gaps
+        matrix.gaps = list(matrix.gaps) + social_gaps(profile, matrix)
+    except Exception:  # noqa: BLE001
+        pass
+
     for gap in matrix.gaps:
         strength = _gap_strength(gap)
         if gap.verdict == "ahead":
@@ -248,21 +260,20 @@ def synthesize_swot(
                                            claim_strength=strength))
         elif gap.verdict == "behind":
             if gap.dimension.source == "scraped":
-                # Internal lens: you lack/lag on something on your own site.
+                # ONE GAP, ONE BOX — the owner's ruling. This used to emit the SAME measured gap
+                # twice: an internal Weakness and an external Threat, worded differently, scored
+                # identically, citing the same peer. The client counted one problem as two, and
+                # TOWS then paired the item with itself (`WT [W1, T1]`) and called the pairing a
+                # strategy. A shortfall on your own site is something you control, so it is a
+                # weakness; it is not additionally an outside force acting on you.
+                #
+                # The reason this duplication was tolerated was that it was the only thing filling
+                # Threats for web-discovered peers. That is no longer true: peer praise in customer
+                # comments now routes to Threats below, which is genuine external evidence rather
+                # than the same internal fact wearing a second label. And when Threats does come
+                # out empty, `disclose_empty_quadrants` says so with its cause.
                 swot.weaknesses.append(SWOTItem(gap.detail, _cite_behind(gap), gap.detail,
                                                 claim_strength=strength))
-                # External lens: a real competitor outperforming you on a site
-                # dimension is also a THREAT. This is what populates Threats for
-                # ECOMMERCE / web-discovered peers (which carry NO Places dims) —
-                # without it, an online SWOT's Threats quadrant is always empty.
-                # Grounded: cites the same leading peer(s); only when peers exist.
-                if n_peers > 0:
-                    swot.threats.append(SWOTItem(
-                        text=f"Competitors lead on {gap.dimension.label} where you are behind.",
-                        citation=_cite_behind(gap),
-                        evidence=gap.detail,
-                        claim_strength=strength,
-                    ))
             else:  # places dimension -> market-position threat
                 swot.threats.append(SWOTItem(gap.detail, _cite_places(gap), gap.detail,
                                              claim_strength=strength))
@@ -295,9 +306,17 @@ def synthesize_swot(
                 text=f"{t.text} is a recurring complaint in the category.",
                 citation=item.citation, evidence=item.evidence,
                 claim_strength=theme_strength))
-        # praise themes are kept as notes (context), not forced into a quadrant
         elif t.polarity == "praise":
-            swot.notes.append(f"Category strength to match: {t.text} ({_short(item.citation)})")
+            # A COMPETITOR BEING PRAISED BY CUSTOMERS IS A THREAT — the owner's own mapping, and
+            # the only genuinely EXTERNAL evidence the Threats quadrant has. It used to be filed as
+            # a note, so the box was left to be filled by re-labelling the brand's own site
+            # shortfalls (removed above as a double count). This is a real force acting on the
+            # brand from outside: someone else's customers saying, in their own words, that the
+            # other one is good.
+            swot.threats.append(SWOTItem(
+                text=f"Customers praise a competitor for {t.text}.",
+                citation=item.citation, evidence=item.evidence,
+                claim_strength=theme_strength))
 
     # ---- Standalone degrade -------------------------------------------------
     # The competitive synthesis above is purely peer-gap-driven, so with no peers
@@ -378,6 +397,16 @@ def synthesize_swot(
             _ledger = EvidenceLedger.from_profile(profile, subject_judge=_judge)
             brand = strengths_from_profile(profile, _ledger)
             rweak = weaknesses_from_readiness(profile, _ledger)
+            # P-24: the gate's weaker mode, said out loud. `make_subject_judge(None)` -> None is
+            # the documented offline degrade, and until now it happened in silence: the same items
+            # shipped under two different guarantees, and the client was told about the stronger
+            # one. Disclosure rather than enforcement on purpose — paying a model call per run is
+            # the owner's decision to make, not one to take silently in either direction.
+            if not getattr(_ledger, "strict_subject_gate", False):
+                swot.notes.append(
+                    "بوابة التفضيل الدلالية غير مُفعَّلة في هذه التشغيلة (لا يوجد حَكَم متاح): "
+                    "عبارة فيها «الأفضل» أو «الأول» تعدّي لو الدليل فيه نفس الكلمة عن شيء آخر. "
+                    "البنود المُقارَنة بالأرقام غير متأثرة.")
         except Exception:  # noqa: BLE001 — a signal-mining error must never break the SWOT
             brand, rweak = [], []
         _prepend_unique(swot.strengths, brand)   # brand-level strengths lead
@@ -427,16 +456,21 @@ def synthesize_swot(
         except Exception:  # noqa: BLE001 — inference must never break a grounded SWOT
             pass
 
+    _prioritise(swot, matrix, n_peers=n_peers)
+
     # Say WHY any quadrant is empty — per quadrant. The whole-SWOT check above is silenced by a
     # single unrelated item, which is exactly how Volume's empty Threats box shipped unexplained.
+    #
+    # ORDER MATTERS AND WAS WRONG. This ran two lines BEFORE `_prioritise`, so it inspected the
+    # quadrants while they were still full and then said nothing about the ones Kotler's removal
+    # rule and the site-readiness move emptied a moment later — the exact opposite of what the
+    # disclosure exists for. It now runs last, on the boxes the client will actually see.
     try:
         _scrapable = sum(1 for c in matrix.competitors
                          if getattr(c, "has_scrapable_site", False))
     except Exception:  # noqa: BLE001
         _scrapable = 0
     disclose_empty_quadrants(swot, n_peers=n_peers, scrapable_peers=_scrapable)
-
-    _prioritise(swot, matrix, n_peers=n_peers)
     return swot
 
 
@@ -485,10 +519,16 @@ def _prioritise(swot: SWOT, matrix: ComparativeGapMatrix, *, n_peers: int = 0) -
         moved: List[SWOTItem] = []
         for item in quadrant:
             gap = by_detail.get(item.evidence) or by_detail.get(item.text)
-            item.priority = (score_gap(gap) if gap is not None
-                             else score_opinion_item(claim_strength=item.claim_strength))
-            # An un-compared website mechanic is information, not strategy.
-            if gap is None and _is_site_mechanic(item):
+            # An un-compared website mechanic is information, not strategy — and it is also not a
+            # CLAIM. The same test that routes it to readiness now also tells the scorer which
+            # sentence to write, so "No CTA on the page" stops being reported to the client as
+            # something the brand said about itself.
+            is_mechanic = gap is None and _is_site_mechanic(item)
+            item.priority = (
+                score_gap(gap) if gap is not None
+                else score_opinion_item(claim_strength=item.claim_strength,
+                                        kind="site_observation" if is_mechanic else "self_claim"))
+            if is_mechanic:
                 moved.append(item)
             elif item.priority.drop:
                 dropped += 1

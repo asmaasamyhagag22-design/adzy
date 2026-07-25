@@ -81,3 +81,26 @@ def test_it_creates_the_containers_when_absent(store):
     store.save({"domain_key": "fresh_com"}, owner_id="u1")
     store.add_nested("fresh_com", "ai_influencer", "candidates", "c1", _cand(1), for_user="u1")
     assert store.get("fresh_com", for_user="u1")["ai_influencer"]["candidates"]["c1"]["url"]
+
+
+# --- the patch path the JOBS actually take ------------------------------------------------------
+
+def test_two_candidate_patches_applied_through_update_both_survive(store):
+    """MEASURED LIVE (2026-07-25): after `create` then `another`, the brand still held ONE
+    candidate. `add_nested` was built for this and the job path never used it — patches go through
+    `update`, whose merge was one level deep, so `{"ai_influencer": {"candidates": {c2: …}}}`
+    REPLACED the whole map instead of adding to it.
+
+    A patch is a statement about the keys it names. Replacing a sibling the patch never mentioned
+    is not merging, it is deleting."""
+    store.update("x_com", {"ai_influencer": {"candidates": {"c1": _cand(1)}}}, for_user="u1")
+    store.update("x_com", {"ai_influencer": {"candidates": {"c2": _cand(2)}}}, for_user="u1")
+    cands = store.get("x_com", for_user="u1")["ai_influencer"]["candidates"]
+    assert set(cands) == {"c1", "c2"}, f"a patch deleted a key it never mentioned: {list(cands)}"
+
+
+def test_a_nested_config_patch_does_not_wipe_the_rest_of_the_config(store):
+    store.update("x_com", {"ai_influencer": {"config": {"a": 1, "b": 2}}}, for_user="u1")
+    store.update("x_com", {"ai_influencer": {"config": {"b": 3}}}, for_user="u1")
+    cfg = store.get("x_com", for_user="u1")["ai_influencer"]["config"]
+    assert cfg == {"a": 1, "b": 3}

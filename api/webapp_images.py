@@ -271,6 +271,24 @@ def _generated_dir() -> Path:
     return d
 
 
+def unique_asset_name(domain_key: str, kind: str) -> str:
+    """A filename no other asset will take.
+
+    MEASURED: influencer portraits were saved as `{domain_key}_influencer_portrait`, a FIXED name,
+    so the second portrait overwrote the first — which defeats "generate three, pick one, keep the
+    ones you rejected" before a model is ever called. The UI hid it behind a `?t=` cache-buster.
+
+    The random part is not just a counter, because `/api/generated/{name}` is public with no auth by
+    design (it serves only already-generated PNGs). A name derived from the brand slug alone would
+    let anyone who can guess that slug fetch the brand's faces. Same shape the poster pipeline
+    already uses for its renders (`poster_{uuid4().hex[:8]}`)."""
+    import re
+    import uuid
+    safe_key = re.sub(r"[^A-Za-z0-9_-]+", "_", str(domain_key or "brand")).strip("_") or "brand"
+    safe_kind = re.sub(r"[^A-Za-z0-9_-]+", "_", str(kind or "asset")).strip("_") or "asset"
+    return f"{safe_key}_{safe_kind}_{uuid.uuid4().hex[:10]}"
+
+
 def save_generated_png(png: bytes, name: str) -> str:
     """Persist a PNG and return its public URL path (/api/generated/<name>)."""
     safe = "".join(c if c in _SAFE else "_" for c in name)

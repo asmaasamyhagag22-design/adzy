@@ -55,8 +55,19 @@ def _compute_swot(profile: dict):
     except Exception:  # noqa: BLE001
         client = None
 
+    # A WEB ENGINE, like api/routes/swot.py already passes. Without one the router falls to
+    # NullWebDiscoveryEngine, so every ECOMMERCE/REACH brand gets ZERO competitors here — and
+    # nanocare's own stored run reads "0 Places + 4 web", meaning all of its peers came from
+    # exactly this engine. With no peers there is nothing to compare and no SWOT worth the name.
+    web_engine = None
     try:
-        result = route_discovery(profile, places_client=client)
+        from competitor.web_discovery import default_web_engine
+        web_engine = default_web_engine()
+    except Exception:  # noqa: BLE001
+        web_engine = None
+
+    try:
+        result = route_discovery(profile, places_client=client, web_engine=web_engine)
     except Exception:  # noqa: BLE001
         logger.exception("route_discovery failed; standalone SWOT")
         return synthesize_swot_standalone(profile)
@@ -82,7 +93,91 @@ def _compute_swot(profile: dict):
         themes = ReviewThemeExtractor()(peers)
     except Exception:  # noqa: BLE001
         themes = []
-    return synthesize_swot(matrix, themes=themes, profile=profile), peers
+
+    # CUSTOMER COMMENTS — the owner's point: "كان كومنت اكتر كان ادق واحسن". Places reviews reach
+    # 29% of runs; social reaches 82%. A theme built from a real comment is the only SWOT item that
+    # quotes a customer instead of describing a website, and the comments were already being
+    # collected, analysed and dropped. They join the SAME theme list, so `synthesize_swot` routes
+    # them with the mapping it already has: own complaint -> Weakness, peer complaint -> Opportunity.
+    themes = list(themes) + _social_themes_for(profile)
+
+    # THE SAME SOURCES THE CLI FEEDS IT. `competitor/full_run.py` passes unique_insights, trends
+    # and ad_presence; this path passed themes and profile only, so the SWOT the owner looks at in
+    # the dashboard was built from strictly less evidence than the one the CLI writes to disk —
+    # and nothing disclosed the difference. Each source is wrapped exactly like the CLI wraps it:
+    # a source that fails contributes nothing and never breaks the analysis.
+    insights = []
+    try:
+        from competitor.swot import unique_insight_texts
+        insights = unique_insight_texts(profile)
+    except Exception:  # noqa: BLE001
+        insights = []
+
+    ad_pres = []
+    try:
+        from ads_intel import ad_presence_for_refs
+        from competitor.full_run import competitor_ref_slugs
+        ad_pres = ad_presence_for_refs(competitor_ref_slugs(peers))
+    except Exception:  # noqa: BLE001 — ads-intel must never break a run
+        ad_pres = []
+
+    trends = _trends_for(profile)
+
+    return synthesize_swot(matrix, themes=themes, profile=profile,
+                           unique_insights=insights, trends=trends,
+                           ad_presence=ad_pres), peers
+
+
+def _social_themes_for(profile: dict) -> list:
+    """Themes from ALREADY-SAVED social snapshots. Deterministic, no network, no model, no spend.
+
+    Reads only what is on disk: pulling fresh comments is a separate, spend-gated decision
+    (`social_intel.ig_autopull`), and an analysis must never start billing on its own. Returns []
+    for a brand with no snapshot, which is simply the honest "we have not collected its comments"."""
+    try:
+        from pathlib import Path
+        import json as _json
+
+        from competitor.social_themes import themes_from_signals
+        from scripts.pull_instagram_apify import signals_from_apify_items
+
+        from api.brand_translate import domain_key_from_url
+        src = (profile or {}).get("source_url")
+        if isinstance(src, dict):
+            src = src.get("value")
+        slug = domain_key_from_url(str(src or ""))
+        path = Path("runs/social_snapshots") / f"{slug}_ig.json"
+        if not path.is_file():
+            return []
+        data = _json.loads(path.read_text(encoding="utf-8"))
+        # This snapshot is the BRAND's own account (`ig_username_from_profile` reads only the
+        # subject), so its comments are own-brand voice: praise becomes a Strength and a complaint
+        # a Weakness. Without saying so they defaulted to peer voice, and a customer thanking THIS
+        # brand would have been filed as a rival's advantage.
+        return themes_from_signals(signals_from_apify_items(data.get("items") or []),
+                                   is_own_brand=True)
+    except Exception:  # noqa: BLE001 — customer voice is a bonus, never a dependency
+        return []
+
+
+def _trends_for(profile: dict) -> list:
+    """Live market signals, bounded. Mirrors competitor/full_run.py.
+
+    The window is deliberately SHORTER than the CLI's 12s: this runs inside a user-facing job with
+    no timeout of its own, and `top_trends_bounded` abandons its worker thread rather than killing
+    it — so a long wall means an orphaned thread and a Serper call whose paid result is discarded.
+    Returns [] on anything at all; a market signal is a bonus, never a dependency."""
+    try:
+        from poster.locale import search_locale
+        from trends.engine import keywords_from_profile, top_trends_bounded
+        kws = keywords_from_profile(profile)
+        if not kws:
+            return []
+        gl, hl = search_locale(profile)
+        return top_trends_bounded(kws, timeout_s=8.0, require_match=True, top_k=6,
+                                  gl=gl, hl=hl)
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def synthesize_swot_standalone(profile: dict):
@@ -110,17 +205,37 @@ def synthesize_swot_standalone(profile: dict):
 
 
 def _items(items) -> list[dict]:
-    """SWOTItem -> frontend {title, reasoning, evidence_ref}."""
+    """SWOTItem -> frontend {title, reasoning, evidence_ref, id, priority}.
+
+    THE PRIORITY AND THE ID USED TO STOP HERE. `api/routes/swot.py` had already been taught to
+    carry them; this second serializer — the one the dashboard actually calls — still shipped five
+    keys, so every ranking decision the analysis makes was computed, stored and then dropped one
+    step before the screen. Same defect the images path had that morning: produced, serialized,
+    never shown.
+
+    The id is what `build_tows` anchors its plan steps on; without it on the wire the plan
+    renumbers by list position and points at a different factor than the one it cites."""
     out = []
     for it in items or []:
         cites = list(getattr(it, "citation", []) or [])
-        out.append({
+        row = {
             "title": getattr(it, "text", ""),
             "reasoning": getattr(it, "evidence", "") or "",
             "evidence_ref": cites[0] if cites else "",
+            "citation": cites,
             "source_theme": getattr(it, "evidence", "") or "",
             "claim_strength": getattr(it, "claim_strength", "internally_supported"),
-        })
+            "id": getattr(it, "id", "") or "",
+        }
+        p = getattr(it, "priority", None)
+        if p is not None:
+            row["priority"] = {
+                "importance": p.importance, "performance": p.performance,
+                "impact": p.impact, "probability": p.probability,
+                "basis": p.basis, "rank": p.rank, "focus": p.focus,
+                "peers_measured": p.peers_measured,
+            }
+        out.append(row)
     return out
 
 
@@ -134,6 +249,12 @@ def _swot_to_frontend(swot) -> dict:
     counts = {k: len(v) for k, v in quad.items()}
     return {
         **quad,
+        # SITE READINESS IS A MOVE, NOT A DELETION. Site mechanics were pulled out of the strategic
+        # quadrants on the owner's ruling — "facts about the website, not about the business" — but
+        # the destination was never serialized, so for the client they simply disappeared (measured
+        # on nanocare: 4 items). A quadrant they were moved OUT of is only honest if the place they
+        # were moved TO is on the wire.
+        "site_readiness": _items(getattr(swot, "site_readiness", []) or []),
         "mode": getattr(swot, "mode", "competitive"),
         "notes": list(getattr(swot, "notes", []) or []),
         "strategic_summary": {
@@ -178,6 +299,34 @@ def _swot_from_raw(raw: dict):
         notes=list(raw.get("notes", []) or []), mode=raw.get("mode", "competitive"))
 
 
+def _strategy_readiness_notes(brand: dict, profile: dict) -> list[str]:
+    """P-11: say out loud when the system's own gate judged this plan's evidence insufficient.
+
+    `business_profile/readiness.py` computes `ready_for_strategy` and names the blockers, and
+    NOTHING read it — 0 hits in `dashboard/run.py` and 0 here. Measured on the stored nanocare
+    profile: `ready_for_strategy: false`, `strategy_blockers: ["strategy_evidence_below_threshold"]`
+    — and a full posture, TOWS matrix and ranked action plan shipped with no mention of either.
+
+    The war room already learned this lesson for the SWOT half of the same verdict after Volume
+    Qatar shipped on thin evidence in silence; this is the strategy half, on the owner's same
+    ruling: the plan still ships, and the caveat ships with it.
+
+    ABSENT IS NOT FALSE. A profile from an older run carries no readiness block at all, and
+    inventing a failure for it would be the same overclaim pointing the other way."""
+    for source in (brand, profile or {}):
+        r = source.get("readiness") if isinstance(source, dict) else None
+        if not isinstance(r, dict) or "ready_for_strategy" not in r:
+            continue
+        if r.get("ready_for_strategy") is not False:
+            return []
+        blockers = [str(b).strip() for b in (r.get("strategy_blockers") or []) if str(b).strip()]
+        why = f" ({', '.join(blockers)})" if blockers else ""
+        return ["الخطة دي اتبنت على أدلة اعتبرها النظام نفسه تحت حد الكفاية"
+                f"{why} — تُقرأ كاتجاه مبدئي لا كخطة مُثبتة. الأدلة الناقصة أعلاه هي اللي "
+                "تحوّلها لخطة كاملة."]
+    return []
+
+
 def generate_strategy(brand: dict) -> dict:
     from competitor import build_tows
 
@@ -216,6 +365,7 @@ def generate_strategy(brand: dict) -> dict:
 
     return {
         "marketing_strategy": {
+            "notes": _strategy_readiness_notes(brand, profile),
             "strategic_posture": posture,
             "posture_rationale": rationale,
             "positioning_statement": brand.get("tagline") or brand.get("description", ""),

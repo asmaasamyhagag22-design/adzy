@@ -79,6 +79,13 @@ def lite_peer_dims(url: str, *, fetch: Optional[Callable[[str], Optional[str]]] 
 
         social = {r.href.rstrip("/") for r in records
                   if r.category == LinkCategory.SOCIAL}
+        # WHICH platforms, not just how many. `LinkRecord.platform` is already filled by
+        # `extract_links_from_html` (and its share-button guard has already dropped "share on
+        # Facebook" links), so this line recovers the evidence the old count threw away — at zero
+        # extra cost. It is what turns "you have 3 social links" into "your peers are on TikTok and
+        # you are not". Platforms are DISCOVERED, never enumerated here (D-8).
+        platforms = sorted({str(r.platform) for r in records
+                            if r.category == LinkCategory.SOCIAL and r.platform})
         ctas = {(r.href.rstrip("/"), (r.anchor_text or "").strip()) for r in records
                 if r.category == LinkCategory.CTA}
         blob = " ".join(f"{h} {a}".lower() for h, a in ctas)
@@ -96,6 +103,14 @@ def lite_peer_dims(url: str, *, fetch: Optional[Callable[[str], Optional[str]]] 
             "bilingual": None,          # needs real language detection — UNKNOWN
             "trust_count": None,        # LLM-stage only — UNKNOWN
             "social_count": len(social),
+            "social_platforms": platforms,
+            # THE ADDRESSES, not just the count and the names. The owner asked for comments from
+            # the competitors too, and "instagram" is not something a comment pull can be aimed at
+            # — `instagram.com/<handle>` is. The set was already built for `len(social)` and then
+            # dropped; keeping it costs no extra request and no money. `extract_links_from_html`
+            # has already discarded share buttons ("share on Facebook" points at a dialog, not a
+            # profile), so what survives here is accounts. Sorted for a stable stored row.
+            "social_urls": sorted(social),
         }
     except Exception:  # noqa: BLE001 — a peer fetch failure must never break the SWOT
         return None

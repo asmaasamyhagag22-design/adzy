@@ -21,7 +21,7 @@ from __future__ import annotations
 from competitor.matrix import (
     ComparativeGapMatrix, MatrixColumn, DimensionGap, Dimension,
 )
-from competitor.swot import synthesize_swot
+from competitor.swot import ReviewTheme, synthesize_swot
 
 
 def _subject():
@@ -80,9 +80,24 @@ def test_competitive_mode_unchanged_when_gaps_exist():
     assert swot.strengths[0].text == "You have WhatsApp; Peer does not"
 
 
-def test_scraped_behind_with_peers_yields_weakness_and_threat():
-    # A web/SERP peer outperforming you on a SITE dimension is both an internal
-    # weakness AND an external threat — this is what fills Threats for ECOMMERCE.
+def test_a_site_gap_is_counted_once_as_a_weakness_and_not_again_as_a_threat():
+    """REWRITTEN, and the reason belongs in the file rather than in a commit message.
+
+    This test used to assert the opposite — that one site gap produces BOTH a weakness and a
+    threat — under the rationale that it was "what fills Threats for ECOMMERCE". Two things were
+    wrong with that, and the owner ruled on it directly: «واحد بس».
+
+      * It is one measured fact counted twice. The two items were worded differently, scored
+        identically, and cited the same peer, so a client reading the SWOT saw two problems where
+        the analysis had found one. TOWS then paired the item with itself — `WT [W1, T1]` — and
+        presented that pairing as a strategy.
+      * A shortfall on your OWN site is not an external force acting on you. Strengths/weaknesses
+        are internal, opportunities/threats external; the split is the whole point of the frame.
+
+    The rationale ("otherwise Threats is always empty for ecommerce") is also no longer true:
+    customer comments praising a competitor now route to Threats, which is real outside evidence
+    instead of the same internal fact wearing a second label — and when Threats does come out
+    empty, `disclose_empty_quadrants` ships the reason."""
     subj = _subject()
     peer = MatrixColumn(name="Rival", is_subject=False, values={"whatsapp": True})
     gap = DimensionGap(
@@ -92,10 +107,23 @@ def test_scraped_behind_with_peers_yields_weakness_and_threat():
     )
     swot = synthesize_swot(ComparativeGapMatrix(columns=[subj, peer], gaps=[gap]), themes=[])
     assert swot.mode == "competitive"
-    assert len(swot.weaknesses) == 1                          # internal lens kept
-    assert len(swot.threats) == 1                             # NEW external lens
-    assert "WhatsApp contact" in swot.threats[0].text
-    assert any("Rival" in c for c in swot.threats[0].citation)  # grounded in the peer
+    assert len(swot.weaknesses) == 1                          # internal lens — the one true home
+    assert swot.threats == [], f"the same gap was counted twice: {[t.text for t in swot.threats]}"
+    assert any("Rival" in c for c in swot.weaknesses[0].citation)   # still grounded in the peer
+
+
+def test_a_competitor_praised_by_customers_is_the_threat_instead():
+    """The external evidence that replaces the duplicate: someone else's customers, in their own
+    words, saying the other one is good."""
+    subj = _subject()
+    peer = MatrixColumn(name="Rival", is_subject=False, values={"whatsapp": True})
+    theme = ReviewTheme(polarity="praise", text="how fast their delivery is",
+                        support=["https://example.com/p/1", "https://example.com/p/2"],
+                        is_unmet_need=False, is_own_brand=False)
+    swot = synthesize_swot(ComparativeGapMatrix(columns=[subj, peer], gaps=[]), themes=[theme])
+    assert swot.threats, "peer praise did not reach the Threats quadrant"
+    assert "delivery" in swot.threats[0].text
+    assert any("example.com" in c for c in swot.threats[0].citation)
 
 
 def test_scraped_behind_standalone_emits_no_phantom_threat():

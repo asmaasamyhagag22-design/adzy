@@ -10,6 +10,83 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low/disclosed
 
 ---
 
+# 🟢 Batch SWOT-AUDIT (2026-07-25) — تدقيق عدائي على الـSWOT بعد إعادة بنائه (RED-first، صفر صرف)
+
+المالكة طلبت «ظبط السوات والتأكد إن كل شيء بيرفكت». التدقيق طلّع 18 بند، منهم **3 حرجة**،
+**وأغلبها ارتدادات دخلت في نفس اليوم**. النمط الجامع — وهو نفس اللي اتصلّح للصور الصبح:
+**يُنتَج · يُسلسَل · لا يُعرض.**
+
+**١) الدرجة كانت بتكافئ الدليل الرفيع** (`competitor/swot_priority.py`) — مقيس:
+قرين واحد عنده الميزة ⟶ `rank=1.00 importance=high focus=True`؛ تلات أقران واحد منهم عنده ⟶
+`rank=0.29 low False`. **دليل أضعف بيدّي حكم أعلى** — نفس علّة `score_size_similarity`.
+الحل: سقف الأهمية عند قرين واحد + معامل ثقة على الـrank (`_EVIDENCE_WEIGHT`).
+
+**٢) كل تفوّق عددي كان بيتحذف** — مقيس: `50` مقابل أقران `{1, 2}` ⟶ `drop=True` بقاعدة Kotler،
+والأساس المكتوب «كل المنافسين المقيسين (2) عندهم Trust أيضاً»: **عبارة صحيحة بترد على سؤال تاني**.
+السبب `_is_present` بتسطّح العدد لبوول. الحل: الندرة للأبعاد البوليانية (`Dimension.kind`)
+والتفوّق المقداري للعددية، **ومحور الأثر بقى متماثل** (كان بيقصّ الفارق عند صفر فالتقدّم الكبير
+والتعادل كانوا بيدّوا `low` الاتنين).
+
+**٣) `whitespace` كانت بتتحذف حتمياً** — بالتعريف محدش عنده الشيء ⟹ انتشار 0 ووسيط 0 ⟹ الحذف
+بيولع على **كل** فرصة مقيسة. مصفوفة الفرص عند Kotler عمرها ما اشتغلت. الحل: مسار مستقل
+(`_whitespace_priority`) بأساس بيقول المقيس (العرض) وغير المقيس (الطلب) بصوت عالي.
+
+**٤) `probability = importance`** حرفياً — محورين معلَنين للعميل وواحد مقيس. بقت `unknown`
+لأن الفجوة المقارنة **ملاحظة حاضر مش تنبؤ**.
+
+**٥) 🔴 الأولوية والإفصاح وجاهزية الموقع مكانوش بيوصلوا العميل أصلاً** —
+`api/webapp_analysis._items` كان بيشحن ٥ حقول **بلا `priority` وبلا `id`** (النسخة التانية؛ الأولى
+في `api/routes/swot.py` كانت اتصلّحت)، و`_swot_to_frontend` **مابيسلسلش `site_readiness`** فالبنود
+اللي «اتنقلت» بحكم المالكة كانت **بتختفي** (مقيس على nanocare: **4 بنود**)، و`grep` على
+`frontend/index.html` رجّع `notes`=**0** و`site_readiness`=**0**.
+**بعد:** `site_readiness` 4 بنود + `notes` 8 سطور، كلها بتترسم؛ وكل بند معاه `id` + `priority`.
+
+**٦) `disclose_empty_quadrants` كانت بتتنادى قبل `_prioritise`** ⟹ الخانة اللي بتفضى بالحذف
+بتشحن **بلا سبب مكتوب**. بقت آخر خطوة.
+
+**٧) ازدواج الحساب — حكم المالكة «واحد بس»** — نفس فجوة الموقع كانت بتشحن ضعف داخلي **و**تهديد
+خارجي؛ وTOWS بيجوّز البند بنفسه (`WT [W1,T1]`). اتشال التهديد المشتق، **ومدح المنافس في تعليقات
+العملاء بقى يروح خانة التهديدات** (كان بيتحط في `notes`) — دليل خارجي حقيقي بدل حقيقة داخلية
+بلافتة تانية. الاختبار اللي كان بيثبّت الازدواج **اتعاد كتابته بالسبب مكتوب في الملف**.
+
+**٨) `tows._quadrant` كان لسه بيبني المراسي من `enumerate`** بينما `swot_item_ids` بقت تقرا
+`item.id` ⟹ الاتنين بيختلفوا أول ما الخانة تترتب بالأولوية — و**الترتيب بالأولوية هو الهدف**.
+«الخطوة رقم 1» كانت بتشاور على بند تاني غير اللي بتستشهد بيه.
+
+**الواجهة (حكم المالكة: الأربعة):** شارة أولوية (وحدها `focus` بلون) · الأساس المكتوب تحت كل بند ·
+قسم «جاهزية الموقع» · صندوق الملاحظات · ومصدر كل بند (مقارنة منافسين / تعليق عميل / **ادعاء ذاتي**
+/ إشارة سوق) + `escHtml` لأن النص جاي من صفحات مكشوطة ومن تعليقات.
+
+**بنود منسية من السجل، اتفحصت وهي في نفس السلسلة:**
+- **P-11 ✅** — `ready_for_strategy` كان بيتحسب ويتخزّن و**محدش يقراه** (0 hits في `dashboard/run.py`
+  و`api/webapp_analysis.py`). مقيس حي: `outputs/nanocareegypt_com_profile.json` فيه
+  `ready_for_strategy: false` + `strategy_blockers: ["strategy_evidence_below_threshold"]`
+  **وبتشحن خطة كاملة**. دلوقتي `marketing_strategy.notes` بتحمل التحفّظ + سبب الحجب، والفرونت
+  بيرسمها. الخطة **بتفضل تشحن** (حكم المالكة: حاجة أحسن من لا حاجة) — بس بالتحفّظ.
+  **«غايب ≠ خطأ»**: بروفايل قديم بلا `readiness` مابيتّهمش.
+- **P-24 ✅ (إفصاح)** — `grounding/ledger.py:659` «No judge -> lenient». الليدجر بقى بيعلن
+  `strict_subject_gate`، والـSWOT بيكتب في `notes` إن بوابة التفضيل الدلالية **غير مُفعَّلة** في
+  التشغيلة دي وإيه اللي بيعدّي بسببها. **إفصاح مش إنفاذ** — شراء حَكَم لكل تشغيلة قرار صرف للمالكة.
+- **تعليقات المنافسين** — `lite_peer_dims` كان بيبني `set` بالروابط عشان يعدّها ويرميها.
+  بقى بيرجّع `social_urls` (مرتّبة، بلا أزرار المشاركة) = مدخل سحب التعليقات للمنافسين. **صفر طلبات
+  زيادة، صفر صرف.**
+
+**٩) اتصاد أثناء التحقق الحي نفسه** — شغّلت دوال العرض بتاعت الصفحة (`swotItemHtml` مستخرَجة
+حرفياً من `frontend/index.html`) على بايلود nanocare الحقيقي، فطلع إن **البنود الأربعة كلها**
+بتتعرض بأساس «ادعاء البراند عن نفسه (من موقعه)» تحت عناوين زي **"No clear call-to-action on the
+page"**. **فئة الفشل #6 تاني**: ولا براند بيعلن عن الـCTA الناقص بتاعه. `score_opinion_item`
+بقت تاخد `kind` (`site_observation` مقابل `self_claim`) — و`_prioritise` **بيعرف الفرق أصلاً**
+(`_is_site_mechanic` هو اللي بينقل البند) وكان بس مش بيقوله للـscorer. الدرجة ما اتغيرتش؛ الجملة
+اللي العميل بيقراها بس. الشيب في الواجهة اتصلّح من نفس الإشارة.
+**والدرس:** الاختبار الثابت على الملف عدّى، والتحقق الحي هو اللي قبض العيب. **الاتنين لازم.**
+
+**اتكذّب (مكسب):** **P-10** «الكالندر عمره ما شاف SWOT/سوشيال» — **البند بقى مضلل**:
+`strategy/builder.py` فيه دلوقتي **11 إشارة `swot`** و**2 `social_presence`**. اتحسّن ومحدش سجّل.
+
+**السويت: 2531 → 2582 خضراء** (51 اختبار جديد). صفر commit، صفر صرف، صفر ريل.
+
+---
+
 # 🟢 Batch D (2026-07-18) — البوستر/gates/policy-linter (4 إصلاحات، RED-first)
 
 - **P-93 ✅** — Policy Linter كان بيرجّع PASS ("متوافق") لأي لغة مش ar/en (مفحصهاش). دلوقتي بيكشف
@@ -257,7 +334,9 @@ tree من غير commit.
 ## C · Strategy engine (deep audit 2026-07-16 — 14 calendars, 108 items, 6 brands web-researched)
 
 - **P-09** ✅ **FIXED (2026-07-17)** — new `_platforms_for(profile)` (`strategy/builder.py`) picks the calendar's platforms from the brand's OWN scraped `social_presence`, ordered by `media_plan.config.channel_weights(category)` (Facebook-heavy by design); empty social → the category's top weighted channels (which include Facebook), never the old trio. `build_strategy` uses it when platforms aren't passed. **Measured on real profiles:** topshoes → [instagram, facebook] (was IG/TikTok/LinkedIn, 0 FB); NTI → [facebook, instagram, linkedin] (FB first, LinkedIn kept — it HAS one); vodafone → [facebook, youtube, instagram]; every brand now includes Facebook and drops the forced LinkedIn it never had. Test `tests/test_strategy_platforms.py`. **Live-verify** (full calendar with FB items) queued for a paid run.
+- **P-10 ⚠️ البند نفسه بقى مضلل — اتقاس 2026-07-25:** `strategy/builder.py` فيه دلوقتي **11 إشارة `swot`** و**2 `social_presence`**، يعني الكالندر بقى بيشوفهم فعلاً. اتحسّن ومحدش سجّل. **الباقي المؤكَّد من البند:** الأسعار وهدف الميديا-بلان لسه مش داخلين البرومبت. *(قاعدة #7: السجل نفسه ممكن يقدم — البند اللي يطلع مش حقيقي يتكذّب ويتسجّل.)* الأصل ↓
 - **P-10** 🟠 Prompt starvation: the calendar LLM sees only name/category/tagline/audience/tone + 8 offering names (`_persona_block`, `strategy/builder.py:132-142`). Never sees: SWOT, competitor set, media-plan objective (built 4 lines later in the same run — `dashboard/run.py:116` vs `:124`, blind to each other), `social_presence` (follower data already scraped), reviews, prices, country.
+- **P-11 ✅ اتصلّح 2026-07-25 (Batch SWOT-AUDIT)** — الخطة بتشحن مع تحفّظ مكتوب + سبب الحجب (`_strategy_readiness_notes` في `api/webapp_analysis.py`، والفرونت بيرسمه في `#strategy-notes`). الأصل ↓
 - **P-11** 🟠 `ready_for_strategy: false` ignored: live gate is `if have_profile:` — the readiness verdict is computed, stored, never read. Proof: `outputs/web_vodafone_com_eg_profile.json` (`"ready_for_strategy": false, "strategy_blockers": ["low_evidence_coverage"]`) + shipped plan. `dashboard/run.py:115`.
 - **P-12** 🟠 Trends/seasons never reach any live calendar: studio invocation omits `--trends` (`dashboard/run.py:116`); seasons module has no calendar-builder wiring at all.
 - **P-13** ✅ **FIXED (2026-07-17)** — `strategy/__main__.py` now builds the calendar caller with `default_caller(strong=True)` (Gemini 2.5 Pro), consistent with the poster's art direction, instead of Flash. The content calendar is the product's core creative output. (One-line; live output-quality gain observable on a paid run.)
@@ -275,6 +354,7 @@ tree من غير commit.
 - **P-21** 🟠 Live-route seed gate animates UNJUDGED seeds: `if v.checked and not v.overall_pass:` at `reel/generate.py:250` and retry `:260` — fail-open on no-caller/unreadable/one-429; sibling `seed_gen.py:172` was hardened (`is True`, P6#7), this twin wasn't. Only vision guard on `api/routes/reel.py` path.
 - **P-22** 🟡 Compositor ships hallucinated clip when first scene-QA call errors (`checked=False` skips regen+KenBurns, `reel/compositor.py:172`); retry ships unjudged (`is not False`, `:188`, ticketed P6#12); `qa_caller is None` skips QA entirely (`:155`) — contradicts scene_qa.py's "worst case still shows the true product".
 - **P-23** 🟠 Reel third-party-mark gate = literal-token regex (`logo|trademark|wordmark|brandmark|swoosh|golden arches|®™`): "a runner in Nike shoes / an iPhone / a Coca-Cola can" passes; scene_qa has no third_party_mark field, so the rendered frame is never checked. `reel/coherence.py:38-41`, enforced `:98-113`.
+- **P-24 ✅ اتقفل بالإفصاح 2026-07-25 (Batch SWOT-AUDIT)** — الإنفاذ لسه محتاج حَكَم مدفوع، لكن **الصمت اتشال**: `EvidenceLedger.strict_subject_gate` بيعلن المود، والـSWOT بيكتب في `notes` إن بوابة التفضيل الدلالية غير مُفعَّلة وإيه اللي بيعدّي بسببها. شراء حَكَم لكل تشغيلة = قرار صرف للمالكة، مش قرار يتاخد بالسكوت. الأصل ↓
 - **P-24** 🟟 **PARTIALLY FIXED (2026-07-17 — SWOT/TOWS done; poster-audit + reel paths remain for cluster 8)** — the subject judge is now wired into the SWOT path: `competitor/swot.py:247` (`synthesize_swot` builds `make_subject_judge(default_caller(strong=False))`) and `competitor/tows.py:271` (uses the caller `build_tows` already receives). Degrade-safe by construction (no caller → `make_subject_judge(None)` → None → the ledger's documented lenient mode, so tests where the network is blocked are unchanged). **Live effect** (a disjoint-subject superlative like "best coffee"←"best regards" being REJECTED) needs a paid run with a live caller to observe — queued. Remaining judge-less builders (cluster 8): `poster/audit.py:37`, `reel/grounding.py`, `reel/coherence.py`.  Original ↓
 - **P-24** 🟠 Ledger superlative-SUBJECT gate is a no-op without the optional paid judge, and the compliance-sheet path + all reel paths build the ledger judge-less: `grounding/ledger.py:685-691` (`No judge -> lenient`); judge-less at `poster/audit.py:37`, `reel/grounding.py:76,88`, `reel/coherence.py:206`. Live artifact proof of the theater: `web_vodafone_com_eg_plan.audit.json` — "المزايا الحصرية" claim (`kind:"only"`) sourced to a YouTube-Premium quote about a different product.
 - **P-25** 🟡 poster vision_qa: `has_latin_text` and `score>=7` promised in the prompt as pass-conditions but NOT re-ANDed in the code conjunction (`poster/vision_qa.py:166-168` vs `:137-139`).
@@ -1048,6 +1128,107 @@ tree من غير commit.
 
 ---
 
+# 💬 صوت العميل: التعليقات تغذّي الـSWOT (2026-07-25) — السويت **2531**
+
+**حكم المالكة:** «كان كومنت اكتر كان ادق واحسن — يعمل سكراب لسوشيال ميديا للكومنت وللمنافسين».
+
+**قرار حاكم غيّر قرار سابق:** كان مسجّل «ممنوع سكرابنج سوشيال — استخدم الـAPIs الرسمية». المالكة رفعته **لمسار التعليقات تحديداً، عبر Apify** (طرف تالت بيجيب البيانات — نفس النمط المعتمَد للمواقع المبلوكة). الذاكرة اتحدّثت. **الأسماء مهشّرة أصلاً** (`author_hash`، مفيش اسم خام).
+
+## المقيس: النظام بيجمع أقوى أدلته ويرميها
+
+من سنابشوت انستجرام محفوظ، `outputs/buffaloburger_com_result.json` فيه بالفعل:
+> **نقطة ألم:** «موظفو فرع The Isle خدمتهم سيئة جداً»
+> **الاقتباس:** «الفرع اللي في the isle تعاملهم وحش اووي وتعاملهم صعب»
+> **المصدر:** `instagram.com/p/DaDdrEUqobZ/`
+
+نقطة ضعف SWOT نموذجية — شكوى حقيقية مقتبسة حرفياً بلينك البوست. و`grep marketing_intel competitor/swot.py` = **صفر**.
+
+| التعليقات المحفوظة | كوكاكولا 102 · nanocare 40 · بافالو 28 · NTI 21 |
+|---|---|
+| بتتحلّل؟ | ✅ شغال ومحفوظ | 
+| بتوصل الـSWOT؟ | ❌ **صفر** |
+
+## الحل: **جسر**، مش عقل تاني
+
+`synthesize_swot` **بيوجّه `ReviewTheme` بالظبط زي ما المالكة وصفت الفيتشر**: شكوى ذاتية⟶ضعف · مدح ذاتي⟶قوة · **شكوى منافس⟶فرصة** («فجوة تقدر تملاها») · مدح منافس⟶تهديد. و`SocialSignal` عنده نفس فلاج `is_own_brand`. فـ`competitor/social_themes.py` (جديد) بيحوّل التعليق لثيمة، والتوجيه الشغّال بيكمّل. **مفيش نظام مشاعر تاني يتزامن مع الأول.**
+
+- **حتمي بالكامل** — صفر نداء موديل، صفر شبكة، صفر صرف. القوايم **ثنائية اللغة** بعد درس `_TREND_THREAT_KEYS` (كانت إنجليزي بس فالشكوى العربية كانت خفيّة).
+- **مرفوض عمداً:** كابشنات البراند وبوستاته. جملة البراند عن نفسه رأي مش دليل عميل — نفس العيب اللي الـSWOT اتصلّح منه في `value_propositions`.
+- **التكرار بيتدمج** والدعم بيتعدّ: «كان كومنت اكتر كان ادق» ⟹ 3 ناس بيقولوا نفس الحاجة = ثيمة واحدة بـ3 مراجع، مش 3 بنود.
+
+## عيبان اصطادهم القياس على تعليقات حقيقية
+
+1. 🔴 **مدح المنافس اتصنّف مدح ليكي.** كوكاكولا: «عروض وهميه **بيبسى افضل منكم**» ⟶ اتصنّفت **praise** لأن فيها «افضل». الكلمة مدح فعلاً، بس الجملة **مش عنك**. اتصلّح: كلمة مدح موجّهة لغيرك = **شكوى عنك** (`_PRAISE_FOR_SOMEONE_ELSE`، بالعربي والإنجليزي).
+2. 🔴 **تعليقات البراند نفسه اتصنّفت «صوت منافس».** `IgSignal` (`scripts/pull_instagram_apify.py`) **مفيهوش حقل `is_own_brand` أصلاً** فوقع على `False` — يعني عميل بيشكر nanocare كان هيتسجّل **ميزة لمنافس**. اتصلّح بـ`is_own_brand=` صريح من المتصل (اللي بيعرف السنابشوت بتاع مين).
+
+**القياس بعد (nanocare، 3 ثيمات):** «الدواء رائع فرق مع بشرتي جدا» ⟶ **قوة** `own=True` ✅
+
+اختبارات: `tests/test_comments_become_swot_themes.py` (16).
+
+## ⏳ الباقي في المسار ده
+
+سحب تعليقات **المنافسين** (Apify، `$5/1000` نتيجة، سقف `$20/شهر`، **المستهلك $1.19**) — محتاج يوزرنيم القرين، ودي محتاجة `lite_scrape` يحتفظ بـ**روابط** السوشيال مش أسماء المنصات بس.
+
+---
+
+# 📡 الـSWOT يشرب من مصادره الثلاثة (2026-07-25) — السويت **2515**
+
+**حكم المالكة:** «المفروض الاعتماد يبقى ع ريفيو من جوجل بليسس وسوشيال ميديا والكومبتيتور. مش موجود». القياس أثبت كلامها بالكامل.
+
+## المقيس قبل
+
+| المصدر | بيوصل الـSWOT | التغطية الحقيقية |
+|---|---|---|
+| ريفيوهات بليسس | ✅ بشرط **≥4 ريفيوهات** (`themes.py:82`) | **5 من 17 تشغيلة (29%)** |
+| **سوشيال ميديا** | ❌ **صفر** (`grep` على `swot.py`+`brand_signals.py` = صفر) | **18 من 22 بروفايل (82%)** |
+| المنافسون | ✅ فجوات الموقع | — |
+
+**السوشيال أوسع بـ3 أضعاف** — ريفيوهات بليسس بتتطلب فرع مسجّل وأغلب العملاء أونلاين. والبيانات **مكشوطة ومخزّنة ومُستشهَدة** (nanocare: فيسبوك+إنستجرام+تيك توك بـ`page_url`+`quote`) — النظام بيجمع أقوى مصادره **ويرميه**.
+
+## ✅ السوشيال بقى بند نسبي
+
+- **`lite_scrape.py`** — كل `LinkRecord` عنده `.platform` جاهز، والدالة كانت بترميه وتاخد العدد بس. اتحفظ في `social_platforms`. **صفر طلبات زيادة.**
+- **`competitor/social_gaps.py`** (جديد) — كل منصة بقت `DimensionGap`، فـ`score_gap` الموجود بيتعامل معاها زي أي بُعد: **الانتشار لما تكون متأخر، والندرة لما تكون متقدّم**، واستبعاد Kotler للضعيف على المحورين. **مفيش نظام تسجيل تاني يتزامن مع الأول.**
+- **D-8:** المنصات **مكتشَفة** — 9 مقيسة عبر 18 براند، والقايمة مفتوحة.
+
+**القياس على nanocare الحقيقي:**
+| | النتيجة |
+|---|---|
+| ضعف | «every measured competitor publishes on **youtube**; you do not» — أهمية=high · أداء=behind · **focus=True** · rank=**1.0** |
+| قوة | «you publish on **tiktok** and no measured competitor does» — **تميّز نادر** · rank=0.74 |
+| الأساس | «3 من 3 منافس مقيس عندهم youtube presence. الفجوة: 0 مقابل وسيط المنافسين 1» |
+
+**فخّان اتفاديا (مقيسين):** بوابة الليدجر **بترمي** سطر فيه رقم من خانتين غير مسنود («17 channels») أو تفضيل («Leading») ⟹ الأرقام في `evidence` مش في النص. و`_is_site_mechanic` كان هينقل البند لـ«جاهزية الموقع» لو استشهد بمفتاح بُعد ⟹ البنود مربوطة بفجوة حقيقية.
+**حارس مُعاد استخدامه:** زرار «شارك على فيسبوك» **مش** حساب البراند (`_is_share_url`).
+
+## 🔴 باج: `ad_presence` فاضي من يوم ما اتكتب
+
+`full_run.py:651` كان `getattr(c, "name", "")` على `CompetitorProfile` — **حقوله candidate/selection/reviews/has_scrapable_site/is_local، مفيش `name`**. فكل ref = `''` ⟹ `[]`. **مقيس:** `getattr(c,'name','')`=`''` بينما `c.candidate.name`=`'Joe Cafe'`. والصح مكتوب في `ads_intel/orchestrator.py:182`. اتحوّل لـ`competitor_ref_slugs()` بيقرا dataclass ودكت.
+
+## 🔴 والإصلاح لوحده مش هيدّي تهديدات — السبب أهم
+
+السحب بـ**`search_terms`** (`ads_intel/live.py:34`) بيدوّر في **نص الإعلان** مش في **المعلن**:
+
+| السنابشوت | الاستعلام | إعلانات | الصفحات اللي رجعت |
+|---|---|---|---|
+| `body_building_house` | Body Building House | 200 | Military Training · Novels Lover |
+| `joe_s_cafe` | Joe's cafe | 43 | Goodnovel Lovers · Shortical TV |
+| `iherb` | Iherb | 4 | Бандеролька · Fluzy AI |
+
+**260 إعلان، صفر للمنافس.** بوابة `matches_competitor` بترميهم كلهم — **وهي شغالة صح؛ البيانات هي الغلط**. الحل `search_page_ids` — **بند مستقل بأمر المالكة**.
+
+## 🔴 الداشبورد كان أفقر من الـCLI وحد ماقالش
+
+`full_run` بيمرّر `unique_insights`+`trends`+`ad_presence`؛ `webapp_analysis` كان بيمرّر `themes`+`profile` **بس**. والأكبر: بينده الاكتشاف **بلا `web_engine`** ⟹ `NullWebDiscoveryEngine` ⟹ **أي براند إيكومرس ياخد صفر منافسين**. ملاحظة nanocare المحفوظة: «**0 Places + 4 web**» — كل منافسيه من المحرك ده، والداشبورد كان هيديله صفر، **ومن غير أقران مفيش سوشيال نسبي أصلاً**.
+
+كله اتوصّل بنمط الـCLI (`try/except → []`). و`_trends_for` بسقف **8 ثواني** بدل 12 — `top_trends_bounded` بيسيب ثريد يتيم والجوب مالوش timeout، فنداء Serper كان ممكن يتدفع وتترمي نتيجته.
+**تحذير مقيس:** سقف Serper **500/شهر**، المستهلك **323** ⟹ متبقّي **177**.
+
+اختبارات: `test_peer_social_platforms.py` (7) · `test_social_gaps.py` (10) · `test_swot_sources_reach_the_webapp.py` (6).
+**تصحيح ذاتي:** اختباري لـ`web_engine` كان بيـpatch الموديول الغلط (الاستيراد جوّه الدالة) — كان هيعدّي على كود ما اتغيّرش.
+
+---
+
 # 🧑 المؤثر الافتراضي — الأساسات (2026-07-25، قيد التنفيذ)
 
 ## 🔴 خرق D-8 مقيس في `brand_locale` — بيضرب **كل بوستر لكل براند خليجي**
@@ -1077,6 +1258,28 @@ tree من غير commit.
 
 - **`BrandStore.add_nested`** — إضافة تحت القفل لعنصر جوه مجموعة متداخلة. **ليه:** `_merge_one_level` بيدمج **مستوى واحد**، فباتش فيه `{"ai_influencer": {"candidates": {…}}}` **بيستبدل خريطة المرشحين كلها**؛ والجوبات بتبني الباتش من قراية T0 — يعني إضافتين متزامنتين، التانية بتمسح الأولى. عملياً: المالكة تدفع لمرشح، تطلب تاني، **وتفقد اللي كانت هتختار بينهم**. اختبارات: `tests/test_influencer_candidates.py` (5، بتريدات حقيقية).
 - **`api/influencer_identity.py`** — اشتقاق الشخصية + قفل الهوية. `persona_from_owner` (اللي المالكة وصفته، والقيم الفاضية زي `any`/`none` **مش** أوصاف وش)، `persona_from_brand` (حالة «محتار» — من السوق/الجمهور/النبرة **المقيسين**، وبلا بلد مزروع)، `identity_lock_text` (على شكل `character_block` بلا الجنسية المزروعة). اختبارات: `tests/test_influencer_identity.py` (13).
+
+## ✅ التدفق اتبنى واشتغل حياً (السويت 2492)
+
+**المسار:** `create` (يبدأ من الأول) · `another` (يضيف مرشح، يرفض بعد 3) · `select {candidate_id}` · `poster` (بيستخدم الوش المختار).
+
+**الوش بقى بايتات مش جملة.** `generate_poster(identity_image=…)` ⟶ `_try_oneshot` ⟶ `generate_oneshot_poster(identity_ref=…)`، والصورة **بتتبعت قبل البرومبت** (ترتيب `reel/render3/nano.py` المقيس) و**على بارامتر مستقل خارج سقف `[:2]`** بتاع المنتجات. و`_identity_rules` بيقول للموديل إنها **شخص مش منتج** — من غيرها `_props_rules` كان هيوصف وش المالكة كـ«REAL PRODUCT PROP» ويحطه على كاونتر.
+
+**عيبان اصطادهم القياس الحي (مش المراجعة):**
+1. 🔴 **الدمج كان بيمسح مفاتيح ماذكرهاش الباتش.** بعد `create` ثم `another` البراند فضل **بمرشح واحد**: باتش `{"ai_influencer": {"candidates": {c2: …}}}` كان **بيستبدل خريطة المرشحين كلها** لأن الدمج مستوى واحد. المبدأ اللي كان غلط: **الباتش عبارة عن المفاتيح اللي بيسمّيها**؛ استبدال أخ ماذكرهوش = حذف مش دمج. بقى تكراري للقواميس (والليستات تفضل تستبدل، فالكالندر المعاد توليده يحل محل القديم). ده كان هيخلّي المالكة **تدفع لوش تاني وتفقد الأول**.
+2. 🟠 **`portrait_url` مايقدرش يكون «الأحدث» و«المختار» في نفس الوقت** — اصطاده اختباري. القاعدة: المختار لو في اختيار، وإلا الأحدث. و`selected_face_bytes` بيقرا **الاختيار حصراً** (بلا رجوع لـ`portrait_url`) وإلا البوستر هيطلّع آخر وش اتولّد مش اللي المالكة اختارته.
+
+**اسم الأصل بقى فريد وغير قابل للتخمين** (`unique_asset_name`): كان `{domain_key}_influencer_portrait` **ثابت**، فكل توليد بيدهس اللي قبله — ده كان بيقتل «الاحتفاظ بالمرشحين» **قبل أي نداء موديل**. والاسم مش متسلسل لأن `/api/generated/{name}` **عام بلا مصادقة بالتصميم**.
+
+**القياس الحي (nanocare):** 3 مرشحين · **3 ملفات مختلفة كلها حية (200)** · الرابع **409 برسالة** · البوستر قبل الاختيار **409** · بعد الاختيار: `selected_id` صح، `portrait_url` بيشاور على المختار، `validated=true`.
+
+**الحراسة:** `/api/influencer/another` و`/poster` اتضافوا لسطح تدقيق الصرف في `tests/test_webapp_spend_gate.py`.
+
+اختبارات جديدة: `test_influencer_candidates.py` (7) · `test_influencer_identity.py` (13) · `test_influencer_flow.py` (11) · `test_identity_reaches_the_model.py` (6) · `test_generated_names_are_unique.py` (5).
+
+## ⏳ باقي في المؤثر
+
+بوابة الهوية (على نمط `scene_qa.check_seed_frame` مش `g2_check`) · seam الريل · إصلاح `Egyptian` في `render3` · واجهة المرشحين.
 
 ## ⚠️ تصحيحات جوهرية للخطة (من مراجعة عدائية)
 

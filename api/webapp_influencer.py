@@ -122,7 +122,146 @@ def _card(brand: dict, title: str, lines: list[str], *, avatar: bool) -> bytes:
 def _ai(brand: dict) -> dict:
     ai = dict(brand.get("ai_influencer") or {})
     ai.setdefault("config", {})
+    ai.setdefault("candidates", {})
     return ai
+
+
+# ---------------------------------------------------------------------------
+# Candidates — "three people, pick one", paid one at a time
+# ---------------------------------------------------------------------------
+
+MAX_CANDIDATES = 3
+
+
+class TooManyCandidates(RuntimeError):
+    """The owner asked for a fourth face. Three is the choice she described."""
+
+
+class UnknownCandidate(RuntimeError):
+    """A selection referring to a face that is not in this brand's set."""
+
+
+def _render_portrait(brand: dict, persona: str, market: str) -> bytes:
+    """The real thing: nano-banana, through the metered lane.
+
+    `reel.render3.nano.generate_with_refs` is the repo's reference-conditioned generator — spend
+    guarded (`guard_image` before, `record` after), lane failover, quota backoff. No refs on a
+    FIRST portrait: there is no prior face to hold to yet, so this is the only unconditioned call
+    in the flow. Every later render attaches this image and locks to it."""
+    import tempfile
+    from pathlib import Path
+
+    from reel.render3.nano import generate_with_refs
+
+    prompt = (
+        "A photorealistic head-and-shoulders portrait of ONE person, facing the camera, neutral "
+        "studio background, soft even lighting, natural skin texture, no text anywhere in the "
+        f"image, no logos, no props.\n{persona}\n"
+        + (f"{market}\n" if market else "")
+        + "This is a casting portrait: the face must be clear, unobstructed and well lit, because "
+          "it will be reused as the identity reference for later renders."
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "portrait.png"
+        generate_with_refs(prompt, out, refs=None, pro=False)
+        return out.read_bytes()
+
+
+def generate_candidate(brand: dict, cfg: dict) -> dict:
+    """Produce ONE more candidate face and return the patch that adds it.
+
+    The owner pays per face ("واحد الأول، والتاني والتالت بطلب"), so this never generates a set —
+    it appends one, and refuses past `MAX_CANDIDATES` rather than quietly spending again."""
+    from .influencer_identity import persona_from_brand, persona_from_owner
+
+    ai = _ai(brand)
+    if len(ai.get("candidates") or {}) >= MAX_CANDIDATES:
+        raise TooManyCandidates(
+            f"{MAX_CANDIDATES} candidates already exist — pick one, or remove one first.")
+
+    profile = brand.get("_profile") or {}
+    persona = persona_from_owner(cfg) or persona_from_brand(profile)
+    market = ""
+    try:
+        from poster.locale import country_of
+        market = country_of(profile)
+    except Exception:  # noqa: BLE001
+        market = ""
+
+    png, is_preview, degraded = None, True, ""
+    if images.paid_images_enabled():
+        try:
+            png = _render_portrait(brand, persona, market)
+            is_preview = False
+        except Exception as exc:  # noqa: BLE001 — the caller is TOLD why, never silently degraded
+            degraded = f"{type(exc).__name__}: {exc}"[:200]
+    if png is None:
+        png = _card(brand, "AI INFLUENCER", [persona], avatar=True)
+        is_preview = True
+        degraded = degraded or (_NO_PIPELINE_REASON if images.paid_images_enabled() else "")
+
+    import uuid
+    cand_id = uuid.uuid4().hex[:8]
+    url = images.save_generated_png(
+        png, images.unique_asset_name(brand.get("domain_key", "brand"), "influencer_portrait"))
+    entry = {"url": url, "persona": persona, "market": market,
+             "is_preview": is_preview, "degraded_reason": degraded,
+             "config": {k: v for k, v in (cfg or {}).items() if k != "domain_key"}}
+    patch = {"candidates": {cand_id: entry}, "has_portrait": True}
+    if not ai.get("selected_id"):
+        # A DISPLAY pointer at the newest face, so the owner can see what she just paid for and
+        # decide. Deliberately NOT `validated` and NOT `selected_id`: being visible is not being
+        # chosen, and conflating the two is what let an approval slide onto a later portrait.
+        #
+        # Once a face IS chosen the pointer stops moving — caught by this module's own test. The
+        # single legacy field cannot mean both "newest" and "chosen", and after a selection the
+        # only honest reading is the chosen one, or the preview would show a face the poster will
+        # not use.
+        patch.update({"portrait_url": url, "is_preview": is_preview,
+                      "degraded_reason": degraded})
+    return {"ai_influencer": patch}
+
+
+def select_candidate(brand: dict, candidate_id: str) -> dict:
+    """Lock ONE candidate in as the brand's face.
+
+    `validated` used to be a bare bool with no idea WHICH portrait it approved, so approving one
+    face and then generating another authorised a poster for the wrong person. The selection is now
+    an id, and the legacy fields are derived from it so they can never disagree."""
+    ai = _ai(brand)
+    cands = ai.get("candidates") or {}
+    if candidate_id not in cands:
+        raise UnknownCandidate(f"no candidate {candidate_id!r} for this brand")
+    chosen = cands[candidate_id]
+    return {"ai_influencer": {
+        "selected_id": candidate_id,
+        # Derived, never independently set — the old flat fields the frontend still reads.
+        "portrait_url": chosen.get("url"),
+        "has_portrait": True,
+        "validated": True,
+        "is_preview": chosen.get("is_preview", True),
+        "degraded_reason": chosen.get("degraded_reason", ""),
+        "config": {**ai.get("config", {}), "influencer_persona": chosen.get("persona", "")},
+    }}
+
+
+def selected_face_bytes(brand: dict) -> tuple:
+    """The chosen face as BYTES — what actually travels to a render.
+
+    Until now the only thing that reached the poster was a sentence describing the person
+    (`config.influencer_persona`), so "the same person" was a hope. Returns (None, "") when nothing
+    is selected or the file is gone: the caller must then refuse to claim an influencer render
+    rather than silently substituting a description."""
+    ai = brand.get("ai_influencer") or {}
+    # STRICTLY the selected candidate. `portrait_url` is a display pointer at the NEWEST face, so
+    # falling back to it would render a poster starring whoever was generated last rather than
+    # whoever the owner chose — the exact ambiguity the selection id exists to remove.
+    chosen = (ai.get("candidates") or {}).get(ai.get("selected_id") or "")
+    url = str((chosen or {}).get("url") or "")
+    if not url:
+        return None, ""
+    data = images.read_generated_png(url.rsplit("/", 1)[-1])
+    return (data, "image/png") if data else (None, "")
 
 
 def generate_portrait(brand: dict, cfg: dict) -> dict:
@@ -149,17 +288,75 @@ def validate_portrait(brand: dict, approved: bool) -> dict:
 
 def generate_influencer_poster(brand: dict, *, product_hint: str = "",
                                scene_description: str = "") -> dict:
+    """A branded poster with THE SELECTED FACE in it.
+
+    The chosen portrait travels as BYTES on `generate_poster(identity_image=…)`, so the person in
+    the poster is the person the owner picked rather than a re-sampled stranger who matches a
+    description. Until now the only thing that reached this step was the persona SENTENCE.
+
+    NO SILENT SUBSTITUTION: if the face bytes cannot be read, this does not quietly fall back to
+    "a poster of someone who fits the description" — that would answer a different question from
+    the one the owner asked. The result is disclosed as a preview with the reason."""
     ai = _ai(brand)
     persona = ai.get("config", {}).get("influencer_persona", "brand persona")
-    lines = [f"Featuring: {persona}"]
-    if product_hint:
-        lines.append(f"Product: {product_hint}")
-    if scene_description:
-        lines.append(f"Scene: {scene_description}")
-    png = _card(brand, (brand.get("organization_name") or "BRAND").upper(), lines, avatar=False)
-    url = images.save_generated_png(png, f"{brand.get('domain_key','brand')}_influencer_poster")
+    face, face_mime = selected_face_bytes(brand)
+
+    png, is_preview, degraded = None, True, ""
+    if images.paid_images_enabled():
+        if not face:
+            degraded = "no selected influencer face could be read — pick a look first"
+        else:
+            try:
+                png = _render_influencer_poster(
+                    brand, persona=persona, face=(face, face_mime),
+                    product_hint=product_hint, scene_description=scene_description)
+                is_preview = False
+            except Exception as exc:  # noqa: BLE001
+                degraded = f"{type(exc).__name__}: {exc}"[:200]
+    if png is None:
+        lines = [f"Featuring: {persona}"]
+        if product_hint:
+            lines.append(f"Product: {product_hint}")
+        if scene_description:
+            lines.append(f"Scene: {scene_description}")
+        png = _card(brand, (brand.get("organization_name") or "BRAND").upper(), lines,
+                    avatar=False)
+        is_preview = True
+        degraded = degraded or (_NO_PIPELINE_REASON if images.paid_images_enabled() else "")
+
+    url = images.save_generated_png(
+        png, images.unique_asset_name(brand.get("domain_key", "brand"), "influencer_poster"))
     ai.update({"has_poster": True, "poster_url": url,
                "config": {**ai.get("config", {}), "product_hint": product_hint,
                           "scene_description": scene_description},
-               **_disclosure()})
+               "is_preview": is_preview, "degraded_reason": degraded})
     return {"ai_influencer": ai}
+
+
+def _render_influencer_poster(brand: dict, *, persona: str, face: tuple,
+                              product_hint: str = "", scene_description: str = "") -> bytes:
+    """The real branded poster, through the existing poster pipeline with the face attached.
+
+    Deliberately the WHOLE pipeline and not a bare image call: that is what puts the gate-verified
+    Arabic copy, the real logo and the QA gates on the result. `identity_image` rides its own
+    parameter down to `poster.oneshot`, where it leads the attachments and is described as a
+    PERSON — never folded into `product_images`, which is capped at two and whose members the
+    prompt and the art critic both treat as merchandise."""
+    import base64
+
+    from business_profile.llm import default_caller
+    from poster.pipeline import generate_poster
+
+    profile = brand.get("_profile") or {}
+    if not profile:
+        raise RuntimeError("no stored _profile for this brand — nothing to ground a render on")
+    scene = "; ".join(x for x in (scene_description, f"presenting {product_hint}"
+                                  if product_hint else "") if x)
+    res = generate_poster(profile, caller=default_caller(strong=True), engine="oneshot",
+                          language=images.brand_language(brand),
+                          identity_image=face,
+                          identity_persona=persona,
+                          trend_context=scene or None)
+    if not (res and res.image_base64):
+        raise RuntimeError("the poster pipeline returned no image")
+    return base64.b64decode(res.image_base64)
