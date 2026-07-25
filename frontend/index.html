@@ -2688,7 +2688,8 @@ function showProductRead(data) {
 function showDisclosure(data) {
   const box = document.getElementById('gen-disclosure');
   if (!box) return;
-  if (!data || (!data.trust_violation && !data.degraded_reason && data.is_preview === false)) {
+  if (!data || (!data.trust_violation && !data.degraded_reason && !data.qa_failed
+                && data.is_preview === false)) {
     box.style.display = 'none';
     box.textContent = '';
     return;
@@ -2699,6 +2700,16 @@ function showDisclosure(data) {
     tone = 'warn';
     lines.push(data.trust_note_ar
       || 'This render contains an element the quality check could not verify — review before use.');
+  }
+  // THE ART CRITIC TURNED THIS RENDER DOWN. The pipeline's last resort ships the best of the
+  // failed attempts ("no attempt passed; returning best (score=3)") rather than blocking the
+  // deliverable — a defensible call, and one the client has to be told about, or a poster the
+  // system itself rejected arrives looking exactly like one that scored 9.
+  if (data.qa_failed) {
+    tone = 'warn';
+    lines.push('The quality check did not pass this render'
+      + (data.qa_note ? ': ' + data.qa_note : '')
+      + ' — it is the best of the attempts, not an approved one.');
   }
   if (data.degraded_reason) {
     tone = tone === 'warn' ? 'warn' : 'info';

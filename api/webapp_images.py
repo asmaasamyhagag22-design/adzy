@@ -284,6 +284,8 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
     degraded_reason = ""
     trust_violation = False
     trust_note_ar = ""
+    qa_failed = False
+    qa_note = ""
 
     # "Make me an ad for THIS product" — resolved BEFORE the render so its failure is a stated
     # note rather than a silently generic poster.
@@ -298,6 +300,17 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
             res = real.result
             trust_violation = bool(getattr(res, "trust_violation", False))
             trust_note_ar = str(getattr(res, "trust_note_ar", "") or "")
+            # THE ART CRITIC'S REJECTION, carried. The pipeline's last resort is
+            # "no attempt passed; returning best (score=3)" — a poster its own critic turned down
+            # for amateur typography, invented products or a misspelled logo — and this response
+            # carried only `trust_violation`, so that render reached the client looking exactly
+            # like one that scored 9. `overall_pass` is tri-state: only an explicit False is a
+            # rejection; None means the critic could not run, which is a different fact and is not
+            # reported as failure.
+            _qa = getattr(res, "qa", None)
+            if _qa is not None and getattr(_qa, "overall_pass", None) is False:
+                qa_failed = True
+                qa_note = str(getattr(_qa, "reason", "") or "")
         except MissingProfile as exc:
             degraded_reason = str(exc)
             logger.warning("paid render skipped: %s", exc)
@@ -324,6 +337,8 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
         "degraded_reason": degraded_reason,
         "trust_violation": trust_violation,
         "trust_note_ar": trust_note_ar,
+        "qa_failed": qa_failed,
+        "qa_note": qa_note,
         # What we actually read from the pasted link, and why it did not work when it did not.
         "product": ({"name": product.name, "image": product.image, "price": product.price,
                      "currency": product.currency, "url": product.url} if product else None),

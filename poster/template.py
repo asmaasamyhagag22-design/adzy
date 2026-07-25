@@ -547,6 +547,48 @@ def _logo_corner_css(corner: str) -> str:
     return vside + hside
 
 
+def effective_scrim_strength(requested: float, background_path, text_box=None) -> float:
+    """The scrim darkness the TEXT actually needs, measured against what is behind it.
+
+    MEASURED (Al Fouad, 2026-07-25): the subheadline «اسألي صيادلة الفؤاد عن روتينك مجاناً…»
+    renders at `#e6ecf2` over a bright white bathroom and is effectively invisible. The cause is a
+    CONSTANT where a measurement belongs — `scrim_strength` defaults to 0.82 and is applied
+    blindly, so the legibility backing is the same darkness whether the scene behind it is a night
+    street or a white tiled wall. On the dark one 0.82 is plenty; on the light one near-white type
+    lands on near-white pixels.
+
+    The measurement was already here and already trusted: `_bg_region_luminance` + `_ink_on` give
+    the LOGO a contrast-aware plate, which is why the logo always reads while the copy that carries
+    the message does not.
+
+    Bright region -> darker scrim, scaled by how bright. Dark region -> untouched, because
+    over-darkening a scene that already carries type just destroys the photograph. Capped below
+    fully opaque for the same reason: this is a legibility floor, not a black box.
+
+    Degrades to `requested` on anything it cannot measure — an unreadable file must cost nothing.
+    Deterministic and universal (D-8): arithmetic on pixels, no model, no market assumption."""
+    try:
+        req = float(requested)
+    except (TypeError, ValueError):
+        return requested
+    if not background_path:
+        return req
+    box = text_box if (text_box and len(text_box) >= 3) else [0.05, 0.55, 0.90]
+    x, y, w = float(box[0]), float(box[1]), float(box[2])
+    region = (max(0.0, x), max(0.0, y), min(1.0, x + w), min(1.0, y + 0.38))
+    lum = _bg_region_luminance(background_path, region)
+    if lum is None:
+        return req
+    # The light copy needs a dark backing. Below this the scene is already doing the work.
+    _FLOOR = 0.34
+    if lum <= _FLOOR:
+        return req
+    # Scale the whole way to a near-opaque (but never opaque) backing as the scene approaches white.
+    span = (lum - _FLOOR) / (1.0 - _FLOOR)
+    needed = req + (0.96 - req) * min(1.0, max(0.0, span))
+    return round(min(0.96, max(req, needed)), 3)
+
+
 def _lower_css(layout: str, scrim_strength: float, align: str, rtl: bool) -> str:
     """The position + scrim CSS for the text block of one layout archetype."""
     s_hi = round(max(0.0, min(1.0, scrim_strength)), 3)
@@ -784,12 +826,16 @@ def render_poster_html(
 
     # Layout-driven CSS. FREE-FORM (spec.text_box set) places the cluster + logo at
     # continuous coords (unbounded compositions); else one of the 6 fixed archetypes.
+    # MEASURE THE BACKGROUND BEFORE DRAWING ON IT. The scrim used to be whatever the spec asked
+    # for, which is how near-white copy ended up on a near-white bathroom wall. The logo has always
+    # been given this treatment; the text that carries the message had not.
+    _scrim = effective_scrim_strength(spec.scrim_strength, background_path, spec.text_box)
     if spec.text_box:
-        lower_layout_css = _freeform_lower_css(spec.text_box, spec.scrim_strength, align, arche)
+        lower_layout_css = _freeform_lower_css(spec.text_box, _scrim, align, arche)
         logo_pos_css = _freeform_logo_css(spec.logo_xy)
     else:
         mark_corner = _mirror_corner(spec.logo_corner, rtl)
-        lower_layout_css = _lower_css(spec.layout, spec.scrim_strength, align, rtl)
+        lower_layout_css = _lower_css(spec.layout, _scrim, align, rtl)
         logo_pos_css = _logo_corner_css(mark_corner)
 
     # A short accent rule above the headline — a small piece of brand-colored

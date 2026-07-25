@@ -845,6 +845,68 @@ def _trust_violation(v: PosterQAVerdict) -> bool:
             or bool(v.third_party_mark))
 
 
+# What the art critic complains about, and which part of the design answers it. Matched on the
+# critic's own words because that verdict is free-form prose, not an enum — the alternative would
+# be asking the model for a taxonomy it was never given.
+_TYPOGRAPHY_COMPLAINTS = (
+    "typography", "typeface", "font", "lettering", "drop shadow", "drop-shadow",
+    "text treatment", "outline", "kerning", "legib", "readab",
+)
+_HIERARCHY_COMPLAINTS = (
+    "hierarchy", "focal", "composition", "layout", "cluttered", "balance",
+    "where to look", "eye does not", "competing",
+)
+# Treatments and layouts to move TOWARD when the current one was criticised. Ordered plainest
+# first: the complaint is nearly always that the design is doing too much.
+_CALMER_TREATMENTS = ("block", "stacked_hero", "highlight")
+
+
+def _revise_spec_for(spec, verdict, *, attempt: int = 0):
+    """Change the DESIGN in response to what the critic actually said.
+
+    MEASURED (Al Fouad, 2026-07-25): `spec` was computed once, before the retry loop, and every
+    attempt rendered with it. So the critic said
+
+        attempt 0: "clearly fake, AI-generated products with garbled text"
+        attempt 1: "Amateur typography with heavy drop shadows and a weak visual hierarchy"
+        attempt 2: "inconsistent and misspelled brand logo ('HARMACIES')"
+
+    and the typography was byte-identical on the next attempt, because only the BACKGROUND was
+    redrawn. A retry that cannot change what was criticised is not a retry — it is the same poster
+    with different pixels behind it.
+
+    Deliberately NARROW. An image complaint ("fake AI products") leaves the design alone: shuffling
+    the layout because the model drew a bad bottle would be noise, and noise in a retry loop is how
+    three attempts become three unrelated posters none of which is the best one. Never raises — a
+    verdict we cannot read simply yields the spec unchanged, which is the old behaviour."""
+    try:
+        reason = str(getattr(verdict, "reason", "") or "").lower()
+        if not reason:
+            return spec
+        typo = any(k in reason for k in _TYPOGRAPHY_COMPLAINTS)
+        hier = any(k in reason for k in _HIERARCHY_COMPLAINTS)
+        if not (typo or hier):
+            return spec
+
+        update: dict = {}
+        if typo or hier:
+            current = getattr(spec, "headline_treatment", "")
+            options = [t for t in _CALMER_TREATMENTS if t != current]
+            if options:
+                update["headline_treatment"] = options[attempt % len(options)]
+        if hier:
+            from poster.template import _LAYOUTS, _LOGO_CORNER_BY_LAYOUT
+            layouts = [l for l in _LAYOUTS if l != getattr(spec, "layout", "")]
+            if layouts:
+                nxt = layouts[attempt % len(layouts)]
+                update["layout"] = nxt
+                if nxt in _LOGO_CORNER_BY_LAYOUT:
+                    update["logo_corner"] = _LOGO_CORNER_BY_LAYOUT[nxt]
+        return spec.model_copy(update=update) if update else spec
+    except Exception:  # noqa: BLE001 — a revision failure must never cost the attempt
+        return spec
+
+
 def _attempt_rank(r: "PosterGenResult") -> tuple[int, int]:
     """Best-attempt ordering: honesty first, THEN beauty. Score only breaks ties within the
     same honesty class."""
@@ -1063,11 +1125,21 @@ def generate_poster(
     # 3c) ONE-SHOT engine (opt-in): the whole creative composed by the Gemini image
     #     model — same gated copy, per-run design diversity. Ships ONLY on a verbatim
     #     OCR gate pass; otherwise falls through to the classic path below.
-    # Prefer the one-shot engine for an ARABIC brand that has a LOGO: the classic STYLE background
-    # bakes a GARBLED Arabic logo at an unpredictable spot (measured: Azza Fahmy "عزة فهمي"→"ةفهمص",
-    # uncoverable), while the one-shot reserves a clean corner and composites the REAL logo crisply.
-    # Explicit engine="oneshot" always tries it. Either way it falls back to classic if the gate fails.
-    prefer_oneshot = engine == "oneshot" or (bool(brief.logo_url) and arabic)
+    # ARABIC NO LONGER PREFERS THE ENGINE THAT CANNOT WRITE ARABIC.
+    #
+    # This used to read `engine == "oneshot" or (bool(brief.logo_url) and arabic)` — an Arabic
+    # brand with a logo was routed to the engine that draws its OWN type. MEASURED 2026-07-25 on
+    # Abu Auf: three attempts, `fidelity=0.0` every one, then the fallback. Three image calls
+    # (~$0.36) and minutes of latency spent to arrive where the run would have started, and when
+    # the fidelity gate leaked, gibberish shipped instead (see poster/oneshot.text_fidelity).
+    #
+    # The problem the preference was solving — the classic STYLE background baking a garbled
+    # Arabic logo (Azza Fahmy "عزة فهمي"→"ةفهمص") — is handled by compositing the REAL mark
+    # deterministically, which both paths now do.
+    #
+    # Explicit engine="oneshot" still tries it: the capability is un-preferred, not removed, and
+    # the day the image model learns Arabic this is one word to change back.
+    prefer_oneshot = engine == "oneshot"
     if prefer_oneshot:
         r = _try_oneshot(profile, brief, concept, brand_dna, caller, arabic=arabic,
                          audit=audit, out_dir=out_dir, variation=variation,
@@ -1157,6 +1229,17 @@ def generate_poster(
         if no_image or verdict.overall_pass is not False:
             return _emit(result)                # passed, or could not gate -> ship it
         if attempt < max_qa_retries and _qa_image_fixable(verdict):
+            # Answer what was CRITICISED, not just re-roll the background. Until now `spec` was
+            # fixed before this loop, so a "weak typography" verdict was followed by an identical
+            # typographic treatment on the next attempt (measured across all three Al Fouad
+            # attempts). A design complaint now moves the design; an image complaint still only
+            # redraws the image.
+            revised = _revise_spec_for(spec, verdict, attempt=attempt)
+            if revised is not spec and (revised.headline_treatment != spec.headline_treatment
+                                        or revised.layout != spec.layout):
+                log(f"[qa] design revised: treatment={spec.headline_treatment}"
+                    f"->{revised.headline_treatment} layout={spec.layout}->{revised.layout}")
+                spec = revised
             log("[qa] FAIL (image-fixable) -> regenerating...")
             continue
         break
