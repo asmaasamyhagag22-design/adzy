@@ -995,6 +995,39 @@
     padding: 1px 7px; border-radius: 999px;
   }
 
+  /* Brand voice + missing data — evidence shown, never a bare verdict. */
+  .voice-value {
+    font-size: 0.95rem; font-weight: 600; color: var(--text);
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  }
+  .voice-conf {
+    font-family: var(--mono, ui-monospace, Consolas, monospace);
+    font-size: 0.66rem; font-weight: 500; color: var(--text3);
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .voice-quote {
+    font-size: 0.82rem; color: var(--text3); line-height: 1.6; margin-top: 8px;
+    padding-inline-start: 10px; border-inline-start: 2px solid var(--border);
+  }
+  .voice-src {
+    display: inline-block; margin-top: 6px; font-size: 0.68rem; color: var(--text3);
+    font-family: var(--mono, ui-monospace, Consolas, monospace); text-decoration: none;
+  }
+  .voice-src:hover { text-decoration: underline; }
+  .muted-note { font-size: 0.82rem; color: var(--text3); }
+  .missing-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .missing-kind {
+    font-family: var(--mono, ui-monospace, Consolas, monospace);
+    font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--text3); margin-inline-end: 4px;
+  }
+  .missing-kind.crit { color: #C97D7D; }
+  .missing-tag.crit { border-color: rgba(201,125,125,0.35); color: #C97D7D; }
+  .missing-blocking {
+    font-size: 0.78rem; color: var(--text3); line-height: 1.6; margin-top: 6px;
+    padding-top: 8px; border-top: 1px solid var(--border);
+  }
+
   .swot-notes-box {
     background: var(--surface2); border: 1px solid var(--border); border-radius: 12px;
     padding: 14px 16px; margin-top: 16px;
@@ -1680,18 +1713,22 @@
     <div class="tab-panel" id="panel-dashboard">
       <div class="insights-grid" id="insights-grid"></div>
       <div class="divider"></div>
+      <!-- BRAND VOICE, from the MEASURED tone. This section used to read `brand_voice_guide`, a
+           field no code in this repo writes, so it said "No brand voice guide generated." for
+           every brand forever. `_profile.tone_of_voice` is measured AND carries the quote it was
+           read from, so the verdict ships with its evidence. -->
       <div class="info-section">
-        <div class="info-label">Brand voice guide</div>
-        <div class="voice-guide-box" id="brand-voice-guide"></div>
+        <div class="info-label">Brand voice &middot; measured from the site&rsquo;s own copy</div>
+        <div class="voice-guide-box" id="brand-voice"></div>
       </div>
+      <!-- "Content suggestions" was removed here: it read `content_suggestions`, which nothing
+           writes, and the content calendar is the real feature with its own tab. -->
       <div class="divider"></div>
+      <!-- WHAT IS MISSING, from the real readiness audit rather than the phantom
+           `readiness_missing`. `_profile.readiness` already names the missing critical and
+           recommended fields AND the blockers that keep the SWOT/strategy unsupported. -->
       <div class="info-section">
-        <div class="info-label">Content suggestions</div>
-        <ul class="suggestion-list" id="content-suggestions"></ul>
-      </div>
-      <div class="divider"></div>
-      <div class="info-section">
-        <div class="info-label">Readiness - missing data</div>
+        <div class="info-label">What is missing &middot; and what it is blocking</div>
         <div class="missing-list" id="missing-list"></div>
       </div>
     </div>
@@ -1856,30 +1893,6 @@
           <p style="color:var(--text2); font-size:0.85rem;">Generating your image...</p>
         </div>
         <img id="gen-image" style="display:none;" alt="Generated brand image" />
-        <canvas id="gen-mask-canvas" style="display:none; position:absolute; top:0; left:0; cursor:crosshair; touch-action:none;"></canvas>
-      </div>
-      <!-- Mask/inpaint panel (region editing) -->
-      <div id="gen-mask-panel" style="display:none; padding:16px; border-top:1px solid var(--border); background:var(--surface2);">
-        <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--text3); margin-bottom:10px;">
-          Paint over what you want changed
-        </div>
-        <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-          <label style="font-size:0.78rem; color:var(--text3); display:flex; align-items:center; gap:6px;">
-            Brush size
-            <input type="range" id="mask-brush-size" min="8" max="80" value="30" />
-          </label>
-          <button class="btn-secondary" onclick="clearMask()" style="font-size:0.78rem; padding:5px 10px;">
-            <i class="ph ph-eraser"></i> Clear mask
-          </button>
-        </div>
-        <textarea id="mask-edit-prompt" class="input" style="min-height:56px; resize:vertical;"
-          placeholder="Describe the change for the painted region - e.g. 'replace with a fresh red rose', 'make the sky sunset orange'..."></textarea>
-        <div style="display:flex; gap:8px; margin-top:10px;">
-          <button class="btn btn-primary" id="mask-apply-btn" onclick="applyMaskEdit()">
-            <i class="ph ph-magic-wand"></i> Apply edit
-          </button>
-          <button class="btn btn-secondary" onclick="toggleMaskMode(false)">Cancel</button>
-        </div>
       </div>
       <!-- Edit panel (shown after generation) -->
       <div id="gen-edit-panel" style="display:none; padding:16px; border-top:1px solid var(--border); background:var(--surface2); border-radius:0 0 var(--radius) var(--radius);">
@@ -1899,9 +1912,6 @@
         </button>
         <button class="btn btn-secondary" onclick="generateImage()">
           <i class="ph ph-arrow-clockwise"></i> Retry
-        </button>
-        <button class="btn btn-secondary" onclick="toggleMaskMode(true)">
-          <i class="ph ph-paint-brush"></i> Edit a region
         </button>
       </div>
       <div id="gen-image-meta" style="font-size:0.78rem; color:var(--text3); text-align:center;"></div>
@@ -2596,6 +2606,64 @@ function swotItemHtml(item) {
 // has no way to tell whether we read that product or ignored the link — and this project has
 // already shipped a control that silently discarded its input once. So the page states the facts
 // it recovered, or the reason it recovered none.
+// The brand's voice as MEASURED, with the sentence it was measured from. `tone_of_voice` is an
+// evidenced field: {value, evidence:[{quote, page_url}], confidence}. Showing the verdict without
+// its quote is the habit this project keeps having to unlearn.
+function renderBrandVoice(b) {
+  const box = document.getElementById('brand-voice');
+  if (!box) return;
+  const prof = b._profile || {};
+  const tov = prof.tone_of_voice;
+  const value = (tov && typeof tov === 'object') ? tov.value : (tov || b.tone_of_voice || '');
+  if (!value) {
+    box.innerHTML = '<span class="muted-note">No tone could be read from this site\u2019s copy yet.</span>';
+    return;
+  }
+  const ev = (tov && tov.evidence && tov.evidence[0]) || null;
+  const conf = (tov && tov.confidence)
+    ? '<span class="voice-conf">' + escHtml(tov.confidence) + ' confidence</span>' : '';
+  let html = '<div class="voice-value">' + escHtml(value) + conf + '</div>';
+  if (ev && ev.quote) {
+    html += '<div class="voice-quote" dir="auto">\u00ab' + escHtml(String(ev.quote).slice(0, 220)) + '\u00bb</div>';
+    if (ev.page_url) {
+      html += '<a class="voice-src" href="' + escHtml(ev.page_url) + '" target="_blank" rel="noopener noreferrer">'
+            + escHtml(String(ev.page_url).slice(0, 70)) + '</a>';
+    }
+  }
+  box.innerHTML = html;
+}
+
+// WHAT IS MISSING - and, crucially, what that missing thing is BLOCKING. A bare list of absent
+// fields is a chore list; the same list with "this is why the strategy ships unsupported" is a
+// decision. Read from `_profile.readiness`, which computes all of it and had no reader.
+function renderMissingData(b) {
+  const box = document.getElementById('missing-list');
+  if (!box) return;
+  const r = (b._profile || {}).readiness || {};
+  const critical = r.missing_critical || [];
+  const recommended = r.missing_recommended || [];
+  const blockers = [...new Set([...(r.swot_blockers || []), ...(r.strategy_blockers || [])])];
+  const pretty = t => escHtml(String(t).replace(/_/g, ' '));
+  if (!critical.length && !recommended.length && !blockers.length) {
+    box.innerHTML = '<span class="muted-note">Nothing critical is missing for this brand.</span>';
+    return;
+  }
+  let html = '';
+  if (critical.length) {
+    html += '<div class="missing-row"><span class="missing-kind crit">Critical</span>'
+      + critical.map(m => '<span class="missing-tag crit">' + pretty(m) + '</span>').join('') + '</div>';
+  }
+  if (recommended.length) {
+    html += '<div class="missing-row"><span class="missing-kind">Recommended</span>'
+      + recommended.map(m => '<span class="missing-tag">' + pretty(m) + '</span>').join('') + '</div>';
+  }
+  if (blockers.length) {
+    html += '<div class="missing-blocking">Because of this, the analysis is marked unsupported: '
+      + blockers.map(pretty).join(' \u00b7 ') + '</div>';
+  }
+  box.innerHTML = html;
+}
+
 function showProductRead(data) {
   const box = document.getElementById('studio-product-read');
   if (!box) return;
@@ -3311,23 +3379,13 @@ function renderBrand(b) {
   addInsight((b.brand_colors || []).length, 'Brand colors');
   addInsight(b.crawl_duration_s ? b.crawl_duration_s + 's' : null, 'Crawl time');
 
-  document.getElementById('brand-voice-guide').textContent = b.brand_voice_guide || 'No brand voice guide generated.';
-
-  const csEl = document.getElementById('content-suggestions');
-  csEl.innerHTML = '';
-  (b.content_suggestions || []).forEach(s => {
-    csEl.appendChild(el('li', {}, s));
-  });
-  if (!b.content_suggestions || !b.content_suggestions.length) {
-    csEl.innerHTML = '<li>No suggestions generated.</li>';
-  }
-
-  const missingEl = document.getElementById('missing-list');
-  missingEl.innerHTML = '';
-  (b.readiness_missing || []).forEach(m => missingEl.appendChild(el('span', { className: 'missing-tag' }, m)));
-  if (!b.readiness_missing || !b.readiness_missing.length) {
-    missingEl.innerHTML = '<span style="color:var(--green);font-weight:600;font-size:0.85rem;">All key fields present!</span>';
-  }
+  renderBrandVoice(b);
+  // The green "All key fields present!" that used to follow was worse than the empty section it
+  // was covering: it keyed on `readiness_missing`, which nothing writes, so it congratulated EVERY
+  // brand — including Abu Auf, whose real readiness reads `ready_for_swot: false` with four
+  // quality signals explicitly missing. It also referenced a variable that no longer exists.
+  // `renderMissingData` says "nothing critical is missing" only when the audit actually says so.
+  renderMissingData(b);
 
   // Show/hide conditional tabs
   const hasServices = (b.services || b.features || b.programs || b.pricing_plans || b.products || b.menu_highlights || b.listings || []).length > 0;
@@ -4483,127 +4541,14 @@ function downloadImage() {
   toast('Downloading...', 'success');
 }
 
-// ── Region editing (paint a mask, describe the change, /inpaint) ───────────
-let maskCtx = null, maskExportCtx = null, maskExportCanvas = null, maskDrawing = false;
-
-function toggleMaskMode(on) {
-  const panel  = document.getElementById('gen-mask-panel');
-  const canvas = document.getElementById('gen-mask-canvas');
-  const img    = document.getElementById('gen-image');
-
-  if (on) {
-    if (!state.lastGenImageB64) { toast('Generate an image first', 'error'); return; }
-    const w = img.naturalWidth, h = img.naturalHeight;
-    canvas.width = w; canvas.height = h;
-    canvas.style.width  = img.clientWidth + 'px';
-    canvas.style.height = img.clientHeight + 'px';
-    canvas.style.display = 'block';
-    maskCtx = canvas.getContext('2d');
-    maskCtx.clearRect(0, 0, w, h);
-
-    // A same-size offscreen canvas holds the actual black/white mask the
-    // server expects (white = regenerate). The visible canvas only shows a
-    // translucent red overlay so the user can see what they've painted.
-    maskExportCanvas = document.createElement('canvas');
-    maskExportCanvas.width = w; maskExportCanvas.height = h;
-    maskExportCtx = maskExportCanvas.getContext('2d');
-    maskExportCtx.fillStyle = 'black';
-    maskExportCtx.fillRect(0, 0, w, h);
-
-    panel.style.display = 'block';
-    document.getElementById('gen-edit-panel').style.display = 'none';
-    document.getElementById('mask-edit-prompt').value = '';
-    attachMaskDrawing(canvas);
-  } else {
-    canvas.style.display = 'none';
-    panel.style.display = 'none';
-  }
-}
-
-function clearMask() {
-  if (!maskCtx || !maskExportCtx) return;
-  const canvas = document.getElementById('gen-mask-canvas');
-  maskCtx.clearRect(0, 0, canvas.width, canvas.height);
-  maskExportCtx.fillStyle = 'black';
-  maskExportCtx.fillRect(0, 0, maskExportCanvas.width, maskExportCanvas.height);
-}
-
-function attachMaskDrawing(canvas) {
-  if (canvas._maskBound) return;
-  canvas._maskBound = true;
-
-  const getPos = (e) => {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (e.clientX - rect.left) * (canvas.width / rect.width),
-      y: (e.clientY - rect.top) * (canvas.height / rect.height),
-    };
-  };
-  const drawAt = (x, y) => {
-    const rect = canvas.getBoundingClientRect();
-    const brush = parseInt(document.getElementById('mask-brush-size').value, 10);
-    const radius = (brush / 2) * (canvas.width / rect.width);
-    maskCtx.fillStyle = 'rgba(255,60,60,0.55)';
-    maskCtx.beginPath(); maskCtx.arc(x, y, radius, 0, Math.PI * 2); maskCtx.fill();
-    maskExportCtx.fillStyle = 'white';
-    maskExportCtx.beginPath(); maskExportCtx.arc(x, y, radius, 0, Math.PI * 2); maskExportCtx.fill();
-  };
-  canvas.addEventListener('pointerdown', (e) => { maskDrawing = true; const p = getPos(e); drawAt(p.x, p.y); });
-  canvas.addEventListener('pointermove', (e) => { if (maskDrawing) { const p = getPos(e); drawAt(p.x, p.y); } });
-  window.addEventListener('pointerup', () => { maskDrawing = false; });
-}
-
-async function applyMaskEdit() {
-  const b = state.studioBrand;
-  if (!b || !b.domain_key) { toast('Pick a brand first', 'error'); return; }
-  const editPrompt = document.getElementById('mask-edit-prompt').value.trim();
-  if (!editPrompt) { toast('Describe what to change in the painted region', 'error'); return; }
-  if (!maskExportCanvas) { toast('Paint a mask over what you want changed first', 'error'); return; }
-
-  const btn = document.getElementById('mask-apply-btn');
-  const priorHTML = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = 'Applying edit… (a minute or two)';
-
-  try {
-    const imageBlob = await (await fetch('data:image/png;base64,' + state.lastGenImageB64)).blob();
-    const maskBlob = await new Promise(resolve => maskExportCanvas.toBlob(resolve, 'image/png'));
-
-    const formData = new FormData();
-    formData.append('domain_key', b.domain_key);
-    formData.append('edit_prompt', editPrompt);
-    formData.append('seed', '-1');
-    formData.append('strength', '0.85');
-    formData.append('image', imageBlob, 'image.png');
-    formData.append('mask', maskBlob, 'mask.png');
-
-    const r = await fetch('/api/edit/inpaint', { method: 'POST', headers: authHeaders(), body: formData });
-    if (!r.ok) {
-      const e = await r.json().catch(() => ({ detail: r.statusText }));
-      throw new Error(typeof e.detail === 'string' ? e.detail : JSON.stringify(e.detail));
-    }
-    const data = await r.json();
-    state.lastGenImageB64 = data.image_b64;
-    state.lastGenFilename = data.filename || state.lastGenFilename;
-    document.getElementById('gen-image').src = 'data:image/png;base64,' + data.image_b64;
-    toggleMaskMode(false);
-    // The endpoint returns `applied:false` with a note in the brand's language: region editing has
-    // no implementation, so the image comes back untouched. Announcing "Region edited" regardless
-    // sent the user off to rewrite a prompt that was never read by anything.
-    if (data.applied === false) {
-      toast(data.note || 'Region editing is not available yet — the image is unchanged.', 'error');
-    } else {
-      toast('Region edited', 'success');
-    }
-    showDisclosure(data);
-    showProductRead(data);
-  } catch (e) {
-    toast('Edit failed: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = priorHTML;
-  }
-}
+// ── Region editing: REMOVED ────────────────────────────────────────────────
+// The brush, the mask canvas and the "Apply edit" button are gone. They called
+// /api/edit/inpaint, which cannot serve an edit — "every Imagen model 404s on this project, so
+// the request cannot be served" — and so returned the user their own picture back. An earlier
+// fix made that HONEST (`applied:false` + a note); the owner's ruling is that an honest dead end
+// is still a dead end: «لو شايف فيتشر او حاجه ملهاش لازم شيها». Same reasoning that retired the
+// product reference-photo upload. The ROUTE stays — a client already calling it should get the
+// honest answer, not a 404.
 
 function saveToHistory() {
   toast('Image saved to history', 'success');

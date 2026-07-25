@@ -40,32 +40,28 @@ def test_there_is_a_place_on_the_page_to_render_it(html):
 
 
 def test_the_generate_handler_calls_the_renderer(html):
-    """Reading the fields is not enough; the banner has to be invoked after a generation."""
-    assert html.count("showDisclosure(") >= 3, (
+    """Reading the fields is not enough; the banner has to be invoked after a generation.
+
+    THRESHOLD LOWERED 3 -> 2, with the reason. One of the three call sites was the region-edit
+    handler, removed on the owner's ruling because the route it called cannot serve an edit and
+    the control was a dead end. The INVARIANT is unchanged and is what this test is really about:
+    every path that puts an image on screen still calls the renderer — there are now two such
+    paths instead of three."""
+    assert html.count("showDisclosure(") >= 2, (
         "showDisclosure is defined but not called on every path that puts an image on screen")
 
 
-def test_the_inpaint_result_no_longer_claims_success_unconditionally(html):
-    """The success toast must be reachable ONLY when `applied` is not false.
-
-    CORRECTED while writing this file: the first version scanned a fixed 700-character window
-    BEFORE the toast, and failed on correct code simply because an explanatory comment pushed the
-    guard out of the window — a test measuring comment length, not behaviour. Anchoring on the
-    guard and requiring the toast to sit after it says the same thing without the brittleness."""
-    guard = html.find("data.applied === false")
-    assert guard > 0, "the inpaint response's `applied` flag is not checked at all"
-    toast = html.find("'Region edited'", guard)
-    assert toast > guard, (
-        "'Region edited' is announced before/without the check — it must be the else branch")
-    between = html[guard:toast]
-    assert "else" in between, "the success toast is not gated behind the applied check"
-
-
-def test_the_untranslated_note_from_the_backend_is_what_gets_shown(html):
-    """The backend already localises the note; the client must show THAT, not its own English."""
-    idx = html.find("data.applied === false")
-    assert idx > 0
-    assert "data.note" in html[idx:idx + 400], "the localised backend note is ignored"
+# THE TWO INPAINT TESTS THAT STOOD HERE ARE GONE, and the reason belongs in the file.
+#
+# They pinned that the region-edit handler checked `data.applied === false` before announcing
+# "Region edited", and that it showed the backend's localised note rather than its own English.
+# Both were correct, and both described a handler that no longer exists: the owner removed the
+# control — «لو شايف فيتشر او حاجه ملهاش لازم شيها» — because `/api/edit/inpaint` cannot serve an
+# edit ("every Imagen model 404s on this project") and an honest dead end is still a dead end.
+#
+# What those tests protected is now protected better by the control's absence. The ROUTE keeps its
+# honest `applied:false` answer for any client still calling it, and
+# `tests/test_dashboard_has_no_dead_controls.py` fails if the UI comes back.
 
 
 def test_a_trust_violation_is_visually_distinct_from_a_plain_preview(html):
