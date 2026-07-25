@@ -210,25 +210,58 @@ def _brand_style_refs(profile: dict, brand_dna: Any, *, limit: int = 2) -> list[
 def _generate_nano_background(
     profile: dict, brand_dna: Any, prompt: str, *,
     out_dir: str = "outputs/posters", log=_safe_log,
+    product_images: Optional[list] = None,
 ) -> tuple[str, str]:
     """Text-free background via nano-banana (Gemini image), style-conditioned on the brand's REAL
     creatives. This is the classic overlay's image source now that every Vertex Imagen id 404s on
     the project — nano-banana renders only the SCENE, and the HTML overlay adds the gate-verified
     copy on top, so garbled in-image text (esp. Arabic) is never a risk here. Raises on failure so
-    the caller can fall back."""
+    the caller can fall back.
+
+    `product_images` — THE REAL ITEM, and the reason this parameter had to exist. Every
+    `product_images` call site in this file used to sit inside `_try_oneshot`, so the classic path
+    — now the default for every brand, and the only path for Arabic — asked the model for a scene
+    containing a product it had never been shown. It invented one, every time, and the pipeline's
+    own critic said so in those words: "clearly fake, AI-generated products with garbled text",
+    "a fabricated product with nonsensical, garbled text on its label".
+
+    The owner picked this model precisely because it preserves a reference: «عايزه المنتج يجي ذي
+    ما هو بالظبط ع الويب سايت دي مفيهاش لعب … علشان كدا بستعمل نانو باننا لانه مميز ف كدا». It
+    cannot preserve what it was never given.
+
+    THE PRODUCT LEADS THE LIST. `poster/oneshot.py` caps attachments at two, so a brand style
+    swatch ahead of the real item would silently push it out."""
     import poster.oneshot as oneshot
     refs: list[tuple[bytes, str]] = []
+    picked: list[tuple[bytes, str]] = []
+    for u in (product_images or []):
+        data, mime = _image_bytes_from_url(u)
+        if data:
+            picked.append((data, mime))
     for u in _brand_style_refs(profile, brand_dna, limit=2):
         data, mime = _image_bytes_from_url(u)
         if data:
             refs.append((data, mime))
-    if refs:
+    refs = picked + refs
+    if picked:
+        log(f"[bg] nano-banana REAL PRODUCT ({len(picked)}) + style ({len(refs) - len(picked)})")
+    elif refs:
         log(f"[bg] nano-banana STYLE ({len(refs)} real brand refs)")
     bg_prompt = (
         prompt.strip()
         + "\n\nCRITICAL: produce a BACKGROUND IMAGE ONLY — scene, texture, lighting, composition. "
         "Render NO text, letters, words, numbers, logos, captions or UI of any kind. Keep calm "
         "negative space where copy will be overlaid later. Photographic, premium, on-brand.")
+    if picked:
+        # «دي مفيهاش لعب» — the attachment is THE product, not a mood reference. Without saying so
+        # the model treats a reference as inspiration and redraws the item, which is how a real
+        # pharmacy's packaging came back as a fabricated bottle with a nonsense label.
+        bg_prompt += (
+            "\n\nATTACHED PRODUCT — REPRODUCE IT EXACTLY. The first attached image is the REAL "
+            "product being advertised. Place it in the scene UNCHANGED: identical shape, "
+            "proportions, colours, packaging, cap, and every label element exactly as attached. "
+            "Do NOT redesign, restyle, relabel, recolour or 'improve' it, and do not invent any "
+            "additional product. Light it to match the scene; change nothing else about it.")
     out_path = Path(out_dir) / f"bg_{uuid.uuid4().hex[:8]}.png"
     # Go straight to nano-banana (the model that serves) instead of the retired id .env pins; the
     # generator's model-chain still covers us if this id ever drifts.
@@ -241,6 +274,7 @@ def _generate_nano_background(
 def _generate_background(
     profile: dict, brand_dna: Any, prompt: str, *,
     log=_safe_log, fetch=None, edit_provider=None, t2i=None,
+    product_images: Optional[list] = None,
 ) -> tuple[str, str]:
     """ADAPTIVE brand-anchored background, safe cascade (never raises here).
 
@@ -255,7 +289,8 @@ def _generate_background(
     # Production path: nano-banana background. Tests inject `t2i` to stay offline -> skip this.
     if t2i is None:
         try:
-            return _generate_nano_background(profile, brand_dna, prompt, log=log)
+            return _generate_nano_background(profile, brand_dna, prompt, log=log,
+                                             product_images=product_images)
         except Exception as e:  # noqa: BLE001 — fall through to the legacy cascade, never crash here
             log(f"[bg] nano-banana background failed ({type(e).__name__}: {e}); -> legacy Imagen")
 
@@ -1196,7 +1231,9 @@ def generate_poster(
             # ADAPTIVE brand-anchored background (outpaint real photo -> style on real ads ->
             # text-to-image). `use_edit=False` forces the legacy pure text-to-image path.
             if use_edit:
-                bg_path, model_used = _generate_background(profile, brand_dna, prompt, log=log)
+                bg_path, model_used = _generate_background(
+                    profile, brand_dna, prompt, log=log,
+                    product_images=([product_image] if product_image else None))
             else:
                 bg_path, model_used = _generate_imagen(prompt)
             # Deterministic letterbox safety net: crop any black bars so the background fills

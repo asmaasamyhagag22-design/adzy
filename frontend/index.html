@@ -1028,6 +1028,18 @@
     padding-top: 8px; border-top: 1px solid var(--border);
   }
 
+  .lang-choice { display: flex; gap: 6px; margin-bottom: 14px; }
+  .lang-btn {
+    flex: 1; padding: 8px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: rgba(255,255,255,0.03);
+    color: var(--text3); font-size: 0.82rem; font-family: inherit;
+  }
+  .lang-btn:hover { color: var(--text2); }
+  .lang-btn.selected {
+    background: var(--surface2); color: var(--text); border-color: rgba(255,255,255,0.20);
+    font-weight: 600;
+  }
+
   .swot-notes-box {
     background: var(--surface2); border: 1px solid var(--border); border-radius: 12px;
     padding: 14px 16px; margin-top: 16px;
@@ -1860,6 +1872,17 @@
             <span class="ct-name">Ad Card</span><span class="ct-ratio">4:5</span>
           </div>
         </div>
+        <!-- LANGUAGE IS A CHOICE, not only an inference. `generate_poster(language=...)` has
+             accepted "ar"/"en"/"auto" all along and nothing above it ever passed anything but the
+             default, so Al Fouad's poster came out in English because its profile reads
+             `languages: ['en']`. "Auto" stays the default — the inference is a good default, it
+             just must not be the only option. -->
+        <div class="pop-title">Language</div>
+        <div class="lang-choice" id="studio-language" data-lang="auto">
+          <button type="button" class="lang-btn selected" data-lang="auto" onclick="selectLang(this)">Auto</button>
+          <button type="button" class="lang-btn" data-lang="ar" onclick="selectLang(this)">العربية</button>
+          <button type="button" class="lang-btn" data-lang="en" onclick="selectLang(this)">English</button>
+        </div>
         <div class="pop-title">Copy Override - leave blank, AI writes it</div>
         <div class="copy-fields">
           <input type="text" id="studio-headline" class="input" placeholder="Headline - AI will generate..." />
@@ -2662,6 +2685,17 @@ function renderMissingData(b) {
       + blockers.map(pretty).join(' \u00b7 ') + '</div>';
   }
   box.innerHTML = html;
+}
+
+function selectLang(btn) {
+  const box = document.getElementById('studio-language');
+  [...box.querySelectorAll('.lang-btn')].forEach(b => b.classList.toggle('selected', b === btn));
+  box.dataset.lang = btn.dataset.lang;
+}
+
+function chosenLanguage() {
+  const box = document.getElementById('studio-language');
+  return (box && box.dataset.lang) || 'auto';
 }
 
 function showProductRead(data) {
@@ -4476,6 +4510,7 @@ async function generateImage() {
       formData.append('cta', cta);
       formData.append('ai_text', (!headline && !subtext && !cta) ? 'true' : 'false');
       formData.append('logo', logoFile);
+      formData.append('language', chosenLanguage());
       formData.append('product_url', productUrl);
       formData.append('product_name', productName);
       formData.append('product_description', productDesc);
@@ -4499,6 +4534,7 @@ async function generateImage() {
         headline, subtext, cta,
         user_context: userContext,
         mode: 'text_to_image',
+        language: chosenLanguage(),
         product_url: productUrl,
         product_name: productName,
         product_description: productDesc,

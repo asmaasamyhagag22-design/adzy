@@ -51,13 +51,14 @@ _IGNORED_UPLOAD_DEFAULT = ("Your uploaded image does not feed the generation yet
 
 def _emit(brand: dict, *, headline: str, subtext: str, cta: str, style: str,
           content_type: str, owner_id: str = "", ignored_upload: str = "",
-          product_url: str = "") -> dict:
+          product_url: str = "", language: str = "auto") -> dict:
     # `product_url` is the owner's «بحط اللينك بتاعه»: an ad for ONE named item rather than for the
     # brand in general. `generate_poster` has accepted `product_image`/`product_name` all along —
     # this function was simply the wall they never got past, which is also why the
     # `product_name`/`product_description` form fields below reached nothing.
     out = images.generate_image(brand, headline=headline, subtext=subtext, cta=cta,
-                                content_type=content_type, product_url=product_url)
+                                content_type=content_type, product_url=product_url,
+                                language=(language if language in ("ar", "en") else "auto"))
     if ignored_upload:
         lang = images.brand_language(brand)
         out = {**out, "applied_upload": False,
@@ -83,6 +84,7 @@ class GenerateRequest(BaseModel):
     cta: str = ""
     user_context: str = ""
     mode: str = "text_to_image"
+    language: str = "auto"         # "ar" | "en" | "auto" — the owner's choice, not an inference
     product_url: str = ""          # paste a product page; the poster is built around THAT item
     product_name: str = ""
     product_description: str = ""
@@ -93,7 +95,7 @@ def generate(req: GenerateRequest, user: dict = Depends(require_user)) -> dict:
     brand = _brand_or_404(req.domain_key, user["id"])
     return _emit(brand, headline=req.headline, subtext=req.subtext, cta=req.cta,
                  style=req.style, content_type=req.content_type, owner_id=user["id"],
-                 product_url=req.product_url)
+                 product_url=req.product_url, language=req.language)
 
 
 # ---- multipart: + a logo ----
