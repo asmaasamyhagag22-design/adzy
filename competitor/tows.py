@@ -72,12 +72,20 @@ _STRENGTH_ORDER = {"validated": 0, "directional_not_validated": 1, "internally_s
 
 
 def swot_item_ids(swot: SWOT) -> Dict[str, SWOTItem]:
-    """Stable ids for the SWOT's items: S1..Sn / W1..Wn / O1..On / T1..Tn (list order)."""
+    """Ids for the SWOT's items: S1..Sn / W1..Wn / O1..On / T1..Tn.
+
+    The id now travels ON the item. It used to be derived from LIST POSITION, which made every
+    TOWS strategy and priority action an index into a list nobody was allowed to reorder — and
+    ordering the quadrants by priority is exactly what the analysis needs to do. A positional id
+    would have re-pointed each strategy at a different factor with no error anywhere.
+
+    Items produced before ids existed (or by a path not yet taught to assign one) still fall back
+    to position, so a stored SWOT from an earlier run keeps working."""
     ids: Dict[str, SWOTItem] = {}
     for prefix, items in (("S", swot.strengths), ("W", swot.weaknesses),
                           ("O", swot.opportunities), ("T", swot.threats)):
         for i, item in enumerate(items, 1):
-            ids[f"{prefix}{i}"] = item
+            ids[getattr(item, "id", "") or f"{prefix}{i}"] = item
     return ids
 
 

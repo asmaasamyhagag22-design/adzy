@@ -18,7 +18,28 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-_STORE = "registry"
+def _default_store() -> str:
+    """The registry lives at the REPO ROOT, not wherever the process happens to be standing.
+
+    `_STORE` used to be the bare string "registry", which `Path(store_dir)` resolves against the
+    current working directory: the API started from one folder and a CLI run from another silently
+    kept two different competitor baselines for the same brand — for a module whose entire promise
+    is "the competitor set does not drift between runs". Same bug class as the webapp directory,
+    which `tests/test_webapp_paths_are_anchored.py` was written for. `BASEERA_REGISTRY_DIR`
+    overrides it for tests and for a machine that stores run state elsewhere."""
+    import os
+    override = os.environ.get("BASEERA_REGISTRY_DIR", "").strip()
+    if override:
+        return override
+    return str(Path(__file__).resolve().parent.parent / "registry")
+
+
+_STORE = _default_store()
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def competitor_key(name: str = "", website: str = "") -> str:
@@ -33,12 +54,31 @@ def competitor_key(name: str = "", website: str = "") -> str:
     return re.sub(r"[^a-z0-9؀-ۿ]+", "", str(name or "").strip().lower())
 
 
-def _entry_of(comp: dict) -> dict:
+def _as_dict(comp: Any) -> dict:
+    """Accept either a dict or a CompetitorProfile dataclass.
+
+    `_entry_of` used to call `.get` directly, so a dataclass peer raised AttributeError — latent
+    until something passed real discovery objects straight in, which is what the live pipeline
+    holds. Found by the user-competitor tests."""
+    if isinstance(comp, dict):
+        return comp
+    import dataclasses
+    try:
+        return dataclasses.asdict(comp)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _entry_of(comp: Any, *, source: str = "discovered") -> dict:
+    """One stored line. `source` distinguishes a peer the SYSTEM found and scored from one the
+    OWNER named — different kinds of evidence, and this codebase does not let two kinds of evidence
+    become indistinguishable downstream."""
+    comp = _as_dict(comp)
     sel = comp.get("selection") or {}
     cand = comp.get("candidate") or {}
     name = str(sel.get("name") or cand.get("name") or "").strip()
     site = str(sel.get("website") or cand.get("website") or "").strip()
-    return {"key": competitor_key(name, site), "name": name, "website": site}
+    return {"key": competitor_key(name, site), "name": name, "website": site, "source": source}
 
 
 def registry_path(brand_ref: str, *, store_dir: str = _STORE) -> Path:
@@ -147,8 +187,106 @@ def stable_competitors(brand_ref: str, discovered: list, *, store_dir: str = _ST
     """
     reg = establish_or_diff(brand_ref, discovered, store_dir=store_dir, now=now)
     if reg["established"]:
-        return list(discovered or []), reg["diff"]
-    return approved_competitors(discovered, reg["approved_keys"]), reg["diff"]
+        peers = list(discovered or [])
+    else:
+        peers = approved_competitors(discovered, reg["approved_keys"])
+    return _with_user_competitors(brand_ref, peers, store_dir=store_dir), reg["diff"]
+
+
+# ---------------------------------------------------------------------------
+# Competitors the OWNER named
+# ---------------------------------------------------------------------------
+
+def _user_entries(brand_ref: str, *, store_dir: str = _STORE) -> list:
+    try:
+        reg = load_registry(brand_ref, store_dir=store_dir)
+    except RegistryCorrupt:
+        return []
+    return [e for e in (reg.get("entries") or []) if e.get("source") == "user"]
+
+
+def _with_user_competitors(brand_ref: str, peers: list, *, store_dir: str = _STORE) -> list:
+    """Re-hydrate the owner's own competitors into any peer set.
+
+    They must survive EVERY discovery outcome, and the failure mode is not hypothetical: measured
+    2026-07-25, all five registry files on this machine hold `entries: []`, which
+    `establish_or_diff` reads as "first run — trust this discovery", so a run that found nothing
+    would return an empty peer set and the competitor the owner typed would silently vanish from
+    her own SWOT. Discovery cannot produce these, so nothing else can bring them back."""
+    from .manual import competitor_from_user
+
+    out = list(peers or [])
+    have = {_entry_of(_as_dict(p))["key"] for p in out}
+    for e in _user_entries(brand_ref, store_dir=store_dir):
+        if e.get("key") in have:
+            continue
+        peer = competitor_from_user(e.get("name", ""), e.get("website", ""))
+        if peer is not None:
+            out.append(peer)
+            have.add(e["key"])
+    return out
+
+
+def add_user_competitor(brand_ref: str, *, name: str, website: str = "",
+                        store_dir: str = _STORE, now: str = "") -> Optional[dict]:
+    """Record a competitor the owner named. Returns the stored entry, or None if unusable.
+
+    Naming it IS the approval — the HITL step this module protects exists so the SYSTEM cannot add
+    a rival behind the owner's back, and this is the owner speaking. So the key goes into
+    `approved_keys` as well as `entries`."""
+    from .manual import competitor_from_user
+
+    peer = competitor_from_user(name, website)
+    if peer is None:
+        return None
+    entry = _entry_of(_as_dict(peer), source="user")
+    if not entry["key"]:
+        return None
+    entry["added_at"] = now or _now()
+
+    try:
+        reg = load_registry(brand_ref, store_dir=store_dir)
+    except RegistryCorrupt:
+        return None
+    reg.setdefault("brand_ref", brand_ref)
+    entries = [e for e in (reg.get("entries") or []) if e.get("key") != entry["key"]]
+    entries.append(entry)
+    reg["entries"] = entries
+    approved = [k for k in (reg.get("approved_keys") or []) if k != entry["key"]]
+    approved.append(entry["key"])
+    reg["approved_keys"] = approved
+    save_registry(reg, store_dir=store_dir)
+    return entry
+
+
+def remove_user_competitor(brand_ref: str, key: str, *, store_dir: str = _STORE) -> bool:
+    """Drop a competitor by key. True if something was removed, False if it was not there."""
+    key = str(key or "").strip()
+    if not key:
+        return False
+    try:
+        reg = load_registry(brand_ref, store_dir=store_dir)
+    except RegistryCorrupt:
+        return False
+    entries = reg.get("entries") or []
+    kept = [e for e in entries if e.get("key") != key]
+    if len(kept) == len(entries):
+        return False
+    reg["entries"] = kept
+    reg["approved_keys"] = [k for k in (reg.get("approved_keys") or []) if k != key]
+    reg.setdefault("brand_ref", brand_ref)
+    save_registry(reg, store_dir=store_dir)
+    return True
+
+
+def list_competitors(brand_ref: str, *, store_dir: str = _STORE) -> list:
+    """Every stored competitor with its provenance — what the owner's UI lists."""
+    try:
+        reg = load_registry(brand_ref, store_dir=store_dir)
+    except RegistryCorrupt:
+        return []
+    return [{**e, "source": e.get("source") or "discovered"}
+            for e in (reg.get("entries") or []) if e.get("key")]
 
 
 def brand_ref_from_profile(profile: Any) -> str:

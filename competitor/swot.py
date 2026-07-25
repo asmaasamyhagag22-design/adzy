@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from .matrix import ComparativeGapMatrix, DimensionGap, DIMENSIONS
+from .swot_priority import Priority, score_gap, score_opinion_item
 
 
 @dataclass
@@ -50,6 +51,15 @@ class SWOTItem:
     #   internally_supported      — grounded in the subject's own site only
     #                               (standalone mode, unique insights)
     claim_strength: str = "internally_supported"
+    # WHERE THIS FACTOR SITS ON THE TWO MATRICES Pickton & Wright (1998) prescribe — importance x
+    # performance for S/W, probability x impact for O/T. Computed deterministically in
+    # `swot_priority`, like `claim_strength` above and never by the LLM. None only for an item
+    # built by a path that has not been taught to score yet.
+    priority: Optional["Priority"] = None
+    # A STABLE handle. TOWS used to derive S1/W2/O1/T3 from list POSITION, so sorting the quadrants
+    # — the whole point of adding priorities — silently re-pointed every strategy at a different
+    # factor. The id travels with the item instead.
+    id: str = ""
 
 
 @dataclass
@@ -60,6 +70,11 @@ class SWOT:
     threats: List[SWOTItem] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
     mode: str = "competitive"           # "competitive" | "standalone"
+    # Website mechanics — CTA counts, WhatsApp presence, social channel counts. True, useful, and
+    # NOT strategy: stated without a comparison they are the paper's "factors described broadly:
+    # lack of specificity" (broad compared to what?). The owner's ruling was to keep the
+    # information and move it out of the strategic quadrants, so it lives here.
+    site_readiness: List[SWOTItem] = field(default_factory=list)
 
 
 
@@ -421,7 +436,111 @@ def synthesize_swot(
         _scrapable = 0
     disclose_empty_quadrants(swot, n_peers=n_peers, scrapable_peers=_scrapable)
 
+    _prioritise(swot, matrix, n_peers=n_peers)
     return swot
+
+
+# ---------------------------------------------------------------------------
+# Prioritisation — Pickton & Wright (1998), the owner's paper
+# ---------------------------------------------------------------------------
+
+# Website mechanics. True facts about the site, and — stated with no comparison — not strategy:
+# "Broad offering range (5 lines)" is broad compared to WHAT? The paper calls this "factors
+# described broadly: lack of specificity". They move to `site_readiness` and stay visible there.
+# A site dimension that WAS compared against peers is a genuine competitive gap and stays in the
+# strategic quadrants, so the rule keys on whether a comparison exists, not on the topic.
+_SITE_DIMENSION_KEYS = {d.key for d in DIMENSIONS if getattr(d, "source", "") == "scraped"}
+
+
+def _is_site_mechanic(item: "SWOTItem") -> bool:
+    """Structural, not textual: the item CITES one of the scraped site dimensions.
+
+    The first version matched phrases, and an existing readiness test caught it over-reaching —
+    "on-site" also appears in "No tagline on-site", which is a brand-positioning gap, not a website
+    mechanic. The own-site generators cite the dimension key itself, so asking what an item is
+    grounded in answers the question exactly, and cannot drift when someone rewords a phrase."""
+    return any(str(c) in _SITE_DIMENSION_KEYS for c in (getattr(item, "citation", None) or []))
+
+
+def _gap_by_text(matrix: ComparativeGapMatrix) -> dict:
+    out = {}
+    for gap in getattr(matrix, "gaps", []) or []:
+        if getattr(gap, "detail", None):
+            out[str(gap.detail)] = gap
+    return out
+
+
+def _prioritise(swot: SWOT, matrix: ComparativeGapMatrix, *, n_peers: int = 0) -> None:
+    """Score, sort, separate and disclose — in that order.
+
+    Everything here is deterministic and measured off the peer set already in `matrix`. Nothing is
+    invented: an item with no comparison scores `unknown` and says so rather than receiving a
+    number that looks like analysis."""
+    by_detail = _gap_by_text(matrix)
+    dropped = 0
+
+    for prefix, quadrant in (("S", swot.strengths), ("W", swot.weaknesses),
+                             ("O", swot.opportunities), ("T", swot.threats)):
+        kept: List[SWOTItem] = []
+        moved: List[SWOTItem] = []
+        for item in quadrant:
+            gap = by_detail.get(item.evidence) or by_detail.get(item.text)
+            item.priority = (score_gap(gap) if gap is not None
+                             else score_opinion_item(claim_strength=item.claim_strength))
+            # An un-compared website mechanic is information, not strategy.
+            if gap is None and _is_site_mechanic(item):
+                moved.append(item)
+            elif item.priority.drop:
+                dropped += 1
+            else:
+                kept.append(item)
+        # Sort AFTER scoring and BEFORE assigning ids, so the id names the item's final place and
+        # `swot_item_ids` (which now reads the stored id) cannot be desynchronised by any later
+        # reordering.
+        kept.sort(key=lambda it: getattr(it.priority, "rank", 0.0), reverse=True)
+        for i, item in enumerate(kept, 1):
+            item.id = f"{prefix}{i}"
+        quadrant[:] = kept
+        swot.site_readiness.extend(moved)
+
+    for i, item in enumerate(swot.site_readiness, 1):
+        item.id = item.id or f"R{i}"
+
+    if dropped:
+        # Kotler's rule is applied, but a silent removal reads to the client as "there was nothing
+        # there". Say how many left and why.
+        swot.notes.append(
+            f"استُبعد {dropped} عنصر لضعفه على المحورين معاً (أهمية منخفضة في السوق وفجوة صغيرة) — "
+            "حسب مصفوفتَي الفرصة والتهديد عند Kotler: العنصر الضعيف على المحورين يُحذف بدل أن "
+            "يوهم بثقلٍ ليس له.")
+    if swot.site_readiness:
+        swot.notes.append(
+            f"نُقل {len(swot.site_readiness)} عنصر إلى «جاهزية الموقع» — حقائق صحيحة عن الموقع "
+            "لكنها بلا مقارنة، والقوة أو الضعف لا يكونان إلا بالمقارنة.")
+    # An empty strategic SWOT is the CORRECT answer when nothing was compared — and a blank page is
+    # a terrible way to say it. Name the cause and the one action that fixes it, so the client is
+    # not left deciding whether the analysis failed or their market is featureless.
+    #
+    # The two causes are DIFFERENT and must not share a sentence: "no competitor is registered" is
+    # fixed by naming one; "a competitor is registered but nothing could be read from it" is not,
+    # and telling that owner to add a competitor asks her to redo what she already did.
+    # The condition is "nothing was COMPARED", not "the quadrants are empty". Measured on the real
+    # nanocare profile: five self-claims filled the strengths box while zero items had been checked
+    # against any peer, so an empty-quadrant test stayed silent and the client saw what looked like
+    # a competitive analysis containing no comparison at all.
+    compared = any(getattr(getattr(it, "priority", None), "peers_measured", 0)
+                   for it in swot.strengths + swot.weaknesses + swot.opportunities + swot.threats)
+    if not compared and swot.site_readiness:
+        if n_peers:
+            swot.notes.append(
+                f"لا توجد نقاط قوة أو ضعف استراتيجية رغم وجود {n_peers} منافس مسجَّل: "
+                "لم يُقرأ من موقعه أي بُعد قابل للمقارنة (الصفحة لم تُفتح أو لا تحتوي إشارات "
+                "قابلة للقياس). جرّبي منافساً بموقع يعمل، أو راجعي الرابط المُدخَل.")
+        else:
+            swot.notes.append(
+                "لا توجد نقاط قوة أو ضعف استراتيجية في هذه التشغيلة: لم يُقَس أي منافس، "
+                "والقوة أو الضعف لا يكونان إلا بالمقارنة. أضيفي منافساً واحداً على الأقل "
+                "لتتحول قراءات «جاهزية الموقع» أعلاه إلى تحليل استراتيجي حقيقي.")
 
 
 # ---------------------------------------------------------------------------

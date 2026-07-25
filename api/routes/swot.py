@@ -36,11 +36,28 @@ class SwotFromProfileRequest(BaseModel):
     profile: dict[str, Any]
 
 
+class SwotPriorityModel(BaseModel):
+    """Where the factor sits on Pickton & Wright's two matrices. Every axis is measured off the
+    peer set, or reports `unknown` — never a number standing in for an unmade comparison."""
+    importance: str = "unknown"     # high | medium | low | unknown   (S/W)
+    performance: str = "unknown"    # ahead | parity | behind | unknown
+    impact: str = "unknown"         # high | medium | low | unknown   (O/T)
+    probability: str = "unknown"
+    basis: str = ""                 # the measurement in words, for the client to check
+    rank: float = 0.0
+    focus: bool = False             # important AND behind: "pay particular attention"
+    peers_measured: int = 0
+
+
 class SwotItemModel(BaseModel):
     text: str
     citation: List[str]
     evidence: str
     claim_strength: str = "internally_supported"
+    # A response_model DROPS anything not declared, so these must be here or the priorities die at
+    # the serialiser — the same class of bug as the image disclosure the frontend never read.
+    id: str = ""
+    priority: Optional[SwotPriorityModel] = None
 
 
 class CompetitorBrief(BaseModel):
@@ -60,6 +77,9 @@ class SwotResponse(BaseModel):
     opportunities: List[SwotItemModel]
     threats: List[SwotItemModel]
     notes: List[str]
+    # Website mechanics, moved out of the strategic quadrants but still shipped — true facts that
+    # answer "is the site doing its job?", not "where does this business stand in its market?".
+    site_readiness: List[SwotItemModel] = []
     competitor_count: int
     competitors: List[CompetitorBrief] = []
     # TOWS synthesis (strategies + ranked priority actions + posture), derived
@@ -68,11 +88,27 @@ class SwotResponse(BaseModel):
 
 
 def _items(items) -> List[dict]:
-    return [
-        {"text": i.text, "citation": list(i.citation), "evidence": i.evidence,
-         "claim_strength": getattr(i, "claim_strength", "internally_supported")}
-        for i in items
-    ]
+    """Serialise SWOT items for the client.
+
+    This is a hand-written allowlist, so a field added upstream is dropped here silently — the
+    "produced, serialised, never shown" failure this project keeps catching. The priority scores
+    (Pickton & Wright's two matrices) are the entire reason the analysis is no longer a flat list,
+    so they travel with each item, along with the stable id TOWS anchors on."""
+    out = []
+    for i in items:
+        row = {"text": i.text, "citation": list(i.citation), "evidence": i.evidence,
+               "claim_strength": getattr(i, "claim_strength", "internally_supported"),
+               "id": getattr(i, "id", "")}
+        p = getattr(i, "priority", None)
+        if p is not None:
+            row["priority"] = {
+                "importance": p.importance, "performance": p.performance,
+                "impact": p.impact, "probability": p.probability,
+                "basis": p.basis, "rank": p.rank, "focus": p.focus,
+                "peers_measured": p.peers_measured,
+            }
+        out.append(row)
+    return out
 
 
 @router.post("/swot/from-profile", response_model=SwotResponse)
@@ -221,6 +257,7 @@ def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
             opportunities=_items(swot.opportunities),
             threats=_items(swot.threats),
             notes=list(swot.notes),
+            site_readiness=_items(getattr(swot, "site_readiness", []) or []),
             competitor_count=len(peers),   # P-79: approved set, consistent with the list above
             competitors=competitors,
             tows=tows_dict,

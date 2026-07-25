@@ -1887,6 +1887,34 @@
 
     <!-- SWOT view -->
     <div class="strat-view" id="strat-view-swot">
+      <!-- Competitors the owner names herself. Automatic discovery is still improving, and with no
+           peers there are no strengths or weaknesses at all — they only exist by comparison. This
+           panel is the unblock the SWOT's own note points at. -->
+      <div id="competitors-panel" style="margin-bottom:18px; padding:14px 16px; border-radius:12px;
+           background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;
+             flex-wrap:wrap; margin-bottom:10px;">
+          <div>
+            <div style="font-weight:700; font-size:0.95rem;">Competitors</div>
+            <div style="font-size:0.78rem; color:var(--text3); margin-top:2px;">
+              Add a rival yourself — strengths and weaknesses only exist by comparison.
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+          <input id="comp-name" type="text" placeholder="Competitor name"
+                 style="flex:1 1 160px; min-width:140px; padding:9px 12px; border-radius:8px;
+                        border:1px solid rgba(255,255,255,0.12); background:rgba(0,0,0,0.25);
+                        color:inherit; font:inherit;">
+          <input id="comp-site" type="url" placeholder="https://their-site.com (optional)"
+                 style="flex:2 1 220px; min-width:180px; padding:9px 12px; border-radius:8px;
+                        border:1px solid rgba(255,255,255,0.12); background:rgba(0,0,0,0.25);
+                        color:inherit; font:inherit;">
+          <button id="comp-add-btn" class="btn" style="white-space:nowrap;"
+                  onclick="addCompetitor()">Add</button>
+        </div>
+        <div id="comp-list" style="display:flex; flex-direction:column; gap:6px;"></div>
+      </div>
       <div class="strat-summary-box" id="swot-summary" style="display:none;"></div>
       <div class="quadrant-grid" id="swot-quadrants"></div>
       <div class="empty-state" id="swot-empty">
@@ -2308,6 +2336,70 @@ function toast(msg, type = '') {
 function fmt(v) {
   if (v === null || v === undefined || v === '') return '';
   return String(v);
+}
+
+// --- competitors the owner names herself ---------------------------------------------------
+// Discovery is still improving, and with no peers the SWOT has no strengths or weaknesses at all.
+// Each row shows WHERE the competitor came from, because a name the owner typed and one the
+// system found, ranked and scored are different kinds of evidence and this product never lets
+// two kinds of evidence look alike.
+async function loadCompetitors() {
+  const box = document.getElementById('comp-list');
+  const dk = state.currentBrand && state.currentBrand.domain_key;
+  if (!box || !dk) return;
+  let rows = [];
+  try {
+    rows = (await api('GET', `/api/brands/${dk}/competitors`)).competitors || [];
+  } catch (e) { box.innerHTML = ''; return; }
+  box.innerHTML = '';
+  if (!rows.length) {
+    box.innerHTML = '<div style="font-size:0.8rem; color:var(--text3);">'
+      + 'None yet — the analysis has nothing to compare against.</div>';
+    return;
+  }
+  for (const c of rows) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; align-items:center; gap:10px; font-size:0.85rem;';
+    const typed = c.source === 'user';
+    row.innerHTML =
+      `<span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">`
+      + `${fmt(c.name)}${c.website ? ` · <span style="color:var(--text3);">${fmt(c.website)}</span>` : ''}</span>`
+      + `<span style="font-size:0.7rem; padding:2px 8px; border-radius:999px; white-space:nowrap;`
+      + `background:${typed ? 'rgba(120,180,255,0.15)' : 'rgba(255,255,255,0.07)'};`
+      + `color:${typed ? '#8FBEFF' : 'var(--text3)'};">${typed ? 'you added' : 'found'}</span>`;
+    const del = document.createElement('button');
+    del.className = 'btn';
+    del.textContent = 'Remove';
+    del.style.cssText = 'padding:3px 10px; font-size:0.75rem;';
+    del.onclick = async () => {
+      try {
+        await api('DELETE', `/api/brands/${dk}/competitors/${encodeURIComponent(c.key)}`);
+        toast('Competitor removed'); loadCompetitors();
+      } catch (e) { toast('Could not remove: ' + e.message, 'error'); }
+    };
+    row.appendChild(del);
+    box.appendChild(row);
+  }
+}
+
+async function addCompetitor() {
+  const dk = state.currentBrand && state.currentBrand.domain_key;
+  if (!dk) { toast('Pick a brand first', 'error'); return; }
+  const name = document.getElementById('comp-name').value.trim();
+  const site = document.getElementById('comp-site').value.trim();
+  if (!name) { toast('A competitor needs a name', 'error'); return; }
+  const btn = document.getElementById('comp-add-btn');
+  btn.disabled = true;
+  try {
+    await api('POST', `/api/brands/${dk}/competitors`,
+              { domain_key: dk, name, website: site });
+    document.getElementById('comp-name').value = '';
+    document.getElementById('comp-site').value = '';
+    toast('Competitor added — regenerate the SWOT to compare against them', 'success');
+    loadCompetitors();
+  } catch (e) {
+    toast('Could not add: ' + e.message, 'error');
+  } finally { btn.disabled = false; }
 }
 
 // --- provenance banner -------------------------------------------------------------------
@@ -3167,6 +3259,8 @@ function renderStrategyDashboard(b) {
   const summaryText = swot.summary || summaryParts.join(' · ');
   swotSummaryEl.style.display = hasSwot && summaryText ? '' : 'none';
   swotSummaryEl.textContent = summaryText;
+
+  loadCompetitors();
 
   const quadGrid = document.getElementById('swot-quadrants');
   quadGrid.innerHTML = '';

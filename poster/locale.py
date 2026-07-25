@@ -241,6 +241,41 @@ def arabic_dialect_for(profile: Any) -> str:
     }.get(arabic_region_of(profile), "natural conversational Arabic in the brand's own regional register")
 
 
+def _casting_exclusions(profile: Any) -> str:
+    """What the people should NOT look like — DERIVED from the brand's own region.
+
+    MEASURED (2026-07-25): this used to be one fixed string, "NOT a generic 'Arab' or
+    Gulf/Khaleeji look, NOT Western/European casting", appended to every country. For a Qatari
+    brand that reads: be authentically Qatari, and do not look Khaleeji. Qatar IS the Gulf. Same
+    self-contradiction for Saudi Arabia, the UAE, Kuwait, Bahrain and Oman — every Gulf poster the
+    system has ever produced.
+
+    How it got there is this project's own failure class: the exclusion is CORRECT for the incident
+    it was written from (Egyptian brands kept being rendered with a generic Gulf look). Generalising
+    swapped the country name and left the negation fixed, so a true statement about Egypt became the
+    answer to a different question.
+
+    Now the line rules out the neighbouring Arab looks a brand is NOT part of, and never its own.
+    Western/European casting stays excluded everywhere — that exclusion is about the brand's market
+    versus the model's default, not about one region versus another."""
+    region = arabic_region_of(profile)
+    langs = [str(getattr(x, "code", None) or (x.get("code") if isinstance(x, dict) else x) or "")
+             for x in (_get(profile, "languages") or [])]
+    arabic_market = bool(region) or any(str(l).lower().startswith("ar") for l in langs)
+    if not arabic_market:
+        # CAUGHT WHILE FIXING THE GULF CASE: keeping "NOT Western/European casting" for a French or
+        # American brand is the SAME self-contradiction one level out — it tells a European brand
+        # not to look European. With no regional evidence the positive anchor ("authentically from
+        # {country}") is the honest whole instruction.
+        return ""
+    buckets = {"gulf": "Gulf/Khaleeji", "levant": "Levantine", "maghreb": "North African"}
+    # Rule out the neighbouring looks the brand is NOT part of — never its own. An Arabic-market
+    # country that falls in no bucket (Egypt, Sudan, Yemen) is not part of ANY of them, so all
+    # three are excluded; that is precisely the protection the original line was written for.
+    others = [label for key, label in buckets.items() if key != region]
+    return f"NOT a generic {' or '.join(others)} look, NOT Western/European casting"
+
+
 def brand_locale(profile: Any) -> tuple[str, str]:
     """(country, primer_line) for image prompts. The primer is the proven anti-drift wording
     (no clichés: 'their own everyday style', never named dress items). When only the LANGUAGE
@@ -251,11 +286,12 @@ def brand_locale(profile: Any) -> tuple[str, str]:
         p = p["profile"]
     country = country_of(p)
     if country:
+        excl = _casting_exclusions(p)
         return country, (
             f"PEOPLE & SETTING — every person and environment is authentically from {country}: "
-            f"real local people in their own everyday style and dress (NOT a generic 'Arab' or "
-            f"Gulf/Khaleeji look, NOT Western/European casting); architecture, streets, interiors "
-            f"and signage that belong in {country}."
+            f"real local people in their own everyday style and dress"
+            f"{f' ({excl})' if excl else ''}; "
+            f"architecture, streets, interiors and signage that belong in {country}."
         )
     langs = [str(getattr(x, "code", None) or (x.get("code") if isinstance(x, dict) else x) or "").lower()
              for x in (_get(p, "languages") or [])]

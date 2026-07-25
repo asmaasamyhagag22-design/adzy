@@ -86,9 +86,27 @@ def _compute_swot(profile: dict):
 
 
 def synthesize_swot_standalone(profile: dict):
+    """The no-discovery path — which must STILL honour competitors the owner named herself.
+
+    This is the most likely path for a brand whose automatic discovery finds nothing, and it used
+    to build the matrix with a hard-coded empty peer list. That made the manual-competitor feature
+    useless exactly where it matters most: the client is told "add a competitor to get a real
+    analysis", adds one, and the run that follows ignores it because discovery failed again."""
     from competitor import build_matrix, synthesize_swot
-    matrix = build_matrix(profile, [], subject_name="You")
-    return synthesize_swot(matrix, profile=profile), []
+    from competitor.lite_scrape import lite_peer_dims
+
+    peers = []
+    try:
+        from competitor.registry import brand_ref_from_profile, stable_competitors
+        peers, _ = stable_competitors(brand_ref_from_profile(profile), [])
+    except Exception:  # noqa: BLE001 — a missing registry must never break the analysis
+        peers = []
+
+    if not peers:
+        matrix = build_matrix(profile, [], subject_name="You")
+        return synthesize_swot(matrix, profile=profile), []
+    matrix = build_matrix(profile, peers, subject_name="You", scrape_fn=lite_peer_dims)
+    return synthesize_swot(matrix, profile=profile), peers
 
 
 def _items(items) -> list[dict]:

@@ -18,6 +18,7 @@ Brands stored before ownership existed have no recorded owner. They stay readabl
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from .. import brand_store as bs
 from ..brand_store import BrandStore, read_history
@@ -66,3 +67,58 @@ def delete_brand(domain_key: str, user: dict = Depends(require_user)) -> dict:
 @router.get("/history")
 def history(limit: int = 100, user: dict = Depends(require_user)) -> dict:
     return {"history": read_history(limit, for_user=user["id"])}
+
+
+# ---------------------------------------------------------------------
+# Competitors the owner names herself
+#
+# Automatic discovery is still being improved, and with no peers there is no SWOT at all —
+# "strengths and weaknesses are only such in comparison to the competition" (Pickton & Wright
+# 1998). The rebuilt SWOT says so and points here, so these routes are the unblock, not a
+# convenience. They live on the brands router deliberately: adding a NAME spends nothing, and
+# putting them behind the paid-route guard would gate data entry on a spend switch.
+# ---------------------------------------------------------------------
+
+class CompetitorIn(BaseModel):
+    domain_key: str
+    name: str
+    website: str = ""
+
+
+def _brand_ref(domain_key: str, user_id: str) -> str:
+    """The registry key for this brand — derived from the SAME profile the SWOT will use, so a
+    competitor added here is found by the analysis later."""
+    brand = BrandStore().get(domain_key, for_user=user_id)
+    if brand is None:
+        raise HTTPException(status_code=404, detail="Brand not found.")
+    from competitor.registry import brand_ref_from_profile
+    return brand_ref_from_profile(brand.get("_profile") or brand)
+
+
+@router.get("/brands/{domain_key}/competitors")
+def list_brand_competitors(domain_key: str, user: dict = Depends(require_user)) -> dict:
+    from competitor.registry import list_competitors
+    return {"competitors": list_competitors(_brand_ref(domain_key, user["id"]))}
+
+
+@router.post("/brands/{domain_key}/competitors")
+def add_brand_competitor(domain_key: str, body: CompetitorIn,
+                         user: dict = Depends(require_user)) -> dict:
+    from competitor.registry import add_user_competitor
+    entry = add_user_competitor(_brand_ref(domain_key, user["id"]),
+                                name=body.name, website=body.website)
+    if entry is None:
+        # The two ways this fails are both the caller's input: an empty name, or a URL that is not
+        # a public http(s) address (same SSRF gate as every other fetch target).
+        raise HTTPException(
+            status_code=400,
+            detail="Needs a name, and any website must be a public http(s) address.")
+    return {"ok": True, "competitor": entry}
+
+
+@router.delete("/brands/{domain_key}/competitors/{key}")
+def delete_brand_competitor(domain_key: str, key: str,
+                            user: dict = Depends(require_user)) -> dict:
+    from competitor.registry import remove_user_competitor
+    removed = remove_user_competitor(_brand_ref(domain_key, user["id"]), key)
+    return {"ok": True, "removed": removed}

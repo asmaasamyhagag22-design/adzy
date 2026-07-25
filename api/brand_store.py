@@ -182,6 +182,29 @@ class BrandStore:
                 return None
             return self.save(_merge_one_level(brand, patch))
 
+    def add_nested(self, domain_key: str, block: str, collection: str, item_id: str,
+                   item: dict, *, for_user: Optional[str] = None) -> Optional[dict]:
+        """Add ONE entry to `brand[block][collection][item_id]`, read and written under one lock.
+
+        `update()` cannot express this safely. Its merge is one level deep, so a patch carrying
+        `{"ai_influencer": {"candidates": {...}}}` REPLACES the whole candidates map — and the
+        enrichment jobs build their patches from a read taken before the work started, so two
+        concurrent additions each ship the map as it looked at T0 and the second erases the first.
+        For influencer candidates that means the owner pays for a portrait, asks for another, and
+        silently loses the one she was meant to be choosing between.
+
+        Returns the stored brand, or None if it is absent or belongs to another account."""
+        with _WRITE_LOCK:
+            brand = self.get(domain_key, for_user=for_user)
+            if brand is None:
+                return None
+            container = dict(brand.get(block) or {})
+            entries = dict(container.get(collection) or {})
+            entries[str(item_id)] = item
+            container[collection] = entries
+            brand[block] = container
+            return self.save(brand)
+
     def delete(self, domain_key: str, *, for_user: Optional[str] = None) -> str:
         """One of DELETED / NOT_FOUND / FORBIDDEN / UNCLAIMED.
 
