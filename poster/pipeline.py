@@ -1176,6 +1176,7 @@ def generate_poster(
     language: str = "auto",
     product_image: Optional[str] = None,
     product_name: Optional[str] = None,
+    product_url: str = "",
     product_description: str = "",
     product_price: str = "",
     product_currency: str = "",
@@ -1251,6 +1252,21 @@ def generate_poster(
                                      variation=variation, enforce_grounding=True,
                                      arabic=arabic, research=research,
                                      trend_context=trend_context)
+    # THE CLAIM LINTER, on what will actually ship (reviewer: absolutes and operational
+    # promises never went through the medical softener at all).
+    try:
+        from poster.copy_rules import claim_risks
+        _risks = []
+        for _f in ("headline", "subheadline", "cta"):
+            for _r in claim_risks(getattr(concept, _f, "") or ""):
+                _risks.append(dict(_r, field=_f))
+        if _risks:
+            log("[claims] " + "; ".join(
+                f"{r['field']}:{r['kind']}:{r['action']}({r['match']})" for r in _risks[:6]))
+            concept.remediation = list(concept.remediation or []) + _risks
+    except Exception:  # noqa: BLE001
+        pass
+
     log(f"[concept] msg={concept.single_message!r} headline={concept.headline!r} "
         f"chips={concept.proof_points}")
 
@@ -1420,14 +1436,20 @@ def generate_poster(
                 else:
                     bg_path, model_used = _generate_imagen(prompt)
                 if _composite_after:
-                    from poster.product_composite import composite_product
-                    pasted = composite_product(bg_path, product_image)
-                    if pasted:
-                        bg_path = pasted
-                        log("[product] real asset composited (label pixel-exact)")
-                    else:
-                        log("[product] could not composite the real asset — the scene ships "
-                            "without it rather than with an invented one")
+                    # THE REFUSAL HAS SOMEWHERE TO GO (reviewer, measured: no keying tolerance
+                    # separates a white bottle from a white studio ground). Clean cut-out ->
+                    # composite; otherwise the shot becomes the SCENE full-bleed, where its own
+                    # ground and reflection are the design instead of a pasted card.
+                    from poster.product_composite import compose_or_background
+                    _pp, _mode = compose_or_background(
+                        bg_path, product_image,
+                        product_url=str(product_url or ""))
+                    bg_path = _pp
+                    log({"composited": "[product] real asset composited (label pixel-exact)",
+                         "full_bleed": "[product] no keyable cut-out -> the real shot IS the "
+                                       "scene (full-bleed, no seam)",
+                         "none": "[product] no usable asset — the scene ships without it "
+                                 "rather than with an invented one"}[_mode])
             except Exception as exc:  # noqa: BLE001
                 log(f"[bg] attempt {attempt} could not render ({type(exc).__name__}: {exc})")
                 attempt_failed = True
@@ -1443,7 +1465,18 @@ def generate_poster(
                 bg_path = _maybe_upscale(bg_path, log=log)
 
         filename = f"poster_{uuid.uuid4().hex[:8]}.png"
-        poster_path = str(render_html_to_png(render_poster_html(brief, bg_path, spec=spec), out / filename))
+        # INK FIRST (reviewer, measured): the cleanest band on a bright poster is also the
+        # BRIGHTEST — moving white copy there took contrast from 4.16 to 1.24, and no band on
+        # that poster cleared 4.5:1 in white at all. The remedy order is colour, then position,
+        # then scrim. This measures the ink against the very background about to be rendered.
+        _ink = "#f5f3ef"
+        try:
+            from poster.contrast_gate import ink_for_background
+            _ink = ink_for_background(bg_path, zones=_copy_zones(spec))
+        except Exception:  # noqa: BLE001
+            pass
+        poster_path = str(render_html_to_png(
+            render_poster_html(brief, bg_path, spec=spec, copy_ink=_ink), out / filename))
         _refresh_canonical(poster_path)   # البند 1
         # A CONTRAST RATIO, MEASURED (reviewer 2026-07-26: «أقل من 4.5:1 = reject»). Every
         # legibility fix before this was an argument about gradient stops; this is the number
@@ -1452,7 +1485,7 @@ def generate_poster(
         try:
             from poster.contrast_gate import check_copy_contrast
             _contrast = check_copy_contrast(
-                poster_path, zones=_copy_zones(spec), ink="#ffffff")
+                poster_path, zones=_copy_zones(spec), ink=_ink)
             if _contrast.checked:
                 log(f"[contrast] worst {_contrast.worst_ratio}:1 "
                     f"({'pass' if _contrast.passed else 'FAIL'})")

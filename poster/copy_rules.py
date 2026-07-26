@@ -91,9 +91,76 @@ def soften_therapeutic_claims(text: str) -> tuple[str, bool]:
     postable and reportable."""
     out = str(text or "")
     changed = False
-    for pat, repl in _THERAPEUTIC:
+    # ONLY the verb forms are rewritten. A noun form («علاج البقع») rewritten to a verb phrase
+    # breaks the sentence, so it is left standing and reported by `claim_risks` for a rewrite.
+    for pat, repl in _SAFE_REWRITE:
         new = pat.sub(repl, out)
         if new != out:
             changed = True
             out = new
     return _norm(out), changed
+
+
+# ---------------------------------------------------------------------------------------------
+# CLAIM RISKS — morphology-aware, and honest about what it cannot rewrite.
+#
+# REVIEWER (2026-07-26), measuring the softener: «يعالج → يقلل ظهور بيمسك صيغة واحدة. الجذر
+# ع-ل-ج بيطلع في معالجة · علاجي · للعلاج… والاستبدال الحتمي خطر لما الصيغة تختلف: علاج البقع
+# (مصدر) → يقلل ظهور البقع بيكسر الجملة نحوياً. لو الصيغة مش matching pattern معروف ⟵ ارفض
+# واطلب إعادة صياغة. عربي مكسور أسوأ من رفض».
+#
+# Two whole categories were also missing: ABSOLUTES (100% / مضمون / الأفضل / آمن تماماً) and
+# OPERATIONAL PROMISES («يوصلك النهاردة» is a delivery commitment, not copy flair — it needs a
+# verified coverage source, and it does not belong to the medical softener at all).
+# ---------------------------------------------------------------------------------------------
+
+# Prefixes Arabic glues onto a stem: بـ / الـ / لـ / للـ / بالـ / و / ف / ي / ت / ن / م.
+_AR_PREFIX = r"(?:و|ف|ب|بال|ال|ل|لل|كال|ك|ي|ت|ن|م|مت|است)?"
+_THERAPEUTIC_ROOT = re.compile(
+    rf"\b{_AR_PREFIX}(?:يعالج|تعالج|نعالج|أعالج|عالج|عولج|يتعالج|معالج\w*|علاج\w*)\b|"
+    r"\b(?:treats?|treating|treatment|cures?|curing|heals?|healing|therapy|therapeutic)\b",
+    re.IGNORECASE | re.UNICODE)
+
+# The forms we can rewrite SAFELY (verb phrases). Anything else in the root is reported.
+_SAFE_REWRITE = [
+    (re.compile(r"(?:بي|ب|ي)عالج"), "بيقلل ظهور"),
+    (re.compile(r"(?:بت|ت)عالج"), "بتقلل ظهور"),
+    (re.compile(r"\btreats?\b", re.I), "helps reduce"),
+    (re.compile(r"\bcures?\b", re.I), "helps improve"),
+    (re.compile(r"\bheals?\b", re.I), "helps restore"),
+]
+
+_ABSOLUTE = re.compile(
+    r"(?:١٠٠|100)\s*%|\bمضمون\w*|\bنهائي\w*|\bالأفضل\b|\bالأقوى\b|\bالأول\b|\bالوحيد\b|"
+    r"\bتماما?ً?\b|\bفوري\w*|\bدائما?ً?\b|"
+    r"\b(?:guaranteed|permanent|instant|best|strongest|only|100%)\b",
+    re.IGNORECASE | re.UNICODE)
+
+_OPERATIONAL = re.compile(
+    r"يوصل\w*|توصيل|التوصيل|نفس اليوم|النهارده?|بكرة|خلال\s*\d+\s*(?:ساعة|ساعات|يوم|أيام)|"
+    r"\b(?:same[- ]day|delivered today|next[- ]day|within \d+ (?:hours?|days?))\b",
+    re.IGNORECASE | re.UNICODE)
+
+
+def claim_risks(text: str) -> list:
+    """Every risky claim in one copy line: [{kind, match, action}].
+
+    kind: therapeutic | absolute | operational.
+    action: `softened` when a safe verb rewrite exists, `rewrite_required` when the form is one
+    we must not patch blindly, `verify_required` for an operational promise that needs a real
+    coverage source. Reporting beats guessing: broken Arabic is worse than a refusal."""
+    line = str(text or "")
+    if not line.strip():
+        return []
+    risks: list = []
+    for m in _THERAPEUTIC_ROOT.finditer(line):
+        frag = m.group(0)
+        safe = any(pat.search(frag) for pat, _ in _SAFE_REWRITE)
+        risks.append({"kind": "therapeutic", "match": frag,
+                      "action": "softened" if safe else "rewrite_required"})
+    for m in _ABSOLUTE.finditer(line):
+        risks.append({"kind": "absolute", "match": m.group(0), "action": "rewrite_required"})
+    for m in _OPERATIONAL.finditer(line):
+        risks.append({"kind": "operational", "match": m.group(0),
+                      "action": "verify_required"})
+    return risks

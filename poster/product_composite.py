@@ -144,6 +144,7 @@ def _trim(im):
 
 def composite_product(background: "str | Path", asset, *,
                       zone: tuple = DEFAULT_ZONE, contact_shadow: bool = True,
+                      product_url: str = "",
                       out_path: "str | Path | None" = None) -> Optional[str]:
     """Paste the product onto `background` inside `zone`. `asset` is bytes, a URL/path, or a
     LIST of candidates — the first that keys into a clean cut-out wins; if none does, the first
@@ -156,6 +157,8 @@ def composite_product(background: "str | Path", asset, *,
         return None
 
     candidates = list(asset) if isinstance(asset, (list, tuple)) else [asset]
+    if len(candidates) > 1 and all(isinstance(c, str) for c in candidates):
+        candidates = rank_candidates(candidates, product_url=product_url)
     prod, feathered = None, False
     first_usable = None
     for cand in candidates:
@@ -213,3 +216,89 @@ def composite_product(background: "str | Path", asset, *,
     out.save(dest)
     logger.info("[product] composited the real asset at %sx%s", target_w, target_h)
     return str(dest)
+
+
+# Filename fragments that are page CHROME, never the product. Measured: the site logo
+# (`Logo_colors.png`) is a clean transparent PNG, so it won the "first candidate that keys
+# cleanly" race and was composited at 44% of the canvas — the giant blurry artifact the art
+# critic condemned on three consecutive attempts.
+_CHROME_HINTS = ("logo", "icon", "sprite", "favicon", "flag", "payment", "visa", "mastercard",
+                 "badge", "banner", "placeholder", "avatar", "loader", "arrow", "cart")
+
+
+def _slug_words(url: str) -> set:
+    import re as _re
+    tail = str(url or "").split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+    return {w for w in _re.split(r"[-_.+]+", tail.lower()) if len(w) > 2}
+
+
+def rank_candidates(urls, *, product_url: str = "") -> list:
+    """Candidate images, best-first: the ones whose filename echoes the PRODUCT's own slug lead,
+    obvious page chrome is dropped, and everything else keeps its original order.
+
+    Ranking must happen BEFORE keying: a transparent logo keys beautifully and is still not the
+    product."""
+    out = [str(u) for u in (urls or []) if str(u or "").strip()]
+    clean = [u for u in out if not any(h in u.split("?", 1)[0].lower() for h in _CHROME_HINTS)]
+    pool = clean or out                      # never return nothing because everything looked like chrome
+    want = _slug_words(product_url)
+    if not want:
+        return pool
+    def _score(u):
+        return -len(_slug_words(u) & want)
+    return sorted(pool, key=_score)
+
+
+def compose_or_background(background: "str | Path", asset, *, zone: tuple = DEFAULT_ZONE,
+                          product_url: str = "",
+                          out_path: "str | Path | None" = None) -> tuple:
+    """(path, mode) — the NAMED fallback the reviewer asked for.
+
+    MEASURED on the Al Fouad banner: ground p5/median/p95 = 124/216/250, the white bottle body
+    = 91/202/247. Fourteen levels between the medians, ranges fully overlapped, and the keying
+    tolerance has a CLIFF rather than a curve (tol 20 eats 4% of the bottle, tol 28 eats 38%).
+    No threshold exists that strips the ground and keeps the product, so refusing to key is
+    correct — and refusing alone shipped a poster with no product at all.
+
+    So the refusal now has somewhere to go: mode "full_bleed" makes the studio shot the SCENE.
+    Its ground, its reflection and its own props stop being an intruder pasted onto another
+    image and become the composition — no seam, because there is no join. mode "composited" is
+    the clean-cut-out path; mode "none" means nothing usable at all."""
+    from PIL import Image
+
+    candidates = list(asset) if isinstance(asset, (list, tuple)) else [asset]
+    if len(candidates) > 1 and all(isinstance(c, str) for c in candidates):
+        candidates = rank_candidates(candidates, product_url=product_url)
+
+    pasted = composite_product(background, candidates, zone=zone, product_url=product_url)
+    if pasted:
+        # composite_product feathers as a last resort; a feathered PANEL is exactly the card the
+        # reviewer measured, so treat "keyed cleanly" as the only composited state.
+        for cand in candidates:
+            loaded = _load(cand)
+            if loaded is not None and _key_studio_background(loaded) is not None:
+                return pasted, "composited"
+
+    for cand in candidates:
+        loaded = _load(cand)
+        if loaded is None:
+            continue
+        try:
+            bg = Image.open(str(background)).convert("RGB")
+            W, H = bg.size
+            shot = loaded.convert("RGB")
+            # cover-fit: fill the canvas, crop the overflow, keep the product centred
+            scale = max(W / shot.width, H / shot.height)
+            new = shot.resize((max(1, int(shot.width * scale)), max(1, int(shot.height * scale))),
+                              Image.LANCZOS)
+            left = max(0, (new.width - W) // 2)
+            top = max(0, (new.height - H) // 2)
+            out = new.crop((left, top, left + W, top + H))
+            dest = Path(out_path) if out_path else Path(str(background)).with_name(
+                Path(str(background)).stem + "_fullbleed.png")
+            out.save(dest)
+            logger.info("[product] asset used FULL-BLEED as the scene (no keyable cut-out)")
+            return str(dest), "full_bleed"
+        except Exception:  # noqa: BLE001
+            continue
+    return str(background), "none"

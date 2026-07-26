@@ -277,6 +277,7 @@ def _render_real(brand: dict, *, headline: str, language: str, product=None,
                           # The item's OWN facts — its page description and the price exactly as
                           # shown — so the copy can sell the product (SPF, actives, price) and not
                           # just the shop. Empty when the link gave none; nothing is invented.
+                          product_url=(getattr(product, "url", "") or "") if product else "",
                           product_description=(getattr(product, "description", "") or "") if product else "",
                           product_price=(getattr(product, "price", "") or "") if product else "",
                           product_currency=(getattr(product, "currency", "") or "") if product else "")

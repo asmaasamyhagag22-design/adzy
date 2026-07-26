@@ -823,7 +823,12 @@ def render_poster_html(
     background_path: Optional[str] = None,
     spec: Optional[PosterDesignSpec] = None,
     density: str = "minimal",
+    copy_ink: str = "#f5f3ef",
 ) -> str:
+    """`copy_ink` is MEASURED by the caller against this very background
+    (`poster.contrast_gate.ink_for_background`). MEASURED (v9): three attempts on a bright
+    pharmacy scene scored 2.72, 2.01 and 1.16:1 in white — the remedy for a bright ground is
+    not moving white copy, it is dark ink."""
     # The DESIGN spec drives the composition. When none is supplied we synthesize a
     # deterministic-but-varied one (per-brand hash) so output isn't one-size-fits-all;
     # the LLM art-director supplies a data-driven spec in the full pipeline.
@@ -920,7 +925,15 @@ def render_poster_html(
     # MEASURE THE BACKGROUND BEFORE DRAWING ON IT. The scrim used to be whatever the spec asked
     # for, which is how near-white copy ended up on a near-white bathroom wall. The logo has always
     # been given this treatment; the text that carries the message had not.
+    # DARK INK CHANGES THE PHYSICS. A scrim exists to darken a bright ground so WHITE type
+    # reads; with dark type measured as the better ink, darkening is exactly wrong — the copy
+    # gets a light veil instead, and its halo flips from black to white.
+    _dark_ink = str(copy_ink or "").lower() not in ("#fff", "#ffffff", "#f5f3ef", "#f3f7fb")
     _scrim = effective_scrim_strength(spec.scrim_strength, background_path, spec.text_box)
+    if _dark_ink:
+        _scrim = 0.0
+    _ink_shadow = ("0 1px 6px rgba(255,255,255,.85)" if _dark_ink
+                   else "0 2px 10px rgba(0,0,0,.55)")
     if spec.text_box:
         # THE COPY NEVER SITS ON THE PRODUCT (reviewer 2026-07-26). The product is composited at
         # a known zone, so the cluster is pushed off it before anything is laid out.
@@ -1004,12 +1017,12 @@ def render_poster_html(
   .canvas {{
     position:relative; width:1080px; height:1350px; overflow:hidden;
     background:#0e131b {bg_layer};
-    font-family:{font_body}; color:#f5f3ef;
+    font-family:{font_body}; color:{copy_ink};
   }}
   .brand {{
     position:absolute; max-width:420px;
-    font-family:{font_head}; font-size:32px; font-weight:700; letter-spacing:.01em; color:#ffffff;
-    text-shadow:0 2px 10px rgba(0,0,0,.55);
+    font-family:{font_head}; font-size:32px; font-weight:700; letter-spacing:.01em; color:{copy_ink};
+    text-shadow:{_ink_shadow};
   }}
   .brand-logo {{
     position:absolute; max-height:104px; max-width:420px;
@@ -1029,14 +1042,14 @@ def render_poster_html(
   }}
   .headline {{
     font-family:{font_head}; font-size:67px; line-height:1.05; font-weight:800;
-    letter-spacing:-.012em; margin-bottom:24px; text-shadow:0 2px 18px rgba(0,0,0,.45);
+    letter-spacing:-.012em; margin-bottom:24px; text-shadow:{_ink_shadow};
   }}
   /* stacked-hero headline (the 'BUSINESS / IDEAS' treatment) — a strong DISPLAY LOCKUP:
      heavy weight, tight leading, a crisp shadow for punch (art-critic: 'not a flat font'). */
   .hero-headline {{
     display:flex; flex-direction:column; gap:0; margin-bottom:24px;
     font-family:{font_head}; font-weight:800; line-height:.96; letter-spacing:-.02em;
-    text-shadow:0 2px 18px rgba(0,0,0,.45);
+    text-shadow:{_ink_shadow};
   }}
   .hero-headline .hw {{ display:block; }}
   .hero-headline.upper .hw {{ text-transform:uppercase; }}

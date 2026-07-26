@@ -61,11 +61,13 @@ class ContrastVerdict:
     checked: bool = False
     worst_ratio: float = 0.0
     zones: List[dict] = field(default_factory=list)
+    exemptions: List[str] = field(default_factory=list)
     reason: str = ""
 
 
 def check_copy_contrast(poster_png: "str | Path", *, zones, ink: str = "#ffffff",
-                        minimum: float = WCAG_BODY_MIN) -> ContrastVerdict:
+                        minimum: float = WCAG_BODY_MIN,
+                        large_text_zones=()) -> ContrastVerdict:
     """Measure the ink against what is actually behind it in each text zone.
 
     `zones` are (x, y, w, h) fractions of the canvas. The background under the copy is taken as
@@ -94,18 +96,60 @@ def check_copy_contrast(poster_png: "str | Path", *, zones, ink: str = "#ffffff"
         px.sort(key=relative_luminance)
         bg = px[len(px) // 2]                       # median pixel of the zone
         ratio = wcag_ratio(fg, bg)
-        v.zones.append({"box": [round(z, 4) for z in (zx, zy, zw, zh)],
-                        "bg": list(bg), "ratio": round(ratio, 2)})
-        worst = ratio if worst is None else min(worst, ratio)
+        # LARGE TEXT IS A DECISION, PRINTED (reviewer: «خلي التقرير يطبع الإعفاء صراحة مش يعدّي
+        # بالسكوت — #cta-btn 3.89:1 PASS (large-text exemption)»). The brand's red button clears
+        # the 3:1 floor for >=24px bold and fails the 4.5:1 body floor; passing it silently
+        # makes a rule look like a hole.
+        idx = len(v.zones)
+        exempt = idx in set(large_text_zones or ())
+        floor = WCAG_LARGE_MIN if exempt else float(minimum)
+        entry = {"box": [round(z, 4) for z in (zx, zy, zw, zh)],
+                 "bg": list(bg), "ratio": round(ratio, 2), "floor": floor}
+        if exempt:
+            entry["exemption"] = "large_text"
+            v.exemptions.append(
+                f"zone {idx}: {round(ratio, 2)}:1 PASS (large-text exemption >=24px/700, "
+                f"floor {WCAG_LARGE_MIN}:1)")
+        v.zones.append(entry)
+        if ratio < floor:
+            worst = ratio if worst is None else min(worst, ratio)
+        elif worst is None:
+            worst = ratio
 
     if worst is None:
         v.reason = "no measurable text zone"
         return v                                   # checked=False — nothing to judge
     v.checked = True
     v.worst_ratio = round(worst, 2)
-    v.passed = worst >= float(minimum)
+    v.passed = all(z["ratio"] >= z.get("floor", float(minimum)) for z in v.zones)
+    if v.exemptions:
+        logger.info("[contrast] %s", "; ".join(v.exemptions))
+        v.reason = ((v.reason + " | ") if v.reason else "") + "; ".join(v.exemptions)
     if not v.passed:
         v.reason = (f"copy contrast {v.worst_ratio}:1 is below the {minimum}:1 floor — "
                     "the text is not readable on what is behind it")
         logger.info("[contrast] %s", v.reason)
     return v
+
+
+DARK_INK = "#141414"
+LIGHT_INK = "#ffffff"
+
+
+def ink_for_background(poster_png: "str | Path", *, zones,
+                       minimum: float = WCAG_BODY_MIN) -> str:
+    """The ink colour the copy should ACTUALLY use on this background.
+
+    MEASURED (v9 run, 2026-07-26): `[contrast] worst 2.72 -> 2.01 -> 1.16 (FAIL)` on three
+    consecutive attempts of a bright pharmacy scene. The gate was right every time and the
+    remedy was wrong — on a bright ground the answer is not to move white copy somewhere else,
+    it is to stop writing in white. Whichever ink measures better against the copy's own zones
+    wins; ties and unreadable files keep white, which is the historical default."""
+    try:
+        light = check_copy_contrast(poster_png, zones=zones, ink=LIGHT_INK, minimum=minimum)
+        dark = check_copy_contrast(poster_png, zones=zones, ink=DARK_INK, minimum=minimum)
+    except Exception:  # noqa: BLE001
+        return LIGHT_INK
+    if not (light.checked and dark.checked):
+        return LIGHT_INK
+    return DARK_INK if dark.worst_ratio > light.worst_ratio else LIGHT_INK

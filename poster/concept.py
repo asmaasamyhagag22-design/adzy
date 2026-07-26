@@ -223,9 +223,15 @@ def product_facts_block(*, name: str = "", description: str = "",
         "Lead with what makes THIS product different (its own technology, protection factor, "
         "actives or claim) — naming the pharmacy is not a product benefit.")
     lines.append(
-        "If the name or page carries a SPEC (SPF50+, UVMUNE, a dosage, a strength), that spec "
-        "MUST appear in the copy language as one of the proof chips — it is the product's "
-        "biggest number and it may not live only in the pack's fine print.")
+        "If the name or page carries a SPEC (SPF50+, UVMUNE 400, a strength), that spec MUST "
+        "appear as one of the proof chips — it is the product's biggest number and it may not "
+        "live only in the pack's fine print. WRITE THE DESIGNATION EXACTLY AS PRINTED, in Latin, "
+        "even inside Arabic copy: «SPF 50+» and «UVMUNE 400» are registered marks, never "
+        "transliterate them («إس بي إف ٥٠+» is wrong). The words AROUND the designation are "
+        "Arabic; the mark itself is quoted.")
+    lines.append(
+        "Do NOT borrow medicinal vocabulary (dose, جرعة, تركيز) for a cosmetic — it invites "
+        "regulatory attention for no benefit.")
     lines.append(
         "CLAIM SAFETY: this is a COSMETIC ad. Never write therapeutic verbs (يعالج / يشفي / "
         "treats / cures) about it; say what the pack says (يقلل ظهور / يحمي / anti-dark-spots).")
