@@ -45,6 +45,13 @@ class PosterQAVerdict(BaseModel):
     # empty list and reports "could not verify" forever — a dead gate that looks alive, which is
     # the failure class this repo keeps paying for.
     text_lines: list = Field(default_factory=list)
+    # MALFORMED TEXT, judged on the PIXELS (2026-07-26). String-distance on a transcription was
+    # measured to fail both ways — real label words absent from the product name look "invented",
+    # and «FIC. TRUSTWORSHY» looks plausible. The critic can see the difference; code cannot.
+    garbled_text: bool = False
+    # HOW MANY DISTINCT PRODUCTS are in frame. A named-product ad showing three is the "chaotic
+    # composition of multiple floating products" the owner rejected; 0 means nothing was counted.
+    product_count: int = 0
     score: int = 7                  # art-director score 1..10
     # TRI-STATE (P6, 2026-07-15): True = PASS, False = FAIL, None = NOT_CHECKED.
     # It used to default to True, so a single Vertex 429 on the QA call silently converted the art
@@ -72,6 +79,8 @@ class _QAResponse(BaseModel):
     third_party_mark: bool = False
     placement_logical: bool = True   # additive (permissive default keeps older tests valid)
     text_lines: list[str] = []       # every readable string in the image, verbatim
+    garbled_text: bool = False       # any malformed / nonsensical / misspelled string in frame
+    product_count: int = 0           # distinct products visible
     score: int = 7
 
 
@@ -190,6 +199,11 @@ def poster_vision_qa(
         # PLACEMENT (2026-07-20): the prompt now carries placement physics; the critic must be
         # able to SEE the failure, otherwise a floating box still ships. Phrased per CATEGORY, not
         # "on a surface" — shoes belong on the ground, a car on a road, a sofa in a room.
+        + "- garbled_text = true if ANY text in the frame is malformed: misspelled, nonsensical, "
+        "half-formed, or letters that only imitate writing. Judge the GLYPHS you can see. A "
+        "correctly-spelled real brand or product name is NOT garbled, however unfamiliar.\n"
+        + "- product_count: how many DISTINCT products (different items, not repeats of one) are "
+        "visible in the frame. Count 0 if none.\n"
         + "- text_lines: EVERY readable string in the image, VERBATIM, one entry each — the "
         "headline, the subheadline, the button, any chip, any word on packaging, any sign, any "
         "fine print, in whatever script it appears. Transcribe exactly what is drawn, including "
@@ -242,8 +256,25 @@ def poster_vision_qa(
         reason=(resp.reason or "").strip(),
         text_lines=[str(t).strip() for t in (getattr(resp, "text_lines", None) or [])
                     if str(t).strip()],
+        garbled_text=bool(getattr(resp, "garbled_text", False)),
+        product_count=int(getattr(resp, "product_count", 0) or 0),
         checked=True,
     )
+
+
+
+def product_count_ok(count: int, *, product_named: bool) -> Optional[bool]:
+    """Is this many products right for this ad?
+
+    OWNER (2026-07-26), on an ad for ONE pasted product that came back full of other brands'
+    boxes: «إيه المنتجات؟ أنا بعمل لاروش». A named-product ad shows ONE product. A brand-wide ad
+    may legitimately show a range. Nothing counted -> unverified, never a pass."""
+    n = int(count or 0)
+    if n <= 0:
+        return None
+    if not product_named:
+        return True
+    return n == 1
 
 
 def third_party_is_expected(reason: str, *, product_name: str = "") -> bool:

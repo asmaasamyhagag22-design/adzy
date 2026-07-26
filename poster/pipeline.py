@@ -309,10 +309,35 @@ def _generate_nano_background(
         data, mime = _image_bytes_from_url(u)
         if data:
             picked.append((data, mime))
-    for u in _brand_style_refs(profile, brand_dna, limit=2):
-        data, mime = _image_bytes_from_url(u)
-        if data:
-            refs.append((data, mime))
+    # A "STYLE REFERENCE" THAT IS A FINISHED AD IS NOT A STYLE REFERENCE (root cause, measured
+    # 2026-07-26). The brand's own images are its HOMEPAGE BANNERS — `special_offer.jpg` is a
+    # 3-D lettering graphic (text density 0.33) and `Desktop_14.webp` is a 4.28:1 hero carrying
+    # "Pharmacy You Can Trust", a button, the wordmark and a pharmacist. Shown those and told to
+    # match them, the model produced garbled English, a fake wordmark and other brands' products.
+    # The prompt has always said "no text, no logos"; prose loses to pixels.
+    #
+    # OWNER'S RULING: a PRODUCT ad takes NO visual reference at all — the scene is built from the
+    # DNA's WORDS plus the composited product, and language cannot leak somebody else's bottle
+    # into the frame. A brand-wide ad keeps only references that pass the screen.
+    if product_name:
+        log("[refs] product ad -> 0 style references (the DNA text carries the brand look)")
+    else:
+        from poster.reference_screen import screen_reference
+        kept, rejected = 0, []
+        for u in _brand_style_refs(profile, brand_dna, limit=4):
+            data, mime = _image_bytes_from_url(u)
+            if not data:
+                continue
+            v = screen_reference(data)
+            if v.usable:
+                refs.append((data, mime))
+                kept += 1
+                if kept >= 2:
+                    break
+            else:
+                rejected.append(v.reason)
+        if rejected:
+            log(f"[refs] {len(rejected)} rejected ({' · '.join(rejected[:3])}), {kept} kept")
     refs = picked + refs
     if picked:
         log(f"[bg] nano-banana REAL PRODUCT ({len(picked)}) + style ({len(refs) - len(picked)})")
@@ -325,6 +350,21 @@ def _generate_nano_background(
         "negative space where copy will be overlaid later. Photographic, premium, on-brand.")
     bg_prompt += _product_scene_guard(product_name, composited=composite_product_after)
     bg_prompt += _cast_variation_rule()
+    # THE REAL MARK IS COMPOSITED ON TOP, so any mark the model draws is fake by definition —
+    # measured as "FoMad" and a blurry giant wordmark filling the scene. Naming the brand is
+    # what makes the ban concrete; "no logos" in the abstract has never held.
+    _bn = ""
+    try:
+        _n = (profile or {}).get("name")
+        _bn = str((_n.get("value") if isinstance(_n, dict) else _n) or "").strip()
+    except Exception:  # noqa: BLE001
+        _bn = ""
+    if _bn:
+        bg_prompt += (
+            f"\n\nBRAND MARK: do NOT draw, letter or imply the mark of \"{_bn}\" — or any other "
+            "company's logo, wordmark, sign or badge — anywhere in this scene, at any size, "
+            "including on walls, screens, packaging, uniforms, bags and signage. The real mark "
+            "is composited onto this image afterwards.")
     if picked:
         # «دي مفيهاش لعب» — the attachment is THE product, not a mood reference. Without saying so
         # the model treats a reference as inspiration and redraws the item, which is how a real
@@ -1508,6 +1548,22 @@ def generate_poster(
 
         verdict = poster_vision_qa(poster_path, caller=qa_caller, brand_dna=brand_dna, arabic=arabic)
         verdict = _excuse_expected_brand(verdict, product_name or "")
+        # MALFORMED TEXT AND EXTRA PRODUCTS, judged on the pixels. Both were shipped repeatedly
+        # today under a `overall_pass` the critic itself had granted, because neither question
+        # was ever asked.
+        if getattr(verdict, "garbled_text", False):
+            verdict = verdict.model_copy(update={
+                "overall_pass": False,
+                "reason": (verdict.reason + " | " if verdict.reason else "")
+                          + "malformed text is rendered in the frame"})
+        from poster.vision_qa import product_count_ok
+        _pc = product_count_ok(getattr(verdict, "product_count", 0),
+                               product_named=bool(product_name))
+        if _pc is False:
+            verdict = verdict.model_copy(update={
+                "overall_pass": False,
+                "reason": (verdict.reason + " | " if verdict.reason else "")
+                          + f"{verdict.product_count} products in an ad for one named product"})
         # EVERY STRING ON THE POSTER IS ONE WE ASKED FOR (reviewer: «لو فيه نص مش موجود في الـ
         # approved copy list -> reject»). The vision verdict already lists what it read; the
         # judgement is code comparing strings, so nothing hallucinates a pass.

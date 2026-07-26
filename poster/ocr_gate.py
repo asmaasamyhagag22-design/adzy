@@ -63,6 +63,25 @@ def _is_latin_line(text: str) -> bool:
     return bool(_LATIN_RE.search(text or "")) and not _NON_LATIN_WORD_RE.search(text or "")
 
 
+
+def _resembles_any(line: str, tokens: set, *, floor: float = 0.62) -> bool:
+    """Does any word in this line look like a word we authorized?
+
+    A misread of a real asset is CLOSE ("FoMad" vs "fouad", "LABORATOIRE" vs a label word);
+    an invented string is not. Ratio-based so a one-glyph transcription slip is forgiven and a
+    fabricated phrase is not."""
+    import difflib
+
+    words = [w for w in _norm(line).split() if len(w) >= 3]
+    if not words or not tokens:
+        return False
+    for w in words:
+        best = difflib.get_close_matches(w, list(tokens), n=1, cutoff=floor)
+        if best:
+            return True
+    return False
+
+
 def stray_text_verdict(*, seen_lines, approved, brand_name: str = "",
                        product_name: str = "",
                        assets_composited: bool = False) -> StrayTextVerdict:
@@ -91,7 +110,13 @@ def stray_text_verdict(*, seen_lines, approved, brand_name: str = "",
         if len(norm) < _MIN_LEN:
             continue
         if assets_composited and _is_latin_line(line):
-            continue                    # its only sources are pixel-exact pasted files
+            # Latin on a composited render comes from pixel-exact files, so it is not judged
+            # HERE. Trying to separate real label words from invented ones by string distance
+            # was measured to fail both ways: «LABORATOIRE» and «ULTRA-LONG UVA PROTECTION» are
+            # real label text that appears in no product NAME, while «FIC. TRUSTWORSHY» is
+            # near-plausible. Invented strings are caught by the critic's `garbled_text` gate,
+            # which reads the pixels instead of guessing from a transcription.
+            continue
         toks = _tokens(line)
         if not toks:
             continue
