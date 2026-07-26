@@ -2824,6 +2824,46 @@ ecommerce/local/service/hybrid/unknown)؛ `IdentityResponse` + `ValidatedIdentit
 
 **السويت: 2531 ⟶ 2582 خضراء** (51 اختبار جديد). صفر صرف، صفر ريل.
 
+## 8.13 — 2026-07-26: الملف المتسلَّم نفسه (مظروف المنصة · الجهارة · حكم واحد · أودت الويب)
+
+البوستر اتصلّح من الجذر في نفس الجلسة (مراجع الستايل = إعلانات جاهزة، تركيب المنتج، الحبر
+المقاس، بوابات النص). فضل **الملف اللي بيوصل العميل**.
+
+### القياس على آخر ريل اتسلّم (`abuauf_agency_v2.mp4`)
+
+| الحقل | المطلوب | اللي اتسلّم |
+|---|---|---|
+| الأبعاد | 1080×1920 | **772×1372** |
+| pix_fmt | yuv420p | **yuvj420p** (JPEG full-range) |
+| color_range / space | tv / bt709 | **pc / bt470bg** (PAL متقاعد) |
+| primaries / trc | bt709 | **unknown** |
+| بت-ريت الفيديو | ≥ 6 Mbps | **1.65 Mbps** |
+| الصوت | 48 kHz | **44.1 kHz** |
+| الجهارة | −14 LUFS | **−28.3** (هيدروم فاضي 14.7 dB) |
+
+ملف موسوم full-range بـtransfer غير معرّف **المنصة بتقراه limited** ⟶ الأسود بيتهرس على ريل
+متوسط إضاءته 72.5/255. بحث في الريبو كله: **ولا موقع ترميز من الستة** بيحط وسم لون أو `-b:v`.
+
+### الحل (٤ بنود، كل واحد اتربط بالداشبورد قبل اللي بعده)
+
+1. **`reel/encode_profile.py` — تمريرة تسليم واحدة، مش ٦ مواقع مرقّعة.** `finalize_delivery()`
+   بتعيد الترميز مرة واحدة بعد الاند كارد **وبعدين بتقيس الملف اللي كتبته** — مش الأعلام اللي
+   بعتتها. فشل الترميز بيسيب الأصل مكانه ويقول.
+2. **`check_audio()` — جهارة حقيقية بـ`ebur128`** (integrated / true peak / LRA) + صمت البداية
+   والنهاية. `loudnorm=I=-14:TP=-1.5:LRA=11` راكب نفس التمريرة (سطر واحد، صفر تكلفة).
+3. **`reel/verdicts.py` — `gate()` بترفض النجاح الفاضي.** `value=True` بلا `observed` بيبقى
+   **`null`**، ورأي VLM لوحده مايعديش بوابة أمان. ده بالظبط شكل الحقل اللي كان بيقول
+   `faces_intact_across_motion: true` على لقطات فيها **0/65 فريم فيهم وش**.
+   `artifact_verdict()` بتلمّ كل البوابات في **قرار واحد حاجب**؛ كلهم `null` = **unverified**.
+4. **`api/routes/reel.py` بقى ينادي `build_reel_audit`/`write_reel_audit`** زي الـCLI — مسار
+   الويب **عمره ما ناداهم**. ريلز الداشبورد بتطلّع `.audit.json`، وسطر الميتا بيعرض الحكم
+   **بالاسم** (`blocked` / `ماتقاسش`) بدل `screening` اللي بيبص للشرائط السودا والصمت بس.
+
+**الدرس:** *«الغياب بيتقري نجاح»* تاني — بس المرة دي في الحاوية: كل موقع ترميز كان بيسيب وسم
+اللون فاضي، وffmpeg بيملاه بافتراض، والافتراض بيتسلّم كأنه قرار.
+
+**السويت: 2960 ⟶ 2981 خضراء** (21 اختبار، RED-first). صفر صرف.
+
 ## 9. Where things live (quick map)
 
 | Concern | Files |
@@ -2836,6 +2876,8 @@ ecommerce/local/service/hybrid/unknown)؛ `IdentityResponse` + `ValidatedIdentit
 | Brand identity (vision) | `brand/{creative_dna,brand_book}.py` |
 | Poster | `poster/{pipeline,concept,oneshot,art_director,variation,from_profile,template,vision_qa,brand_research}.py` |
 | Reel | `reel/{generate,art_director,motion,text_overlay,textlayer,endcard,video_provider,image_quality,grounding}.py` |
+| تسليم الريل + الأحكام | `reel/{encode_profile,verdicts,audit,final_screening}.py` (مظروف واحد · جهارة مقاسة · حكم واحد حاجب) |
+| صوت الريل | `reel/{voices,sfx,voiceover}.py` (كتالوج ElevenLabs محقَّق + SFX متمتَّر) |
 | Web | `api/routes/*`, `frontend/components/*` |
 | الداشبورد الموحّدة | `dashboard/war_room.py` (10 صفحات لافندر), `dashboard/server.py` (routing + لاندنج بالسلوجن), `dashboard/products.py` |
 | ذكاء الإعلانات | `ads_intel/{facts,config,relevance,live,pull_ledger,orchestrator,consumer}.py`, `ads_intel/providers/meta_ad_library.py` |

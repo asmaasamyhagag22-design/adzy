@@ -4592,8 +4592,8 @@ async function generateReel() {
                   data.screening ? 'screening: ' + data.screening : ''].filter(Boolean);
     const meta = document.getElementById('gen-image-meta');
     meta.textContent = bits.join(' · ');
-    meta.style.color = verdict.startsWith('blocked') ? 'var(--danger, #d9534f)'
-      : verdict === 'unverified' ? 'var(--warn, #c98a20)' : '';
+    meta.style.color = verdict.startsWith('blocked') ? 'var(--red)'
+      : verdict === 'unverified' ? 'var(--ph-pending)' : '';
     // The caption rides WITH the reel — same block the poster path uses.
     showCaption({ caption: data.social_caption, hashtags: data.hashtags });
     if ((data.warnings || []).length) {
