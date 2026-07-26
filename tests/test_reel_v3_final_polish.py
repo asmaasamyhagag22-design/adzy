@@ -508,3 +508,30 @@ def test_synth_voiceover_feeds_the_vocalized_text_to_the_engine(monkeypatch, tmp
     assert out is not None
     assert heard and "مُشَكَّل::" in heard[0], (
         f"the engine heard the raw spelling, not the spoken one: {heard!r}")
+
+
+def test_high_energy_deliveries_flip_the_read_into_the_ratified_hype():
+    """Owner listen test 2026-07-26: sample D's street-smart hype is the approved register
+    when the director's deliveries lean high-energy. A luxury brand keeps its poise."""
+    from reel.voiceover import _instructions_for
+    hype = _instructions_for(["اطلب!"], ["excited, urgent", "excited", "warm"], tone="friendly")
+    assert "best friend" in hype and "NEVER a polite narrator" in hype
+    lux = _instructions_for(["line"], ["excited", "excited"], tone="luxury elegant")
+    assert "best friend" not in lux, "a luxury brand got the street-hype read"
+    calm = _instructions_for(["line"], ["warm", "warm", "warm"], tone="friendly")
+    assert "best friend" not in calm, "an all-warm arc still got hyped"
+
+
+def test_the_director_is_told_hero_product_marks_every_product_scene():
+    """v3 made hero_product the MOTION SWITCH (refs + static-pack contract). The prompt used to
+    ask for it on "at least ONE scene" — which would strip the real products from every other
+    scene, reproducing the v2 complaint «فين منتجات أبو عوف». Comments stripped so this file's
+    own prose cannot satisfy the assertion."""
+    import inspect
+    import reel.creative_director as cd
+    src = "\n".join(l.split("#")[0] for l in inspect.getsource(cd).splitlines())
+    i = src.find("- hero_product:")
+    assert i > 0, "the hero_product contract vanished from the prompt"
+    block = src[i:i + 420]
+    assert "EVERY scene" in block, f"still asks for one hero shot only: {block[:200]!r}"
+    assert "at least ONE scene that concretely" not in src

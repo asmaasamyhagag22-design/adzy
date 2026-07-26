@@ -62,6 +62,18 @@ def _instructions_for(lines: list[str], delivery: "str | list[str] | None" = "",
         else:
             mood = ("warm, confident and human — real emotion and gentle energy; "
                     "vary pace and pitch, lean into the key words, sound alive not flat")
+        # OWNER-RATIFIED HYPE (2026-07-26 listen test, sample D): when the DIRECTOR's own
+        # deliveries lean high-energy, the polite-narrator brief is the wrong register — the
+        # approved read is street-smart ad hype. Luxury brands keep their poise regardless.
+        _dl = delivery if isinstance(delivery, list) else ([delivery] if delivery else [])
+        _highs = sum(1 for d in _dl if _energy_of(str(d)) == "high")
+        if _dl and _highs * 2 >= len(_dl) and not any(
+                k in t for k in ("luxury", "premium", "elegant", "refined", "sophisticat")):
+            mood = ("street-smart AD HYPE: you just found something amazing and you are "
+                    "telling your best friend — MAXIMUM energy and pace, big smile, punchy, "
+                    "alive; an influencer ad read, NEVER a polite narrator, NEVER flat. The "
+                    "hook TEASES, the middle stays confident and warm, the closing CTA "
+                    "EXPLODES with urgency")
         is_ar = bool(_AR_RE.search(" ".join(lines or [])))
         # The dialect follows the brand's EVIDENCED region (poster.locale.arabic_dialect_for),
         # threaded in as `dialect`. NO hardcoded Egyptian: a Saudi/Gulf brand reads Khaleeji, a

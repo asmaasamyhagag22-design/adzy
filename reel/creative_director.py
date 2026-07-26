@@ -520,8 +520,15 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         "- duration_s: 2-4 — a FAST TikTok cut for a caption-free scene; a CAPTIONED scene needs >=3s "
         "(>= words*0.4 + 1.5) so it can be READ (owner: 'the text goes by too fast'). If a caption "
         "would need more than ~7 words, SPLIT it into two scenes rather than speeding it up.\n"
-        "- hero_product: true on at least ONE scene that concretely SHOWS the product/service (see "
-        "[PRODUCT ON SCREEN]); false otherwise.\n"
+        # hero_product IS THE MOTION SWITCH (v3): true -> the brand's REAL product references are
+        # attached to that scene's still AND the motion contract pins the pack while the camera
+        # moves; false -> no product refs and a hard no-readable-text ban. So the flag must mark
+        # EVERY scene the product is physically in — "at least one" left the v2 reel with
+        # invented props in most scenes («فين منتجات أبو عوف»).
+        "- hero_product: TRUE for EVERY scene where the real product/service is physically in "
+        "frame (held, opened, poured, on the table, in the bag) — not just the one hero shot. "
+        "FALSE only for scenes with NO product in frame at all (a mood/pain/place shot). A false "
+        "scene must contain no product, no packaging and no readable text of any kind.\n"
         "- product_overlay: \"real_screen\" when the product is a screen/app and its real screen "
         "should be composited in post; else \"\".\n"
         "- caption_role: for a captioned scene, one of name | benefit | proof | cta | layer (scene 0 "
