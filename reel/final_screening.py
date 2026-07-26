@@ -56,8 +56,13 @@ def _sample_frames(video: Path, n: int = 6) -> List[Path]:
 
 
 def _letterboxed(frame: Path, band_frac: float = 0.12) -> bool:
-    """True when the frame's top AND bottom bands are near-uniform dark rows — the signature
-    of a landscape clip parked inside the 9:16 canvas."""
+    """True when the frame's top AND bottom bands are near-uniform dark rows AND the middle is
+    markedly brighter — a letterbox is a DISCONTINUITY, not just darkness.
+
+    MEASURED false positive (2026-07-26, caught before the v3 render): a genuinely dark night
+    frame tripped the dark-bands-only test 5/5, which would have exited 3 on a good reel after
+    the money was spent. The brightness-gap requirement is what separates 'bands around an
+    image' from 'a dark scene'."""
     try:
         from PIL import Image, ImageStat
 
@@ -67,9 +72,14 @@ def _letterboxed(frame: Path, band_frac: float = 0.12) -> bool:
             band = max(2, int(h * band_frac))
             top = ImageStat.Stat(g.crop((0, 0, w, band)))
             bot = ImageStat.Stat(g.crop((0, h - band, w, h)))
+            mid = ImageStat.Stat(g.crop((0, band, w, max(band + 1, h - band))))
+
             def _dark_flat(st) -> bool:
                 return st.mean[0] < 46 and st.stddev[0] < 14
-            return _dark_flat(top) and _dark_flat(bot)
+            if not (_dark_flat(top) and _dark_flat(bot)):
+                return False
+            band_mean = (top.mean[0] + bot.mean[0]) / 2.0
+            return (mid.mean[0] - band_mean) >= 25.0
     except Exception:  # noqa: BLE001
         return False
 

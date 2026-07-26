@@ -535,3 +535,32 @@ def test_the_director_is_told_hero_product_marks_every_product_scene():
     block = src[i:i + 420]
     assert "EVERY scene" in block, f"still asks for one hero shot only: {block[:200]!r}"
     assert "at least ONE scene that concretely" not in src
+
+
+def test_a_genuinely_dark_scene_is_not_mistaken_for_letterboxing(tmp_path):
+    """MEASURED false positive (2026-07-26, before the v3 render): a fully dark night frame
+    tripped the letterbox check 5/5 — the gate would have exited 3 on a GOOD reel after the
+    money was spent. A real letterbox is a DISCONTINUITY: dark bands around a brighter image."""
+    from reel.final_screening import screen_reel
+    clip = _make_clip(tmp_path, "night.mp4", vf="scale=90:160,eq=brightness=-0.42", silent=False)
+    v = screen_reel(clip)
+    assert not any("letterbox" in i.lower() or "band" in i.lower() for i in v.issues), v.issues
+
+
+def test_one_sidecar_file_carries_both_the_path_and_the_endcard_state(monkeypatch, tmp_path):
+    """MEASURED split-brain (2026-07-26): the template branch wrote `<reel>.mp4.path.json`
+    while the endcard stamp and the screening read `<reel>.path.json` — two files, so the
+    screening could never see a path stamp and a reader of one file never saw the other's
+    state. ONE sidecar, merged keys."""
+    import reel.__main__ as rm
+
+    vid = tmp_path / "reel.mp4"
+    vid.write_bytes(b"fake")
+    rm._write_reel_sidecar(vid, {"path": "template_fallback"})
+    monkeypatch.setattr("reel.endcard.append_endcard_to_reel", lambda *a, **k: True)
+    rm._append_brand_endcard({"name": "X"}, vid, enabled=True)
+
+    assert not (tmp_path / "reel.mp4.path.json").exists(), "the second sidecar is still written"
+    data = json.loads((tmp_path / "reel.path.json").read_text(encoding="utf-8"))
+    assert data.get("path") == "template_fallback", f"the path stamp was clobbered: {data}"
+    assert data.get("endcard") == "appended", f"the endcard state is missing: {data}"

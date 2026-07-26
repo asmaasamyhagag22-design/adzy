@@ -61,6 +61,28 @@ def _final_screening(reel_path) -> "int | None":
     return 3
 
 
+def _write_reel_sidecar(reel_path, fields: dict) -> None:
+    """MERGE `fields` into the reel's ONE sidecar, `<reel>.path.json`.
+
+    There used to be two: the template branch wrote `<reel>.mp4.path.json` while the endcard
+    stamp and the final screening read `<reel>.path.json`, so neither file ever held the whole
+    truth about a run. Never raises — a sidecar must not kill a finished reel."""
+    from pathlib import Path as _P
+    side = _P(str(reel_path)).with_suffix(".path.json")
+    try:
+        import json as _json
+        data = {}
+        if side.is_file():
+            try:
+                data = _json.loads(side.read_text(encoding="utf-8")) or {}
+            except Exception:  # noqa: BLE001
+                data = {}
+        data.update(fields)
+        side.write_text(_json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _append_brand_endcard(profile: dict, reel_path, *, enabled: bool) -> None:
     """Append the branded END-CARD (real logo on the brand colour) to a finished reel — the owner:
     "the reel must END with the logo and the brand colour".
@@ -69,22 +91,8 @@ def _append_brand_endcard(profile: dict, reel_path, *, enabled: bool) -> None:
     mismatch and the owner found out from the SCREEN — «الاند مش في الفيديو»): "appended",
     "failed", or "disabled". A failure also prints, so the shipping log never reads clean over a
     card-less reel."""
-    from pathlib import Path as _P
-
     def _stamp(state: str) -> None:
-        side = _P(str(reel_path)).with_suffix(".path.json")
-        try:
-            import json as _json
-            data = {}
-            if side.is_file():
-                try:
-                    data = _json.loads(side.read_text(encoding="utf-8")) or {}
-                except Exception:  # noqa: BLE001
-                    data = {}
-            data["endcard"] = state
-            side.write_text(_json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-        except Exception:  # noqa: BLE001 — the stamp must never kill a finished reel
-            pass
+        _write_reel_sidecar(reel_path, {"endcard": state})
 
     if not enabled:
         _stamp("disabled")
@@ -408,14 +416,9 @@ def main() -> int:
 
     # A template reel must never masquerade as a directed one: the sidecar records which path
     # actually produced this file, so a degraded run is visible in the artifact itself.
-    try:
-        import json as _json
-        _path_kind = (locals().get("_audit_path_stamp")
-                      or ("template_explicit" if args.template else "template"))
-        Path(str(result.reel_path) + ".path.json").write_text(
-            _json.dumps({"path": _path_kind}), encoding="utf-8")
-    except Exception:  # noqa: BLE001
-        pass
+    _path_kind = (locals().get("_audit_path_stamp")
+                  or ("template_explicit" if args.template else "template"))
+    _write_reel_sidecar(result.reel_path, {"path": _path_kind})
 
     _stop = _final_screening(result.reel_path)
     if _stop is not None:
