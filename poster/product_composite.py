@@ -279,6 +279,15 @@ def compose_or_background(background: "str | Path", asset, *, zone: tuple = DEFA
             if loaded is not None and _key_studio_background(loaded) is not None:
                 return pasted, "composited"
 
+    # FULL-BLEED IS OFF BY DEFAULT (owner, 2026-07-26, seeing it live: «أوحش من الأول بمراحل…
+    # منتجات كتير… رجّع المنتج زي ما كنت بتعمله»). The store's asset is a multi-product MARKETING
+    # BANNER, so making it the whole scene put a wall of other products on the poster and threw
+    # away the generated scene entirely. The measured argument for it stands only for a
+    # single-product studio shot, so it is opt-in, never the automatic fallback.
+    import os as _os
+    if _os.environ.get("POSTER_ALLOW_FULL_BLEED") != "1":
+        return str(background), "none"
+
     for cand in candidates:
         loaded = _load(cand)
         if loaded is None:

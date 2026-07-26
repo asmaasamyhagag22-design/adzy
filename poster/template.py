@@ -934,6 +934,10 @@ def render_poster_html(
         _scrim = 0.0
     _ink_shadow = ("0 1px 6px rgba(255,255,255,.85)" if _dark_ink
                    else "0 2px 10px rgba(0,0,0,.55)")
+    # The chips carry a plate; under dark ink a dark plate is black-on-black.
+    chip_bg = "rgba(255,255,255,.72)" if _dark_ink else "rgba(10,14,20,.58)"
+    chip_border = ("1px solid rgba(20,20,20,.18)" if _dark_ink
+                   else "1px solid rgba(255,255,255,.20)")
     if spec.text_box:
         # THE COPY NEVER SITS ON THE PRODUCT (reviewer 2026-07-26). The product is composited at
         # a known zone, so the cluster is pushed off it before anything is laid out.
@@ -1102,14 +1106,14 @@ def render_poster_html(
   }}
   .sub {{
     font-family:{font_body}; font-size:24px; line-height:1.42;
-    color:#e6ecf2; margin-bottom:30px; max-width:780px;
+    color:{copy_ink}; margin-bottom:30px; max-width:780px;
   }}
   .offerings {{ list-style:none; display:flex; flex-wrap:wrap; gap:12px; margin-bottom:34px; }}
   .lower.align-center .offerings {{ justify-content:center; }}
   .offerings li {{
     font-family:{font_body}; font-size:19px; font-weight:500; padding:10px 18px;
-    background:rgba(10,14,20,.58); border:1px solid rgba(255,255,255,.20);
-    border-radius:999px; color:#f3f7fb; backdrop-filter:blur(2px);
+    background:{chip_bg}; border:{chip_border};
+    border-radius:999px; color:{copy_ink}; backdrop-filter:blur(2px);
   }}
   /* A confident, high-contrast CTA button (art-critic: the pill was a tiny footnote). */
   /* CTA: a solid high-contrast button — a light hairline border + strong dark shadow so it

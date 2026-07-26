@@ -25,7 +25,11 @@ from __future__ import annotations
 
 # --- 1) the named fallback ----------------------------------------------------------------------
 
-def test_an_unkeyable_asset_becomes_the_scene_not_a_panel(tmp_path):
+def test_an_unkeyable_asset_becomes_the_scene_not_a_panel(tmp_path, monkeypatch):
+    """OPT-IN since the owner saw it live: the store's asset was a multi-product BANNER, so
+    full-bleed put a wall of other products on the poster and discarded the generated scene.
+    The measured argument holds for a single-product studio shot, which is what this pins."""
+    monkeypatch.setenv("POSTER_ALLOW_FULL_BLEED", "1")
     import io
 
     from PIL import Image
