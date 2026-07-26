@@ -174,28 +174,45 @@ def parse_product(html: str, url: str) -> Optional[ProductInfo]:
     return info if info.usable else None
 
 
+def _fetch_with_browser(url: str, http2: bool):
+    """One Playwright fetch of `url` at the chosen transport. Raises on launch/fetch trouble —
+    the caller decides whether that is a retry or a give-up."""
+    from playwright.sync_api import sync_playwright
+
+    from scraper.browser_launch import launch_chromium
+    from scraper.fetcher import fetch_page, make_browser_context
+    with sync_playwright() as pw:
+        browser = launch_chromium(pw, http2=http2)
+        try:
+            return fetch_page(make_browser_context(browser), url, keep_page=False)
+        finally:
+            browser.close()
+
+
 def scrape_product_page(url: str) -> Optional[ProductInfo]:
     """Fetch ONE product page (Playwright, so JS-rendered stores work) and parse it. Used when the
-    user gives a direct product link for an item the crawl didn't reach. None on any failure."""
+    user gives a direct product link for an item the crawl didn't reach. None on any failure.
+
+    HTTP/2 STAYS ON unless the transport itself fails — the same law the crawler follows, now
+    from the shared helper. MEASURED on the owner's own link (2026-07-26): the old global
+    `--disable-http2` returned 169 bytes where HTTP/2 returned 974,865, and the client was told
+    «مقدرناش نفتح صفحة المنتج دي» about a page the site serves happily."""
+    from scraper.browser_launch import looks_like_http2_failure
     from scraper.url_utils import ensure_scheme
     u = ensure_scheme((url or "").strip())
     if not u.lower().startswith(("http://", "https://")):
         return None
-    try:
-        from playwright.sync_api import sync_playwright
-
-        from scraper.fetcher import fetch_page, make_browser_context
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True, args=["--disable-http2"])
-            try:
-                context = make_browser_context(browser)
-                res = fetch_page(context, u, keep_page=False)
-            finally:
-                browser.close()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("scrape_product_page: fetch failed: %s", exc)
-        return None
-    html = getattr(res, "html", "") or ""
-    if not html.strip():
-        return None
-    return parse_product(html, getattr(res, "final_url", u) or u)
+    res = None
+    for http2 in (True, False):
+        try:
+            res = _fetch_with_browser(u, http2)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("scrape_product_page: fetch failed (http2=%s): %s", http2, exc)
+            res = None
+        html = (getattr(res, "html", "") or "").strip() if res is not None else ""
+        if html:
+            return parse_product(html, getattr(res, "final_url", u) or u)
+        if not (res is not None and looks_like_http2_failure(res)):
+            break            # a real failure, not the transport — HTTP/1.1 would not help
+        logger.warning("scrape_product_page: HTTP/2 protocol error — retrying over HTTP/1.1")
+    return None

@@ -130,6 +130,14 @@ class ReelFromProfileResponse(BaseModel):
     height: int = REEL_H
     duration_s: float = 0.0
     scene_count: int = 0
-    mode: str = ""                          # "generated" (from brand ads) | "motion" (real photos)
+    mode: str = ""                          # "creative" (director) | "motion" (real photos)
     business_name: str = ""
     warnings: list[str] = Field(default_factory=list)
+    # The post-ready caption that rides WITH the reel (owner: «فوق الريل يبقى مكتوب كلام زي
+    # السوشيال»). The poster path returns one already; without it here the owner has to leave
+    # the studio to write the words for the video she just made.
+    social_caption: str = ""
+    hashtags: list[str] = Field(default_factory=list)
+    # What the final screening saw: "clean" | "issues: ..." | "not screened". Never absent —
+    # a reel nobody could screen must not read as a screened one.
+    screening: str = ""

@@ -162,6 +162,18 @@ class Offering(BaseModel):
     confidence: Confidence = Confidence.MEDIUM
 
 
+class CatalogItem(BaseModel):
+    """ONE real item the store sells, verbatim from its own product page.
+
+    Distinct from `Offering`, which may be a department ("Skin Care") on a large store. Every
+    field here is copied text or a URL the crawl visited — there is no model in this path, so
+    there is nothing to ground-check: `price_text` is what the page shows, currency and all."""
+    name: str
+    price_text: Optional[str] = None   # verbatim, e.g. "EGP 850" / "ر.س 120" — never parsed
+    url: Optional[str] = None          # the product's own page (canonical, query stripped)
+    image_url: Optional[str] = None
+
+
 class Location(BaseModel):
     """A physical location."""
     label: Optional[str] = None  # branch name if any
@@ -487,6 +499,12 @@ class BusinessProfile(BaseModel):
 
     # --- Offerings ---
     offerings: list[Offering] = Field(default_factory=list)
+    # The individual items the store SELLS, verbatim from its own leaf pages (name, price as
+    # shown, product URL, image). `offerings` summarizes a large store by its DEPARTMENTS —
+    # correct, and useless to a creative surface that must show one real product with a real
+    # price. Measured on Al Fouad (2026-07-26): 38 product pages crawled, 0 products in the
+    # profile. Deterministic (`scraper.catalog.build_catalog`) — no LLM, nothing to hallucinate.
+    catalog: list[CatalogItem] = Field(default_factory=list)
     pricing_visible: EvidencedField[bool] = Field(default_factory=EvidencedField.missing)
     pricing_posture: EvidencedField[PricingPosture] = Field(default_factory=EvidencedField.missing)
     # Short code explaining why pricing is unknown when a likely menu/pricing

@@ -51,15 +51,8 @@ from .extractors.visual import build_visual_identity, extract_from_page
 from .fetcher import fetch_page, make_browser_context
 
 
-def _looks_like_http2_failure(result) -> bool:
-    """Did this fetch die on the HTTP/2 transport itself?
-
-    The signature Chromium reports is `net::ERR_HTTP2_PROTOCOL_ERROR`, raised before any page can
-    load — which is why the site that hit it (lcwaikiki.eg) attempted 1 page and succeeded on 0.
-    Matched on the message rather than on a status, because there is no HTTP response at all when
-    the protocol negotiation is what failed."""
-    blob = f"{getattr(result, 'error_message', '') or ''} {getattr(result, 'error_code', '') or ''}"
-    return "http2" in blob.lower().replace("_", "").replace("-", "").replace(" ", "")
+from .browser_launch import launch_chromium as _launch_chromium
+from .browser_launch import looks_like_http2_failure as _looks_like_http2_failure
 from .language import detect_languages
 from .readiness import compute_readiness
 from .robots import can_fetch, load_robots
@@ -768,7 +761,7 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
         # So: try HTTP/2 first, and fall back to HTTP/1.1 only when the homepage fails with the
         # protocol error that motivated the flag in the first place. lcwaikiki still works; nobody
         # else pays for it.
-        browser = pw.chromium.launch(headless=True)
+        browser = _launch_chromium(pw)
         _http2_disabled = False
         try:
             context = make_browser_context(browser)
@@ -800,7 +793,7 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
                         browser.close()
                     except Exception:
                         pass
-                    browser = pw.chromium.launch(headless=True, args=["--disable-http2"])
+                    browser = _launch_chromium(pw, http2=False)
                     _http2_disabled = True
                     context = make_browser_context(browser)
                     home_result = fetch_page(context, home_fetch_url, keep_page=True,

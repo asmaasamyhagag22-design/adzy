@@ -1784,17 +1784,19 @@
 
       <!-- Workspace tabs (Kling: Image / Video / Motion / Avatar) -->
       <div class="studio-tabs">
-        <button class="studio-tab active">Image Generation</button>
-        <button class="studio-tab">Video<span class="soon">Soon</span></button>
-        <button class="studio-tab">Campaign<span class="soon">Soon</span></button>
+        <button class="studio-tab active" id="mode-tab-image"
+                onclick="setStudioMode('image')">Image</button>
+        <button class="studio-tab" id="mode-tab-video"
+                onclick="setStudioMode('video')">Video</button>
+        <button class="studio-tab" id="mode-tab-text"
+                onclick="setStudioMode('text')">Caption only</button>
       </div>
 
       <!-- Model selector row (Kling: IMAGE 3.0 bordered row) -->
       <div class="model-card">
         <div class="model-thumb">✦</div>
         <div class="model-name">ADARCHITECT 1.0</div>
-        <div class="model-desc">Brand-Consistent Generation, Local z-image Turbo, On-Brand Every Time</div>
-        <i class="ph ph-caret-down caret"></i>
+        <div class="model-desc" id="model-desc">Grounded in your brand's real evidence — every claim sourced</div>
       </div>
 
       <!-- Brand Reference card (Kling: Image Reference card with 92px tiles) -->
@@ -1918,10 +1920,6 @@
                   onclick="toggleTrend(this)">
             <i class="ph ph-trend-up"></i> Trend
           </button>
-          <button type="button" id="studio-content-only" class="opt-toggle" data-on="0"
-                  onclick="toggleContentOnly(this)">
-            <i class="ph ph-text-aa"></i> Content only
-          </button>
         </div>
         <div class="pop-title">Copy Override - leave blank, AI writes it</div>
         <div class="copy-fields">
@@ -1934,13 +1932,13 @@
       <!-- Footer: settings chip left · gradient Generate right -->
       <div class="studio-footer">
         <div class="settings-summary" onclick="togglePopover('settings-popover')">
-          <span id="sum-model">z-image</span>
+          <span id="sum-model">Image</span>
           <span class="sep">·</span>
           <span id="sum-format">1:1</span>
           <span class="sep">·</span>
           <span id="sum-style">Gradient</span>
         </div>
-        <button class="btn-generate" id="generate-btn" onclick="generateImage()">Generate</button>
+        <button class="btn-generate" id="generate-btn" onclick="studioGenerate()">Generate</button>
       </div>
     </div>
 
@@ -2471,6 +2469,8 @@ const state = {
   selectedCT: 'social_post',
   selectedStyle: 'gradient',
   adMode: 'brand',
+  studioMode: 'image',        // image | video (reel) | text (caption only)
+  lastReel: null,
   lastGenImageB64: null,
   lastGenFilename: null,
   allBrands: [],
@@ -2733,19 +2733,15 @@ function toggleTrend(btn) {
   btn.classList.toggle('selected', btn.dataset.on === '1');
 }
 
-function toggleContentOnly(btn) {
-  btn.dataset.on = btn.dataset.on === '1' ? '0' : '1';
-  btn.classList.toggle('selected', btn.dataset.on === '1');
-}
-
 function trendOn() {
   const b = document.getElementById('studio-trend');
   return !!(b && b.dataset.on === '1');
 }
 
 function contentOnlyOn() {
-  const b = document.getElementById('studio-content-only');
-  return !!(b && b.dataset.on === '1');
+  // ONE control. This was a toggle inside the Options popover AND, after the Video tab shipped,
+  // a "Caption only" tab — two controls for one behaviour, free to disagree. The tab wins.
+  return state.studioMode === 'text';
 }
 
 // «فوق الريل والبوست يبقى مكتوب كلام زي السوشيال بالظبط» — the caption the owner will actually
@@ -4523,6 +4519,96 @@ async function generateCalendarDayPoster(date, itemEl, seed) {
     genBtn.disabled = false;
     if (retryBtn) retryBtn.disabled = false;
   }
+}
+
+// STUDIO MODE — Image / Video / Caption-only. The Video tab used to read "Soon" while
+// POST /api/reel/from-profile was live and rendering: the endpoint existed, the button did not,
+// so the reel was unreachable from the product («فين الريل؟»).
+function setStudioMode(mode) {
+  state.studioMode = mode;
+  ['image', 'video', 'text'].forEach(m => {
+    const b = document.getElementById('mode-tab-' + m);
+    if (b) b.classList.toggle('active', m === mode);
+  });
+  const label = { image: 'Image', video: 'Reel', text: 'Caption' }[mode] || 'Image';
+  const sum = document.getElementById('sum-model');
+  if (sum) sum.textContent = label;
+  const btn = document.getElementById('generate-btn');
+  if (btn) btn.textContent = mode === 'video' ? 'Generate reel'
+    : mode === 'text' ? 'Write caption' : 'Generate';
+  // Copy overrides and product fields shape an IMAGE; a reel is directed from the brand.
+  const copyPop = document.getElementById('copy-popover');
+  if (copyPop && mode !== 'image') copyPop.classList.remove('active');
+}
+
+function studioGenerate() {
+  if (state.studioMode === 'video') return generateReel();
+  return generateImage();
+}
+
+async function generateReel() {
+  if (!state.studioBrand) { toast('Please select a brand first', 'error'); pickBrand(); return; }
+  const wrap = document.getElementById('gen-image-wrap');
+  document.getElementById('gen-placeholder').style.display = 'none';
+  document.getElementById('gen-image').style.display = 'none';
+  document.getElementById('gen-actions').style.display = 'none';
+  document.getElementById('gen-image-meta').textContent =
+    'Directing the reel — story, scenes, voice. This takes a few minutes.';
+  document.getElementById('gen-loading').classList.add('active');
+  document.getElementById('generate-btn').disabled = true;
+  const old = wrap.querySelector('video');
+  if (old) old.remove();
+  try {
+    ensureDomainKey(state.studioBrand);
+    const dk = state.studioBrand.domain_key || domainKeyFromUrl(state.studioBrand.source_url || '');
+    if (!dk) throw new Error('No brand selected. Please scrape a URL first.');
+    const brand = await api('GET', '/api/brands/' + encodeURIComponent(dk));
+    const profile = brand._profile || brand.profile;
+    if (!profile) throw new Error('This brand has no stored profile to direct a reel from.');
+    const data = await api('POST', '/api/reel/from-profile', {
+      profile, n_scenes: 5, language: chosenLanguage() === 'ar' ? 'ar'
+        : chosenLanguage() === 'en' ? 'en' : 'auto',
+    });
+    document.getElementById('gen-loading').classList.remove('active');
+    const v = document.createElement('video');
+    v.controls = true;
+    v.style.cssText = 'width:100%;max-height:70vh;border-radius:var(--radius);background:#000;';
+    v.src = 'data:video/mp4;base64,' + data.video_base64;
+    wrap.appendChild(v);
+    state.lastReel = data;
+    document.getElementById('gen-actions').style.display = 'flex';
+    const dl = document.getElementById('download-btn');
+    if (dl) dl.onclick = () => downloadReel();
+    const bits = [`${data.duration_s ? data.duration_s.toFixed(1) + 's' : ''}`,
+                  data.mode === 'motion' ? 'Ken Burns fallback' : 'directed',
+                  data.screening ? 'screening: ' + data.screening : ''].filter(Boolean);
+    document.getElementById('gen-image-meta').textContent = bits.join(' · ');
+    // The caption rides WITH the reel — same block the poster path uses.
+    showCaption({ caption: data.social_caption, hashtags: data.hashtags });
+    if ((data.warnings || []).length) {
+      const d = document.getElementById('gen-disclosure');
+      d.style.display = 'block';
+      d.style.background = 'rgba(240,180,60,0.12)';
+      d.style.color = 'var(--text)';
+      d.textContent = data.warnings.join(' · ');
+    }
+  } catch (e) {
+    document.getElementById('gen-loading').classList.remove('active');
+    document.getElementById('gen-placeholder').style.display = 'flex';
+    document.getElementById('gen-image-meta').textContent = '';
+    toast('Reel failed: ' + (e.message || e), 'error');
+  } finally {
+    document.getElementById('generate-btn').disabled = false;
+  }
+}
+
+function downloadReel() {
+  const d = state.lastReel;
+  if (!d || !d.video_base64) return;
+  const a = document.createElement('a');
+  a.href = 'data:video/mp4;base64,' + d.video_base64;
+  a.download = d.filename || 'reel.mp4';
+  a.click();
 }
 
 async function generateImage() {

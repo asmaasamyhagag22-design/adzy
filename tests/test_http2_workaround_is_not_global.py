@@ -40,23 +40,29 @@ from scraper.schemas import ErrorCode
 # --- 1) HTTP/2 is not disabled for everybody ---------------------------------------------------
 
 def test_the_crawler_does_not_hardcode_disable_http2_on_every_launch():
+    """2026-07-26: both crawl paths now go through `scraper.browser_launch.launch_chromium`, so
+    this asserts the DEFAULT launch keeps HTTP/2 wherever the launching lives."""
     import scraper.crawler as crawler
-    src = inspect.getsource(crawler)
-    launches = [ln for ln in src.splitlines() if "chromium.launch" in ln]
+    src = "\n".join(l.split("#")[0] for l in inspect.getsource(crawler).splitlines())
+    launches = [ln for ln in src.splitlines()
+                if "chromium.launch" in ln or "_launch_chromium(" in ln]
     assert launches, "no browser launch found — has the crawler moved?"
-    # The FIRST launch is the default one every site gets. A later flagged launch is the
-    # conditional fallback and is exactly what `test_the_http2_fallback_still_exists...` requires.
-    assert "--disable-http2" not in launches[0], (
+    # The FIRST launch is the default one every site gets. A later flagged/http2=False launch is
+    # the conditional fallback that `test_the_http2_fallback_still_exists...` requires.
+    assert "--disable-http2" not in launches[0] and "http2=False" not in launches[0], (
         "HTTP/2 is still disabled on the default launch; measured 429 on alfouadpharmacies.com")
 
 
 def test_the_http2_fallback_still_exists_for_the_site_that_needed_it():
     """Removing the flag outright would re-break lcwaikiki.eg. It has to remain REACHABLE, just
-    not unconditional."""
+    not unconditional — in the crawler's retry AND in the shared helper it delegates to."""
+    import scraper.browser_launch as bl
     import scraper.crawler as crawler
-    src = inspect.getsource(crawler)
-    assert "--disable-http2" in src, (
+    crawler_src = "\n".join(l.split("#")[0] for l in inspect.getsource(crawler).splitlines())
+    assert "http2=False" in crawler_src or "--disable-http2" in crawler_src, (
         "the HTTP/2 fallback was deleted rather than made conditional")
+    assert "--disable-http2" in inspect.getsource(bl), (
+        "the shared launcher can no longer produce the HTTP/1.1 fallback at all")
 
 
 def test_the_fallback_is_keyed_on_the_error_that_motivated_it():
@@ -99,3 +105,75 @@ def test_a_429_stays_transient_so_the_patience_budget_applies():
                     fetched_at=datetime.now(timezone.utc), duration_ms=0)
     r.error_code = ErrorCode.HTTP_ERROR
     assert _is_rate_limited(r) is True
+
+
+def test_the_product_page_path_does_not_force_http1_either():
+    """MEASURED 2026-07-26 on the owner's own product link
+    (alfouadpharmacies.com/products/la-roche-...), same URL seconds apart, the flag the only
+    difference:
+
+        args = []                   ->  974,865 bytes of HTML
+        args = ['--disable-http2']  ->      169 bytes  (blocked)
+
+    The crawler was fixed in place while `scraper/product_page.py` kept the global flag, so
+    "paste a product link" was broken for every site the flag handicaps. The rule now lives in
+    ONE helper both paths call — a fix in one place cannot leave the other behind.
+    Comments stripped: this file's own prose must not satisfy the assertion."""
+    import inspect
+
+    from scraper import product_page
+
+    src = "\n".join(l.split("#")[0] for l in inspect.getsource(product_page).splitlines())
+    assert "launch_chromium" in src, (
+        "product_page still launches Chromium itself instead of the shared helper")
+    assert 'args=["--disable-http2"]' not in src, (
+        "the product-page path still forces HTTP/1.1 on every site")
+
+
+def test_the_shared_launcher_defaults_to_http2_and_can_opt_out():
+    from scraper.browser_launch import launch_chromium
+
+    calls = []
+
+    class _PW:
+        class chromium:
+            @staticmethod
+            def launch(**kw):
+                calls.append(kw.get("args") or [])
+                return "browser"
+
+    launch_chromium(_PW())
+    assert calls[-1] == [], f"HTTP/2 was disabled by default again: {calls[-1]}"
+    launch_chromium(_PW(), http2=False)
+    assert "--disable-http2" in calls[-1], calls[-1]
+
+
+def test_the_product_page_retries_over_http1_on_a_protocol_error(monkeypatch):
+    """The lcwaikiki case must still work through the product-link path: an HTTP/2 protocol
+    error retries once on HTTP/1.1 instead of returning None."""
+    from scraper import product_page
+
+    launched = []
+
+    class _Res:
+        def __init__(self, html, err=""):
+            self.html = html
+            self.final_url = "https://x.test/p"
+            self.error_message = err
+            self.error_code = ""
+            self.ok = bool(html)
+
+    attempts = {"n": 0}
+
+    def fake_fetch(context, url, **kw):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            return _Res("", "net::ERR_HTTP2_PROTOCOL_ERROR")
+        return _Res("<html><h1>Item</h1></html>")
+
+    monkeypatch.setattr(product_page, "_fetch_with_browser",
+                        lambda url, http2: (launched.append(http2), fake_fetch(None, url))[1])
+    monkeypatch.setattr(product_page, "parse_product", lambda html, url: "PARSED")
+    out = product_page.scrape_product_page("https://x.test/p")
+    assert launched == [True, False], f"no HTTP/1.1 retry after the protocol error: {launched}"
+    assert out == "PARSED"

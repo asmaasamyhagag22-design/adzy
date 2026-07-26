@@ -353,17 +353,27 @@ def _extract_offerings(
 
 
 def _extract_program_or_source_url(profile: dict[str, Any]) -> Optional[str]:
-    offerings = profile.get("offerings") or []
+    """The destination URL, UNWRAPPED.
 
-    for offering in offerings:
+    Every field in this project's profile schema may arrive as {"value": ..., "source": ...}.
+    This reader returned the envelope itself, and `PosterBrief.cta_url` is a `str` — so a
+    profile in its own standard shape raised ValidationError, killed the whole brief, and (as
+    measured on the Al Fouad run, 2026-07-26) dropped the dashboard's directed reel to the
+    Ken Burns fallback with no visible reason."""
+    def _plain(v):
+        if isinstance(v, dict):
+            v = v.get("value")
+        v = str(v).strip() if v is not None else ""
+        return v or None
+
+    for offering in profile.get("offerings") or []:
         if not isinstance(offering, dict):
             continue
-
-        page_url = offering.get("page_url")
+        page_url = _plain(offering.get("page_url"))
         if page_url:
-            return str(page_url)
+            return page_url
 
-    return profile.get("final_url") or profile.get("source_url")
+    return _plain(profile.get("final_url")) or _plain(profile.get("source_url"))
 
 
 def _extract_contact_line(profile: dict[str, Any]) -> Optional[str]:
