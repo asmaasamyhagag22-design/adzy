@@ -88,6 +88,39 @@ def build_seed_prompt(veo_prompt: str, *, brand_name: str = "", dna_lines: str =
 _SEED_IMAGE_MODEL = "gemini-3-pro-image-preview"
 
 
+# A scene that puts a HUMAN on screen (word-bounded so "granola bar" never casts a "bar man").
+import re as _re
+
+_PERSON_RE = _re.compile(
+    r"\b(man|woman|men|women|person|people|guy|girl|boy|lady|worker|customer|shopper|chef|"
+    r"athlete|professional|employee|family|couple|he|she)\b", _re.IGNORECASE)
+
+
+def _ensure_portrait(path: "str | Path", ratio: float = 16 / 9) -> None:
+    """Belt-and-braces after the image_config aspect: any stray landscape/square seed is
+    center-cropped to 9:16 IN PLACE. Measured need: 114 seeds on disk in three different
+    aspects while the prompt said "VERTICAL 9:16" the whole time — the letterboxed gym shot
+    the owner called «مبوّظة» is what a landscape seed becomes downstream. Never raises."""
+    try:
+        from PIL import Image
+
+        p = Path(path)
+        with Image.open(p) as im:
+            w, h = im.size
+            if w <= 0 or h <= 0 or (h / w) >= ratio - 0.08:
+                return                            # already portrait enough
+            target_w = max(1, round(h / ratio))
+            if target_w >= w:                     # squarish and small — crop height instead
+                target_h = round(w * ratio)
+                top = max(0, (h - target_h) // 2)
+                im.crop((0, top, w, min(h, top + target_h))).save(p)
+                return
+            left = max(0, (w - target_w) // 2)
+            im.crop((left, 0, min(w, left + target_w), h)).save(p)
+    except Exception:  # noqa: BLE001 — a crop failure leaves the original; the gate still judges it
+        return
+
+
 def _ref_bytes(url: Optional[str]) -> Optional[tuple[bytes, str]]:
     if not url:
         return None
@@ -144,6 +177,7 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
     out_root = Path(out_dir) / "_genseeds"
     out_root.mkdir(parents=True, exist_ok=True)
     stats = {"generated": 0, "retried": 0, "fell_back": 0}
+    self_cast = identity_ref is None     # no selected influencer -> the first protagonist locks
     results: List[Tuple[Optional[str], Optional[str]]] = []
     ref_cache: dict = {}
     for i, sc in enumerate(getattr(creative, "scenes", []) or []):
@@ -173,9 +207,16 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
         # Attempt plan: 1-2 conditioned on the scene photo (or the pool when there is none);
         # 3 unconditioned ("clean on-brief beats world-breaking"); 4 pool-conditioned brand-world
         # — the last chance to keep REAL brand identity in frame before the scene is dropped.
+        # MOTION STRATEGY (owner v2 verdict: Kling garbles any label it is asked to MOVE):
+        # only a hero_product scene carries the real pack — its motion pins the pack and moves
+        # the camera. A free-motion scene must have NO readable text to garble in the first
+        # place, so it gets neither the pack refs nor the pool.
+        hero = bool(getattr(sc, "hero_product", False))
         for attempt in (1, 2, 3, 4):
             try:
                 if attempt == 4:
+                    if not hero:
+                        break        # a free scene has no brand-world refs worth a 4th spend
                     if not pool_refs:
                         for pu in (ref_pool or [])[:2]:
                             if pu not in ref_cache:
@@ -190,15 +231,22 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
                                  "one clean focal point." if attempt == 2
                             else prompt_plain if attempt == 3
                             else prompt)
+                if not hero:
+                    a_prompt += ("\nABSOLUTELY NO readable text anywhere in the frame — no "
+                                 "labels, packaging text, logos, screens or signage.")
                 attach = ([ref] if (ref and attempt < 3)
                           else pool_refs if (attempt in (1, 2) and not ref) or attempt == 4
                           else None)
+                if not hero:
+                    attach = None
                 generate_oneshot_poster(
                     a_prompt,
                     p, logo_bytes=None,
                     model=_SEED_IMAGE_MODEL,          # EXPLICIT pro lane (see :88) — never the poster's env
                     product_images=(attach or None),
-                    identity_ref=identity_ref)
+                    identity_ref=identity_ref,
+                    aspect="9:16")                    # enforced in image_config — prose is ignored
+                _ensure_portrait(p)                   # belt-and-braces: crop any stray landscape
                 stats["generated"] += 1
                 # attach non-empty = this seed was conditioned on the brand's REAL product
                 # images -> the gate must judge label text as the deliverable, not a defect
@@ -212,6 +260,18 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
                 # now falls back to the real photo, exactly like a judged failure.
                 if v.overall_pass is True:
                     seed_path = str(p)
+                    # SELF-CAST (owner v2 verdict: «5 رجالة في 8 مشاهد — متركب كأنه صور ولا
+                    # بعض»): with no selected influencer, the FIRST person-bearing seed that
+                    # passes the gate becomes the identity ref for every later scene — one
+                    # protagonist carries the story, exactly what the director scripted.
+                    if self_cast and identity_ref is None and _PERSON_RE.search(
+                            str(getattr(sc, "veo_prompt", "") or "")):
+                        try:
+                            identity_ref = (Path(p).read_bytes(), "image/png")
+                            log(f"[seedgen] self-cast: scene {i + 1} protagonist locked as "
+                                "the identity ref for all remaining scenes")
+                        except Exception:  # noqa: BLE001 — a failed lock never kills the seed
+                            pass
                     break
                 log(f"[seedgen] scene {i + 1} attempt {attempt} rejected ({v.reason})")
                 stats["retried"] += 1

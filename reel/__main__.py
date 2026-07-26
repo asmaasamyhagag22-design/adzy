@@ -33,18 +33,73 @@ def _load_env() -> None:
         pass
 
 
+def _final_screening(reel_path) -> "int | None":
+    """The last viewer before the owner: screen the ASSEMBLED film (letterboxing, silence,
+    endcard state). Returns 3 to stop the ship on a failed screening, None to proceed.
+    REEL_SCREENING=0 skips (the hermetic suite sets it); REEL_ALLOW_BELOW_GRADE=1 reports the
+    issues but ships anyway. A reel that COULD NOT be screened ships with a loud note — the
+    gate blocks on measured defects, never on its own blindness."""
+    import os as _os
+    if _os.environ.get("REEL_SCREENING") == "0":
+        return None
+    try:
+        from reel.final_screening import screen_reel
+        v = screen_reel(reel_path, log=lambda m: print(f"     {m}", file=sys.stderr))
+    except Exception:  # noqa: BLE001 — the viewer failing is not the film failing
+        return None
+    if not v.checked:
+        print("     ! screening could not run — the reel ships UNSCREENED", file=sys.stderr)
+        return None
+    if v.passed:
+        print("     + final screening: clean", file=sys.stderr)
+        return None
+    if _os.environ.get("REEL_ALLOW_BELOW_GRADE") == "1":
+        print("     ! shipping BELOW GRADE by explicit override", file=sys.stderr)
+        return None
+    print(f"[X] final screening FAILED ({len(v.issues)} issue(s) above) — not shipping. "
+          "Set REEL_ALLOW_BELOW_GRADE=1 to override.", file=sys.stderr)
+    return 3
+
+
 def _append_brand_endcard(profile: dict, reel_path, *, enabled: bool) -> None:
     """Append the branded END-CARD (real logo on the brand colour) to a finished reel — the owner:
-    "the reel must END with the logo and the brand colour". Best-effort: the helper existed but was
-    NEVER wired into either reel path, so every reel shipped without it (the "no logo" complaint)."""
+    "the reel must END with the logo and the brand colour".
+
+    THREE STATES, stamped into the reel's sidecar (v2 lesson: the card silently failed on a dims
+    mismatch and the owner found out from the SCREEN — «الاند مش في الفيديو»): "appended",
+    "failed", or "disabled". A failure also prints, so the shipping log never reads clean over a
+    card-less reel."""
+    from pathlib import Path as _P
+
+    def _stamp(state: str) -> None:
+        side = _P(str(reel_path)).with_suffix(".path.json")
+        try:
+            import json as _json
+            data = {}
+            if side.is_file():
+                try:
+                    data = _json.loads(side.read_text(encoding="utf-8")) or {}
+                except Exception:  # noqa: BLE001
+                    data = {}
+            data["endcard"] = state
+            side.write_text(_json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        except Exception:  # noqa: BLE001 — the stamp must never kill a finished reel
+            pass
+
     if not enabled:
+        _stamp("disabled")
         return
+    ok = False
     try:
         from reel.endcard import append_endcard_to_reel
-        if append_endcard_to_reel(profile, reel_path):
-            print("     + branded end-card (logo on the brand colour)", file=sys.stderr)
+        ok = bool(append_endcard_to_reel(profile, reel_path))
     except Exception:  # noqa: BLE001 — the end-card is a nicety, never fail the reel over it
-        pass
+        ok = False
+    _stamp("appended" if ok else "failed")
+    if ok:
+        print("     + branded end-card (logo on the brand colour)", file=sys.stderr)
+    else:
+        print("     ! ENDCARD FAILED — the reel has no closing brand card", file=sys.stderr)
 
 
 def main() -> int:
@@ -275,6 +330,9 @@ def main() -> int:
                 build_reel_audit(profile, creative, render_result=result), result.reel_path)
             if audit_p:
                 print(f"     audit trail -> {audit_p}")
+            _stop = _final_screening(result.reel_path)
+            if _stop is not None:
+                return _stop
             print(f"\n[ok] CREATIVE reel -> {Path(result.reel_path).resolve()}")
             print(f"     concept: {creative.concept[:90]}")
             print(f"     {result.width}x{result.height}  {result.duration_s}s  "
@@ -359,6 +417,9 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         pass
 
+    _stop = _final_screening(result.reel_path)
+    if _stop is not None:
+        return _stop
     print(f"\n[ok] reel -> {Path(result.reel_path).resolve()}")
     print(f"     {result.width}x{result.height}  {result.duration_s}s  "
           f"audio={result.has_audio}  provider={result.provider}")

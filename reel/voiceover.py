@@ -355,9 +355,101 @@ def _elevenlabs_segment(text: str, out_mp3: Path, *, voice: str, model: str,
     return False
 
 
+def _join_script(lines: "list[str]") -> str:
+    """ONE continuous script whose EMOTIVE terminal marks survive the join.
+
+    Measured root of the owner's «الصوت برود»: the old joiner rstrip'ed " ،.!؟?" from every
+    line, so «متتنسيش!» reached the voice as flat «متتنسيش،» — the punctuation IS the
+    performance direction for every TTS engine. Neutral tails (، .) still yield to one
+    consistent cadence; ! and ؟/? stay."""
+    parts = [str(l).strip() for l in (lines or []) if l and str(l).strip()]
+    if not parts:
+        return ""
+    is_ar = bool(_AR_RE.search(" ".join(parts)))
+    joiner = "،  " if is_ar else ".  "
+    cores = [p.rstrip(" ،.") for p in parts]
+    script = ""
+    for j, core in enumerate(cores):
+        if j:
+            script += "  " if cores[j - 1].endswith(("!", "؟", "?")) else joiner
+        script += core
+    return script
+
+
+# Delivery -> ENERGY class -> edge rate/pitch. The director writes a per-line performance
+# note (`voiceover_delivery`); until v3 it reached only the PAID engines' instruction text,
+# never the free voice that actually ships — the whole reel was one flat read.
+_DELIVERY_PROSODY = {
+    "high": ("+9%", "+16Hz"),      # excited hook / urgent CTA
+    "warm": ("+2%", "+4Hz"),       # relaxed, smiling body
+    "neutral": ("+5%", "+8Hz"),    # unspecified — lightly lifted, never monotone
+}
+
+
+def _energy_of(delivery: str) -> str:
+    d = (delivery or "").lower()
+    if any(w in d for w in ("excit", "high energy", "energetic", "urgent", "punchy", "upbeat",
+                            "rising", "متحمس", "حماس", "سريع", "طاقة")):
+        return "high"
+    if any(w in d for w in ("calm", "soft", "gentle", "relaxed", "warm", "smile", "tender",
+                            "هادي", "دافي", "ابتسامة", "حنية")):
+        return "warm"
+    return "neutral"
+
+
+def _edge_read(parts: "list[str]", deliveries: "list[str]", out_mp3: Path, *,
+               voice: str, tone: str = "") -> bool:
+    """The free voice, read with the director's energy: consecutive lines that share an energy
+    class form ONE group; each group gets its own rate/pitch; groups concat into one track.
+
+    Uniform energy (or an explicit REEL_TTS_EDGE_RATE/PITCH override) collapses to the single
+    continuous call — the design that fixed the Azza-demo "changing voice / mid-word cuts"
+    bugs stays intact when there is nothing to vary."""
+    energies = [_energy_of(deliveries[k] if k < len(deliveries) else "") for k in range(len(parts))]
+    override = bool(os.environ.get("REEL_TTS_EDGE_RATE") or os.environ.get("REEL_TTS_EDGE_PITCH"))
+    if override or len(set(energies)) <= 1:
+        rate, pitch = (_edge_prosody_for_tone(tone) if override or not energies
+                       else _DELIVERY_PROSODY[energies[0]])
+        return _edge_segment(_join_script(parts), out_mp3, voice=voice, rate=rate, pitch=pitch)
+    groups: list[tuple[str, list[str]]] = []
+    for text_line, en in zip(parts, energies):
+        if groups and groups[-1][0] == en:
+            groups[-1][1].append(text_line)
+        else:
+            groups.append((en, [text_line]))
+    seg_files: list[Path] = []
+    for gi, (en, glines) in enumerate(groups):
+        seg = out_mp3.parent / f"{out_mp3.stem}_g{gi}.mp3"
+        rate, pitch = _DELIVERY_PROSODY[en]
+        if not _edge_segment(_join_script(glines), seg, voice=voice, rate=rate, pitch=pitch):
+            return False
+        seg_files.append(seg)
+    listing = out_mp3.parent / f"{out_mp3.stem}_concat.txt"
+    listing.write_text("".join(f"file '{s.as_posix()}'\n" for s in seg_files), encoding="utf-8")
+    try:
+        run_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy",
+                    str(out_mp3)])
+    except Exception:  # noqa: BLE001 — concat trouble must not silence the reel
+        rate, pitch = _edge_prosody_for_tone(tone)
+        return _edge_segment(_join_script(parts), out_mp3, voice=voice, rate=rate, pitch=pitch)
+    return Path(out_mp3).is_file()
+
+
+def _verbatik_ssml(text: str, *, voice: str = "", delivery: str = "") -> str:
+    """The SSML body for Verbatik: the language follows the SCRIPT (D-8 — not a hardcoded
+    ar-EG), and a delivery note becomes a real prosody contour so the paid read is not flat
+    either. The voice itself travels in the X-Voice-ID header per Verbatik's API docs."""
+    lang = "ar-EG" if _AR_RE.search(text or "") else "en-US"
+    inner = _xml_escape(text)
+    if (delivery or "").strip():
+        rate, pitch = _DELIVERY_PROSODY[_energy_of(delivery)]
+        inner = f'<prosody rate="{rate}" pitch="{pitch}">{inner}</prosody>'
+    return f'<speak version="1.0" xml:lang="{lang}">{inner}</speak>'
+
+
 def _verbatik_segment(text: str, out_mp3: Path, *, voice: str = "",
                       api_key: str = "", timeout: float = 120.0,
-                      _urlopen=None) -> bool:
+                      delivery: str = "", _urlopen=None) -> bool:
     """One TTS segment via Verbatik (the owner added VERBATIK_API_KEY for the reel voice,
     2026-07-25: «حطيت كي للصوت»). Bearer-token REST; SSML body; returns audio bytes.
 
@@ -373,12 +465,13 @@ def _verbatik_segment(text: str, out_mp3: Path, *, voice: str = "",
     if not key:
         return False
     url = os.environ.get("VERBATIK_TTS_URL", "https://api.verbatik.com/api/v1/tts")
-    voice = voice or os.environ.get("REEL_VERBATIK_VOICE", "ar-EG-SalmaNeural")
-    ssml = (f'<speak version="1.0" xml:lang="ar-EG">'
-            f'<voice name="{voice}">{_xml_escape(text)}</voice></speak>')
+    voice = voice or os.environ.get("REEL_VERBATIK_VOICE", "salma-ar-eg")
+    # Per Verbatik's published API: POST /api/v1/tts, Bearer auth, the VOICE in the
+    # X-Voice-ID header (slug ids like jenny-en-us), SSML or plain text as the body.
+    ssml = _verbatik_ssml(text, voice=voice, delivery=delivery)
     req = urllib.request.Request(
         url, data=ssml.encode("utf-8"), method="POST",
-        headers={"Authorization": f"Bearer {key}",
+        headers={"Authorization": f"Bearer {key}", "X-Voice-ID": voice,
                  "Content-Type": "application/ssml+xml", "Accept": "audio/mpeg"})
     opener = _urlopen or urllib.request.urlopen
     try:
@@ -526,14 +619,12 @@ def synth_voiceover(
         default_voice = _DEFAULT_VOICE
     voice = voice or os.environ.get("REEL_TTS_VOICE") or default_voice
 
-    # ONE continuous script, scene order preserved, joined with a natural pause. Trailing
-    # end-punctuation is stripped per line so the joiner sets one consistent cadence.
+    # ONE continuous script, scene order preserved, joined with a natural pause — but the
+    # EMOTIVE terminal marks survive (owner: «الصوت برود»; the old joiner stripped every ! and ؟).
     parts = [str(l).strip() for l in lines if l and str(l).strip()]
     if not parts:
         return None
-    is_ar = bool(_AR_RE.search(" ".join(parts)))
-    joiner = "،  " if is_ar else ".  "
-    script = joiner.join(p.rstrip(" ،.!؟?") for p in parts)
+    script = _join_script(parts)
     total = sum(max(0.5, float(d)) for d in durations) or 10.0
     # Dialect follows the brand's evidenced region (poster.locale) — not a hardcoded Egyptian read.
     dialect_name = ""
@@ -557,12 +648,12 @@ def synth_voiceover(
             ok = _gemini_segment(gem_client, script, raw, voice=voice, model=model,
                                  instructions=instructions)
         elif chosen == "edge":
-            _e_rate, _e_pitch = _edge_prosody_for_tone(tone)   # tone-driven, never a flat +0%/+0Hz
-            ok = _edge_segment(script, raw, voice=voice, rate=_e_rate, pitch=_e_pitch)
+            ok = _edge_read(parts, list(deliveries or []), raw, voice=voice, tone=tone)
         elif chosen == "elevenlabs":
             ok = _elevenlabs_segment(script, raw, voice=voice, model=model, api_key=el_key)
         elif chosen == "verbatik":
-            ok = _verbatik_segment(script, raw)
+            ok = _verbatik_segment(script, raw,
+                                   delivery=(deliveries[0] if deliveries else ""))
         else:
             ok = _tts_segment(oa_client, script, raw, model=model, voice=voice,
                               instructions=instructions)
@@ -574,9 +665,8 @@ def synth_voiceover(
             # logged above with its HTTP status and body, so nothing is hidden by recovering.
             logger.warning("[voiceover] %s failed -> edge fallback", chosen)
             raw = tmpd / "vo_full.mp3"       # edge writes mp3 whatever the primary wanted
-            _e_rate, _e_pitch = _edge_prosody_for_tone(tone)
-            ok = _edge_segment(script, raw, voice=_edge_voice_for(script, None, profile),
-                               rate=_e_rate, pitch=_e_pitch)
+            ok = _edge_read(parts, list(deliveries or []), raw,
+                            voice=_edge_voice_for(script, None, profile), tone=tone)
         if not ok:
             return None
 

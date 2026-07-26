@@ -77,7 +77,7 @@ def _endcard_html(logo_uri: Optional[str], name: str, cta: str, url_label: str,
         center = _rgb_to_hex(_mix(ac, (12, 11, 16), 0.72))
         mid = _rgb_to_hex(_mix(ac, (8, 8, 11), 0.87))
         bg = f"radial-gradient(120% 96% at 50% 42%, {center} 0%, {mid} 58%, #060608 100%)"
-        ink, sub = "#F5EFE9", "rgba(245,239,233,0.60)"
+        ink, sub = "#F5EFE9", "rgba(245,239,233,0.78)"
         rule = _rgb_to_hex(_mix(ac, (255, 255, 255), 0.20))
         cta_border = "rgba(245,239,233,0.45)"
     else:
@@ -85,7 +85,7 @@ def _endcard_html(logo_uri: Optional[str], name: str, cta: str, url_label: str,
         center = _rgb_to_hex(_mix(ac, (255, 255, 255), 0.86))
         mid = _rgb_to_hex(_mix(ac, (255, 255, 255), 0.93))
         bg = f"radial-gradient(120% 96% at 50% 42%, {center} 0%, {mid} 62%, #F3ECE2 100%)"
-        ink, sub = "#2A1A1F", "rgba(42,26,31,0.58)"
+        ink, sub = "#2A1A1F", "rgba(42,26,31,0.74)"
         rule = _rgb_to_hex(_mix(ac, (0, 0, 0), 0.12))
         cta_border = _rgb_to_hex(_mix(ac, (0, 0, 0), 0.18))
 
@@ -97,7 +97,9 @@ def _endcard_html(logo_uri: Optional[str], name: str, cta: str, url_label: str,
 
     logo_block = (f'<div class="logo-wrap"><div class="halo"></div>'
                   f'<img class="logo" src="{logo_uri}"></div>' if logo_uri else "")
-    name_block = f'<div class="name">{name}</div>' if name else ""
+    # The wordmark ALREADY says the name — repeating it as plain text under the logo reads
+    # amateur (owner on the v2 card: «جودة الاند وحشة»). The text name is the NO-LOGO fallback.
+    name_block = f'<div class="name">{name}</div>' if (name and not logo_uri) else ""
     # The old chunky white "button" implied a tap in a NON-interactive video (owner: "الزار دا
     # إيه لازمته"). Elegant brands: no fake button — the brand's own URL is the real "where to
     # go", set as a refined letter-spaced line. Non-elegant: a light hairline CTA chip + the URL.
@@ -115,21 +117,21 @@ def _endcard_html(logo_uri: Optional[str], name: str, cta: str, url_label: str,
  .grain{{position:absolute;inset:0;opacity:.05;pointer-events:none;
    background:radial-gradient(circle at 50% 42%, rgba(255,255,255,.10) 0%, transparent 42%);}}
  .wrap{{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
-   display:flex;flex-direction:column;align-items:center;gap:34px;padding:0 96px;box-sizing:border-box;}}
+   display:flex;flex-direction:column;align-items:center;gap:30px;padding:0 96px;box-sizing:border-box;}}
  .logo-wrap{{position:relative;display:flex;align-items:center;justify-content:center;}}
  .halo{{position:absolute;width:170%;height:270%;left:-35%;top:-85%;z-index:0;pointer-events:none;
    background:radial-gradient(circle at 50% 50%, {accent}5c 0%, {accent}26 34%, transparent 66%);
    filter:blur(34px);}}
- .logo{{position:relative;z-index:1;height:{round(height*0.165)}px;max-width:74%;object-fit:contain;
+ .logo{{position:relative;z-index:1;height:{round(height*0.19)}px;max-width:78%;object-fit:contain;
    filter:drop-shadow(0 8px 26px rgba(0,0,0,{'0.55' if dark else '0.16'}));}}
  .rule{{width:56px;height:1px;background:{rule};opacity:.85;}}
  .name{{font-family:{head_family};font-weight:{name_weight};font-size:{name_size}px;
    letter-spacing:{name_ls};line-height:1.16;max-width:82%;}}
  .cta{{font-family:'Space Grotesk','Cairo',sans-serif;font-weight:600;
-   font-size:{round(width*0.032)}px;letter-spacing:0.14em;text-transform:uppercase;color:{ink};
+   font-size:{round(width*0.035)}px;letter-spacing:0.14em;text-transform:uppercase;color:{ink};
    border:1px solid {cta_border};border-radius:999px;padding:0.7em 1.7em;}}
- .url{{font-family:'Space Grotesk','Cairo',sans-serif;font-weight:600;font-size:{round(width*0.028)}px;
-   letter-spacing:0.18em;text-transform:uppercase;color:{sub};}}
+ .url{{font-family:'Space Grotesk','Cairo',sans-serif;font-weight:700;font-size:{round(width*0.031)}px;
+   letter-spacing:0.2em;text-transform:uppercase;color:{sub};}}
 </style></head>
 <body><div class="card"><div class="grain"></div>
  <div class="wrap">{logo_block}<div class="rule"></div>{name_block}{cta_block}{url_block}</div>
@@ -205,15 +207,43 @@ def render_endcard(profile: dict, out_png: Path, *, width: int = REEL_W, height:
         return None
 
 
+def _video_dims(path: "str | Path") -> "tuple[int, int] | None":
+    """(width, height) from ffmpeg's stderr banner. None on failure — the caller must then
+    say so, not guess."""
+    import re
+    import subprocess
+
+    from reel.ffmpeg_tools import ffmpeg_exe
+    try:
+        r = subprocess.run([ffmpeg_exe(), "-i", str(path)], capture_output=True, text=True)
+        m = re.search(r"Video:.*?\s(\d{2,5})x(\d{2,5})", r.stderr or "")
+        if m:
+            return int(m.group(1)), int(m.group(2))
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 def append_endcard_to_reel(profile: dict, video_path: str | Path, *, seconds: float = 2.6,
-                           fps: int = 30, width: int = REEL_W, height: int = REEL_H) -> bool:
+                           fps: int = 30, width: int = 0, height: int = 0) -> bool:
     """Append a ~`seconds` brand end-card (gentle push-in + fade) to the reel, IN PLACE, with a
-    short cross-fade from the last scene. Best-effort: returns False (reel untouched) on failure."""
+    short cross-fade from the last scene. Returns False (reel untouched) on failure — the
+    CALLER stamps that outcome; nothing here may pretend it appended.
+
+    The card is rendered at the REEL'S OWN probed dimensions, never a fixed canvas: the v2 Abu
+    Auf reel measured 772x1372 while the card assumed 768x1366, xfade refused the mismatch, and
+    the reel shipped card-less behind a printed [ok]."""
     try:
         from reel.motion import _clip_duration, _has_audio
 
         video_path = Path(video_path)
         if not video_path.is_file():
+            return False
+        dims = _video_dims(video_path)
+        if dims:
+            width, height = dims
+        elif not (width and height):
+            logger.warning("endcard: could not probe the reel's dimensions — not appending")
             return False
         work = video_path.parent
         png = render_endcard(profile, work / "_endcard.png", width=width, height=height)
@@ -260,5 +290,8 @@ def append_endcard_to_reel(profile: dict, video_path: str | Path, *, seconds: fl
             except OSError:
                 pass
         return True
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        # LOUD (v2 lesson): the 0-byte _with_endcard.mp4 sat on disk while [ok] printed.
+        logger.warning("endcard append FAILED (%s: %s) — the reel ships without its card",
+                       type(exc).__name__, str(exc)[:200])
         return False

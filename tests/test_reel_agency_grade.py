@@ -363,6 +363,7 @@ def test_seed_gen_tells_the_gate_when_real_refs_were_attached(monkeypatch, tmp_p
     class _Scene:
         veo_prompt = "a hand lifts the pack"
         image_index = 0
+        hero_product = True     # v3 motion policy: only a hero scene carries the real pack
 
     class _Creative:
         scenes = [_Scene()]

@@ -43,6 +43,19 @@ def _brand_tone(profile: Any) -> str:
         return ""
 
 
+def _motion_directive(scene) -> str:
+    """The per-scene MOTION CONTRACT appended to the i2v prompt (owner v2 verdict: Kling
+    garbled the pack label in 4/8 scenes and they all fell to Ken Burns). A hero scene pins
+    the pack and moves the CAMERA; a free scene must have no text to garble at all."""
+    if getattr(scene, "hero_product", False):
+        return ("The product pack stays perfectly STATIC, sharp and fully legible exactly as "
+                "in the first frame — never redraw, warp or animate any label text or logo. "
+                "Only the camera moves (slow push-in or gentle orbit) and any person moves "
+                "naturally around the still pack.")
+    return ("Free, dynamic, cinematic motion. NO readable text, labels, logos, screens or "
+            "signage anywhere in the frame at any point.")
+
+
 def _product_asset(profile: Optional[dict], scene, real: Optional[str]) -> Optional[str]:
     """The REAL asset to composite for a hero-product scene (Phase D): the scene's own real photo
     for real_photo, else the brand's homepage/app screenshot for real_screen. None -> no composite."""
@@ -63,7 +76,8 @@ def _product_asset(profile: Optional[dict], scene, real: Optional[str]) -> Optio
 def build_creative_storyboard(reel: CreativeReel, brief: PosterBrief,
                               captions: Optional[bool] = None,
                               seeds: Optional[list] = None,
-                              profile: Optional[dict] = None) -> Storyboard:
+                              profile: Optional[dict] = None,
+                              verbatim_prompts: bool = False) -> Storyboard:
     """Map an Opus CreativeReel onto the render Storyboard. Each scene carries its
     real-photo seed + Opus's Veo prompt.
 
@@ -113,7 +127,10 @@ def build_creative_storyboard(reel: CreativeReel, brief: PosterBrief,
         scenes.append(ReelScene(
             kind=kind,
             duration_s=round(dur, 2),
-            visual_prompt=s.veo_prompt,
+            # HITL law: an APPROVED plan renders VERBATIM — the motion contract is only
+            # appended to prompts the DIRECTOR just wrote (verbatim_prompts=False).
+            visual_prompt=(str(s.veo_prompt or "") if verbatim_prompts
+                           else str(s.veo_prompt or "").rstrip() + "\n" + _motion_directive(s)),
             seed_image_url=seed,
             place_ref_url=place_ref,
             product_asset_url=_product_asset(profile, s, real),   # Phase D: real screen/photo to composite
@@ -327,7 +344,8 @@ def render_creative_reel(
             creative.scenes = [creative.scenes[i] for i in keep]
             seeds = [seeds[i] for i in keep]
 
-    storyboard = build_creative_storyboard(creative, brief, seeds=seeds, profile=profile)
+    storyboard = build_creative_storyboard(creative, brief, seeds=seeds, profile=profile,
+                                           verbatim_prompts=bool(plan_override))
 
     # DEAD-TAIL FIT (owner, twice: "الكلام خلص من 10 ثواني والفيديو مكمل"): the video's
     # total must track the SURVIVING speech (post-grounding). Estimate the read at the

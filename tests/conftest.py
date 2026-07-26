@@ -29,6 +29,10 @@ def _vertex_spend_tmp_ledger(tmp_path, monkeypatch):
     # the guard that makes it impossible to forget in the next one: a spend ledger is a financial
     # record, and a test that can write to it can also make it lie.
     monkeypatch.setenv("KLING_SPEND_LEDGER", str(tmp_path / "kling_spend.jsonl"))
+    # The final-screening viewer decodes the assembled mp4 with real ffmpeg — pointless and
+    # slow against the suite's synthetic byte-string "videos". Screening tests re-enable it
+    # explicitly by calling reel.final_screening.screen_reel directly.
+    monkeypatch.setenv("REEL_SCREENING", "0")
 
 
 @pytest.fixture(autouse=True)

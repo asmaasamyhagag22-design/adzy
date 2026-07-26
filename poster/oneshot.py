@@ -361,6 +361,7 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
                             logo_mime: str = "image/png",
                             product_images: Optional[list[tuple[bytes, str]]] = None,
                             identity_ref: Optional[tuple[bytes, str]] = None,
+                            aspect: Optional[str] = None,
                             client: Any = None) -> Path:
     """ONE generate_content call -> the complete designed poster PNG. The real brand logo is
     passed as an INPUT IMAGE part when available (these models composite an attached image;
@@ -404,10 +405,16 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
             if delay_s:
                 _time.sleep(delay_s)
             try:
+                # The aspect travels in image_config, NOT in prose: the seed prompt has said
+                # "VERTICAL 9:16" all along and 114 seeds on disk measure 768x1376 AND
+                # 1120x928 AND 1024x1024 — the model treats prose as a suggestion.
+                _cfg_kw: dict = {"response_modalities": ["IMAGE", "TEXT"]}
+                if aspect:
+                    _cfg_kw["image_config"] = types.ImageConfig(aspect_ratio=aspect)
                 resp = cl.models.generate_content(
                     model=cand_model,
                     contents=contents,
-                    config=types.GenerateContentConfig(response_modalities=["IMAGE", "TEXT"]),
+                    config=types.GenerateContentConfig(**_cfg_kw),
                 )
                 break
             except Exception as e:  # noqa: BLE001
