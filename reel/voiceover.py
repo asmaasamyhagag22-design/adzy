@@ -329,7 +329,8 @@ def _elevenlabs_voice_for(profile: Any = None, override: Optional[str] = None) -
 
 
 def _elevenlabs_segment(text: str, out_mp3: Path, *, voice: str, model: str,
-                        api_key: str, timeout: float = 120.0, _urlopen=None) -> bool:
+                        api_key: str, timeout: float = 120.0, delivery: str = "",
+                        _urlopen=None) -> bool:
     """One TTS segment via ElevenLabs (native Egyptian library voices — needs a Creator-tier key).
     Stdlib urllib; returns True on a written mp3, False on any failure (caller degrades)."""
     import json as _json
@@ -338,9 +339,20 @@ def _elevenlabs_segment(text: str, out_mp3: Path, *, voice: str, model: str,
     if not voice:
         logger.warning("elevenlabs: no voice id (set REEL_ELEVENLABS_VOICE); skipping")
         return False
+    # STEERED, NOT FLAT. `style: 0.0` and `stability: 0.5` are the neutral defaults — a
+    # newsreader. The owner's word for that read was «برود». Stability DOWN and style UP is what
+    # makes ElevenLabs perform; the amount comes from the director's own delivery note, so an
+    # urgent CTA and a warm middle line are not read identically.
+    _energy = _energy_of(delivery)
+    _settings = {
+        "high": {"stability": 0.34, "similarity_boost": 0.85, "style": 0.62},
+        "warm": {"stability": 0.55, "similarity_boost": 0.80, "style": 0.35},
+        "neutral": {"stability": 0.45, "similarity_boost": 0.82, "style": 0.48},
+    }[_energy]
+    _settings["use_speaker_boost"] = True
     body = _json.dumps({
         "text": text, "model_id": model or _ELEVENLABS_MODEL,
-        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75, "style": 0.0},
+        "voice_settings": _settings,
     }).encode("utf-8")
     req = urllib.request.Request(
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice}", data=body, method="POST",
@@ -683,6 +695,16 @@ def synth_voiceover(
             return None
     # chosen == "edge" needs no client/key (free, keyless).
 
+    # The brand's evidenced dialect — resolved BEFORE the voice, because the voice is chosen
+    # from it (poster.locale; never a hardcoded Egyptian read).
+    dialect_name = ""
+    if profile is not None:
+        try:
+            from poster.locale import arabic_dialect_for
+            dialect_name = arabic_dialect_for(profile)
+        except Exception:  # noqa: BLE001
+            dialect_name = ""
+
     model = model or os.environ.get("REEL_TTS_MODEL") or (
         _GEMINI_TTS_MODEL if chosen == "gemini"
         else _ELEVENLABS_MODEL if chosen == "elevenlabs" else _DEFAULT_MODEL)
@@ -691,7 +713,15 @@ def synth_voiceover(
     elif chosen == "gemini":
         default_voice = _GEMINI_VOICE
     elif chosen == "elevenlabs":
-        default_voice = _elevenlabs_voice_for(profile)
+        # THE REAL CATALOGUE (2026-07-26, the hour the account was funded): four professional
+        # Egyptian voices verified against GET /v1/voices. The old per-region map guessed ids
+        # that were never in this account, which is part of why the paid path kept degrading.
+        _prev = _elevenlabs_voice_for(profile)
+        if _prev:
+            default_voice = _prev            # an explicit override/env id still wins
+        else:
+            from reel.voices import pick_voice
+            default_voice = pick_voice(dialect=dialect_name, tone=tone)["voice_id"]
     else:
         default_voice = _DEFAULT_VOICE
     voice = voice or os.environ.get("REEL_TTS_VOICE") or default_voice
@@ -712,14 +742,6 @@ def synth_voiceover(
     parts = _vocalize_for_tts(parts, dialect=_dial)
     script = _join_script(parts)
     total = sum(max(0.5, float(d)) for d in durations) or 10.0
-    # Dialect follows the brand's evidenced region (poster.locale) — not a hardcoded Egyptian read.
-    dialect_name = ""
-    if profile is not None:
-        try:
-            from poster.locale import arabic_dialect_for
-            dialect_name = arabic_dialect_for(profile)
-        except Exception:  # noqa: BLE001
-            dialect_name = ""
     instructions = _instructions_for(lines, list(deliveries or []), tone, dialect=dialect_name)
 
     out_path = Path(out_path)
@@ -736,7 +758,8 @@ def synth_voiceover(
         elif chosen == "edge":
             ok = _edge_read(parts, list(deliveries or []), raw, voice=voice, tone=tone)
         elif chosen == "elevenlabs":
-            ok = _elevenlabs_segment(script, raw, voice=voice, model=model, api_key=el_key)
+            ok = _elevenlabs_segment(script, raw, voice=voice, model=model, api_key=el_key,
+                                     delivery=(deliveries[0] if deliveries else ""))
         elif chosen == "verbatik":
             ok = _verbatik_segment(script, raw,
                                    delivery=(deliveries[0] if deliveries else ""))
