@@ -1477,14 +1477,12 @@
   <button class="rail-btn" id="rail-logo-btn" onclick="window.location.href='/'" title="AdArchitect - Home" style="margin-bottom:8px;">
     <img src="/assets/logo.png?v=3" alt="AdArchitect" style="width:44px;height:auto;object-fit:contain;" />
   </button>
+  <!-- RAIL ORDER = THE WORK ORDER (owner, 2026-07-26): Brands right after Home, the Influencer
+       BEFORE Create — the face is chosen first, then content is generated with it. Assets removed
+       on her ruling («شيل الassets ملوش لازم حاليا»); loadHistory shipped ~40 MB of inline base64
+       in one response, so nothing of value is lost while it is out. -->
   <button class="rail-btn" id="rail-home-btn" onclick="showPage('home')" title="Home">
     <i class="ph ph-house"></i><span>Home</span>
-  </button>
-  <button class="rail-btn" id="rail-create-btn" onclick="openStudioCreate()" title="Create">
-    <i class="ph ph-sparkle"></i><span>Create</span>
-  </button>
-  <button class="rail-btn" id="rail-assets-btn" onclick="showPage('history'); loadHistory()" title="Assets">
-    <i class="ph ph-images"></i><span>Assets</span>
   </button>
   <button class="rail-btn" id="rail-brands-btn" onclick="pickBrand()" title="Brands">
     <i class="ph ph-buildings"></i><span>Brands</span>
@@ -1494,6 +1492,9 @@
   </button>
   <button class="rail-btn" id="rail-influencer-btn" onclick="openStudioInfluencer()" title="AI Influencer">
     <i class="ph ph-user-circle"></i><span>Influencer</span>
+  </button>
+  <button class="rail-btn" id="rail-create-btn" onclick="openStudioCreate()" title="Create">
+    <i class="ph ph-sparkle"></i><span>Create</span>
   </button>
   <button class="rail-btn" id="rail-logout-btn" onclick="logout()" title="Log out" style="margin-top:auto;">
     <i class="ph ph-sign-out"></i><span>Logout</span>
@@ -2031,6 +2032,14 @@
            SWOT bookkeeping — quadrant counts and benchmark quality — because the fetched trends
            were never serialized. They lead now; the analysis-quality chips stay, below, under a
            name that says what they are. -->
+      <!-- Trend is a STAGE OF ITS OWN (owner's ruling): fetched standalone, no SWOT needed,
+           and the SWOT then builds on it instead of re-buying it. -->
+      <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+        <button class="btn-secondary" id="trend-refresh-btn" onclick="refreshTrends()"
+                style="font-size:0.8rem; padding:7px 14px;">
+          <i class="ph ph-arrows-clockwise"></i> Fetch market signals
+        </button>
+      </div>
       <div class="info-section" id="trend-signals-section" style="display:none;">
         <div class="info-label">Market signals · what is being written about your terms</div>
         <div id="trend-signals"></div>
@@ -2179,6 +2188,32 @@
         <button class="strat-generate-btn" id="mp-generate-btn" onclick="generateMarketingPlan()">
           <i class="ph ph-sparkle"></i> <span id="mp-generate-label">Generate Marketing Plan + Calendar</span>
         </button>
+      </div>
+      <!-- HER OWN NUMBERS. The plan has always accepted margin/capacity/budget and always printed
+           "Still needed from you" when they were absent — and there was nowhere to type them.
+           Saving recomputes the plan's governing numbers on the spot (deterministic, no spend). -->
+      <div id="owner-inputs-card" style="background:var(--surface2); border:1px solid var(--border);
+           border-radius:var(--radius-sm); padding:14px 16px; margin-bottom:14px;">
+        <div style="font-size:0.7rem; letter-spacing:.08em; text-transform:uppercase;
+             color:var(--text3); font-weight:700; margin-bottom:8px;">
+          Your real numbers — the plan is computed from these (defaults are used until you answer)
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+          <label style="font-size:0.75rem; color:var(--text3);">Monthly budget
+            <input type="number" class="input" id="owner-budget" min="1" placeholder="e.g. 15000"
+                   style="width:130px; display:block; margin-top:4px;" />
+          </label>
+          <label style="font-size:0.75rem; color:var(--text3);">Capacity (clients/day)
+            <input type="number" class="input" id="owner-capacity" min="1" max="100000"
+                   placeholder="e.g. 25" style="width:130px; display:block; margin-top:4px;" />
+          </label>
+          <label style="font-size:0.75rem; color:var(--text3);">Profit margin %
+            <input type="number" class="input" id="owner-margin" min="1" max="95"
+                   placeholder="1–95" style="width:110px; display:block; margin-top:4px;" />
+          </label>
+          <button class="btn-secondary" id="owner-inputs-save" onclick="saveOwnerInputs()"
+                  style="font-size:0.8rem; padding:8px 14px;">Save</button>
+        </div>
       </div>
       <!-- THE MEDIA PLAN v2 — test cells, spend ceiling, kill-switch, guardrails.
            2,561 bytes of this already reached the browser on every load and NOTHING read it:
@@ -2366,6 +2401,9 @@
           <label style="display:block; margin-top:12px;">Persona (how they should feel to your audience)
             <input type="text" class="input" id="inf-persona" placeholder="e.g. energetic gym coach, calm wellness expert, playful gamer..." />
           </label>
+          <label style="display:block; margin-top:12px;">Your note (reaches the image prompt as written)
+            <input type="text" class="input" id="inf-note" placeholder="e.g. she should look like a pharmacist, white coat, warm and trustworthy" />
+          </label>
           <button class="strat-generate-btn" id="inf-create-btn" onclick="generateInfluencerPortrait()" style="margin-top:14px;">
             <i class="ph ph-sparkle"></i> <span id="inf-create-label">Generate Influencer Portrait</span>
           </button>
@@ -2521,6 +2559,7 @@ function openStudioInfluencer() {
   if (!state.studioBrand) { focusUrlInput(); return; }
   showPage('studio');
   showStudioInfluencer();
+  prefillInfluencerDefaults();
 }
 
 function toast(msg, type = '') {
@@ -3655,6 +3694,7 @@ function renderMediaPlanV2(b) {
 
 function renderStrategyDashboard(b) {
   renderMediaPlanV2(b);
+  fillOwnerInputs(b);
   const swot     = b.swot || {};
   const strategy = b.marketing_strategy || {};
   // site_readiness belongs in this gate. Site mechanics are MOVED there rather than deleted, so a
@@ -3698,7 +3738,7 @@ function renderStrategyDashboard(b) {
   // The real trends, each with the source that makes it checkable. A trend line asserts only
   // that coverage on the brand's terms EXISTS — nothing upstream measures direction — so the
   // wording here says "written about", never "rising".
-  const signals = swot.trends || [];
+  const signals = (b.trends && b.trends.length ? b.trends : (swot.trends || []));
   const sigSection = document.getElementById('trend-signals-section');
   const sigEmpty = document.getElementById('trend-signals-empty');
   if (sigSection) {
@@ -4157,7 +4197,42 @@ function influencerFormPayload() {
     glasses: document.getElementById('inf-glasses').value,
     expression: document.getElementById('inf-expression').value,
     persona: document.getElementById('inf-persona').value,
+    note: (document.getElementById('inf-note') || {value:''}).value,
   };
+}
+
+// Trend as its own stage: fetch market signals for the current brand, no SWOT involved.
+async function refreshTrends() {
+  const b = state.studioBrand || state.currentBrand;
+  if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
+  const btn = document.getElementById('trend-refresh-btn');
+  const prior = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = 'Fetching…';
+  try {
+    const r = await api('POST', '/api/brands/' + encodeURIComponent(b.domain_key) + '/trends');
+    toast(r.count ? (r.count + ' market signals found') : (r.note || 'No signals found'),
+          r.count ? 'success' : '');
+    const fresh = await api('GET', '/api/brands/' + b.domain_key);
+    state.studioBrand = fresh; state.currentBrand = fresh;
+    renderStrategyDashboard(fresh);
+  } catch (e) {
+    toast('Trend fetch failed: ' + (e.message || e), 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = prior;
+  }
+}
+
+// The business-derived starting point for the influencer, editable. The backend always HAD this
+// sentence (persona_from_brand) but only as a silent fallback the user never saw.
+async function prefillInfluencerDefaults() {
+  const b = state.studioBrand || state.currentBrand;
+  const box = document.getElementById('inf-persona');
+  if (!b || !b.domain_key || !box || box.value.trim()) return;   // never overwrite her edits
+  try {
+    const d = await api('GET', '/api/influencer/defaults?domain_key=' +
+                        encodeURIComponent(b.domain_key));
+    if (d.persona && !box.value.trim()) box.value = d.persona;
+  } catch (e) { /* defaults are a convenience, never a blocker */ }
 }
 
 async function generateInfluencerPortrait(forceSeed) {
@@ -4329,6 +4404,46 @@ async function generateInfluencerPoster() {
     label.textContent = priorLabel;
     toast('Failed to start: ' + e.message, 'error');
   }
+}
+
+// Save the owner's real numbers, then re-render the plan panel from the recomputed governing
+// figures — capacity_source flips to "human", the ceiling is recomputed, and the "Still needed
+// from you" list shrinks. Values out of range come back in `rejected`, named, never clamped.
+async function saveOwnerInputs() {
+  const b = state.studioBrand || state.currentBrand;
+  if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
+  const btn = document.getElementById('owner-inputs-save');
+  const val = id => { const v = document.getElementById(id).value; return v === '' ? null : Number(v); };
+  btn.disabled = true;
+  try {
+    const r = await api('POST', '/api/brands/' + encodeURIComponent(b.domain_key) + '/owner-inputs', {
+      monthly_budget: val('owner-budget'),
+      capacity_per_day: val('owner-capacity'),
+      profit_margin_pct: val('owner-margin'),
+    });
+    if ((r.rejected || []).length) {
+      toast('Not saved (out of range): ' + r.rejected.join(', '), 'error');
+    } else {
+      toast(r.plan_recomputed ? 'Saved — the plan now runs on your numbers' : 'Saved', 'success');
+    }
+    const fresh = await api('GET', '/api/brands/' + b.domain_key);
+    state.studioBrand = fresh; state.currentBrand = fresh;
+    renderMediaPlanV2(fresh);
+  } catch (e) {
+    toast('Could not save: ' + (e.message || e), 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Fill the number boxes from what she saved before — an empty box means "not answered yet",
+// which is exactly what the plan assumes.
+function fillOwnerInputs(b) {
+  const oi = (b && b.owner_inputs) || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v == null ? '' : v; };
+  set('owner-budget', oi.monthly_budget);
+  set('owner-capacity', oi.capacity_per_day);
+  set('owner-margin', oi.profit_margin_pct);
 }
 
 // Adopt the analysis a CLI run already produced for this brand. Reads a file — no model calls,

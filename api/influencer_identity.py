@@ -50,9 +50,15 @@ def persona_from_owner(cfg: dict) -> str:
         bits.append("wearing glasses")
     named = _clean(cfg.get("persona"))
     described = ", ".join(bits)
-    if named and described:
-        return f"{named} — {described}"
-    return named or described
+    out = (f"{named} — {described}" if named and described else (named or described))
+    # HER NOTE INFLUENCES THE RENDER (owner, 2026-07-26: «يكتب ملحوظه تأثر»). Appended to the
+    # persona sentence, which is the exact text `_render_portrait` puts in the image prompt — so
+    # a note that nothing consumed would be the same lie as the sfx cues were.
+    note = _clean(cfg.get("note"))
+    if note:
+        out = f"{out}. Note from the brand owner: {note}" if out \
+            else f"Note from the brand owner: {note}"
+    return out
 
 
 def _fv(profile: Any, key: str) -> str:

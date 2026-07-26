@@ -46,6 +46,9 @@ class CreateRequest(BaseModel):
     glasses: str = ""
     expression: str = ""
     persona: str = ""
+    # Free-text note from the owner that MUST reach the image prompt («يكتب ملحوظه تأثر») —
+    # persona_from_owner appends it to the persona sentence the renderer consumes.
+    note: str = ""
     seed: Optional[int] = None
 
 
@@ -89,6 +92,39 @@ def _candidate_job(request: Request, req: "CreateRequest", user: dict, *, reset:
     return start_brand_job(request, req.domain_key,
                            lambda b: influencer.generate_candidate(b, cfg),
                            owner_id=user["id"])
+
+
+@router.get("/influencer/defaults")
+def defaults(domain_key: str, user: dict = Depends(require_user)) -> dict:
+    """The business-derived starting point («شغل الانفلونسر بناء ع البيزنس حط قيم افتراضيه»).
+
+    `persona_from_brand` already built this sentence from measured evidence — country, audience,
+    tone, market category — but only as a silent fallback when the form was empty. The user never
+    SAW it, so she could not edit it. Returned here so the form starts from the business and every
+    word stays editable. Nothing unevidenced is guessed: a brand with no known country yields a
+    persona with no stated nationality, and the knobs (gender/age/hair) stay unset rather than
+    invented.
+    """
+    brand = _brand_or_404(domain_key, user["id"])
+    profile = brand.get("_profile") or {}
+    from ..influencer_identity import persona_from_brand
+    persona = ""
+    try:
+        persona = persona_from_brand(profile)
+    except Exception:  # noqa: BLE001 — a defaults failure must not block the form
+        persona = ""
+    return {
+        "persona": persona,
+        "based_on": {
+            "audience": str((profile.get("audience_type") or {}).get("value")
+                            if isinstance(profile.get("audience_type"), dict)
+                            else profile.get("audience_type") or ""),
+            "tone": str((profile.get("tone_of_voice") or {}).get("value")
+                        if isinstance(profile.get("tone_of_voice"), dict)
+                        else profile.get("tone_of_voice") or ""),
+            "category": str(brand.get("website_type") or ""),
+        },
+    }
 
 
 @router.post("/influencer/create")

@@ -17,8 +17,12 @@ Brands stored before ownership existed have no recorded owner. They stay readabl
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from .. import brand_store as bs
 from ..brand_store import BrandStore, read_history
@@ -105,6 +109,99 @@ def adopt_analysis(domain_key: str, user: dict = Depends(require_user)) -> dict:
             "trends": len(((patch.get("swot") or {}).get("trends")) or []),
             "competitors": len(patch.get("competitors") or []),
             "keys": sorted(result.keys())}
+
+
+class OwnerInputs(BaseModel):
+    profit_margin_pct: float | None = None
+    capacity_per_day: int | None = None
+    monthly_budget: float | None = None
+
+
+@router.get("/brands/{domain_key}/owner-inputs")
+def get_owner_inputs(domain_key: str, user: dict = Depends(require_user)) -> dict:
+    brand = BrandStore().get(domain_key, for_user=user["id"])
+    if brand is None:
+        raise HTTPException(status_code=404, detail="Brand not found.")
+    return {"owner_inputs": brand.get("owner_inputs") or {}}
+
+
+@router.post("/brands/{domain_key}/owner-inputs")
+def set_owner_inputs(domain_key: str, req: OwnerInputs,
+                     user: dict = Depends(require_user)) -> dict:
+    """Her real numbers — margin, daily capacity, monthly budget — typed once and kept per brand.
+
+    `media_plan_v2` has always accepted these and always announced their absence ("Still needed
+    from you"), and there was nowhere in the app to answer. She asked directly: "لو انا محدد
+    ميزانيه اكتبها فين؟ انا قاعده ف الديفولت مقدرش اغير فيه."
+
+    Values out of range are DROPPED, never clamped: a 500% margin quietly saved as 95% would put a
+    number on her plan that she never typed. Dropping keeps the honest "this is a category default"
+    label the panel already knows how to show.
+    """
+    store = BrandStore()
+    if store.get(domain_key, for_user=user["id"]) is None:
+        raise HTTPException(status_code=404, detail="Brand not found.")
+
+    from ..webapp_analysis import sanitize_owner_inputs
+    clean = sanitize_owner_inputs(req.model_dump())
+    store.replace_block(domain_key, "owner_inputs", clean, for_user=user["id"])
+
+    # HER NUMBER MUST CHANGE THE PLAN, or the box is decoration. `build_media_plan_v2` is
+    # deterministic and free (no caller, no spend), so the governing numbers — capacity_source
+    # flipping to "human", the recomputed spend ceiling, the shrinking open_inputs list — are
+    # recomputed on the spot from the same stored inputs the original plan was built from.
+    recomputed = False
+    brand = store.get(domain_key, for_user=user["id"]) or {}
+    fr = brand.get("_full_result") or {}
+    profile = brand.get("_profile") or fr.get("profile") or {}
+    if profile and fr.get("media_plan_v2"):
+        try:
+            from media_plan_v2 import build_media_plan_v2
+            v2 = build_media_plan_v2(
+                profile,
+                media_plan=fr.get("media_plan"),
+                marketing_intel=fr.get("marketing_intel"),
+                ad_presence=fr.get("ad_presence"),
+                competitor_intel=fr.get("competitor_intel"),
+                maturity=fr.get("brand_maturity"),
+                capacity=clean.get("capacity_per_day"),
+                monthly_budget=clean.get("monthly_budget"),
+                margin=(clean["profit_margin_pct"] / 100.0
+                        if "profit_margin_pct" in clean else None),
+            )
+            fr = dict(fr)
+            fr["media_plan_v2"] = v2.model_dump(mode="json")
+            store.update(domain_key, {"_full_result": fr}, for_user=user["id"])
+            recomputed = True
+        except Exception:  # noqa: BLE001 — saving her numbers must never fail on the recompute
+            logger.exception("media_plan_v2 recompute failed")
+
+    submitted = {k for k, v in req.model_dump().items() if v is not None}
+    return {"owner_inputs": clean,
+            "rejected": sorted(submitted - set(clean)),
+            "plan_recomputed": recomputed,
+            "note": ("out-of-range values were not saved" if submitted - set(clean) else "")}
+
+
+@router.post("/brands/{domain_key}/trends")
+def refresh_trends(domain_key: str, user: dict = Depends(require_user)) -> dict:
+    """Market signals as a STAGE OF THEIR OWN — no SWOT required, and none re-bought by one.
+
+    Owner's ruling: «الترند ... دا في تاب لوحدها · وبعدين السوات بناءً عليها». Until now trends were
+    an attribute hung on the SWOT after synthesis, so a brand with no SWOT had no signals at all
+    (measured: pepsi_com) and every SWOT regeneration paid for the same results again.
+    """
+    store = BrandStore()
+    brand = store.get(domain_key, for_user=user["id"])
+    if brand is None:
+        raise HTTPException(status_code=404, detail="Brand not found.")
+
+    from ..webapp_analysis import fetch_trends_for_brand, trends_patch
+    rows = fetch_trends_for_brand(brand)
+    store.update(domain_key, trends_patch(rows), for_user=user["id"])
+    return {"trends": rows, "count": len(rows),
+            "note": ("no on-topic market coverage was found for this brand's terms"
+                     if not rows else "")}
 
 
 @router.delete("/brands/{domain_key}")

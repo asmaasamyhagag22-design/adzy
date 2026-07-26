@@ -34,11 +34,117 @@ def _profile_of(brand: dict) -> dict:
 
 
 # =====================================================================
+# TREND — a stage of its own (owner's ruling, 2026-07-26)
+#
+# «يبقا الترند ميظهرش معاه سوات، دا في تاب لوحدها · وبعدين السوات بناءً عليها»
+#
+# Trends used to exist ONLY as an attribute hung on the SWOT object after synthesis, which meant a
+# brand with no SWOT had no market signals at all (measured: pepsi_com, 0 trends, nothing had ever
+# fetched them) and every SWOT regeneration re-bought the same Serper results. They are their own
+# evidence now, fetched once and read by whoever needs them.
+#
+# `swot.trends` is still written, as a MIRROR: six brands are stored today with the trends only in
+# that place, and a reader that forgot them would blank a tab that works.
+# =====================================================================
+
+def trend_rows(trends) -> list:
+    """Raw trend objects -> the serializable rows the UI reads (title, url, matched terms)."""
+    rows = []
+    for t in (trends or []):
+        title = str(getattr(t, "title", "") or (t.get("title") if isinstance(t, dict) else "")).strip()
+        if not title:
+            continue
+        url = str(getattr(t, "url", "") or (t.get("url") if isinstance(t, dict) else "")).strip()
+        terms = getattr(t, "matched_terms", None)
+        if terms is None and isinstance(t, dict):
+            terms = t.get("matched_terms")
+        rows.append({"title": title, "url": url,
+                     "matched_terms": [str(x) for x in (terms or ()) if x]})
+    return rows
+
+
+def trends_patch(rows: list) -> dict:
+    """The patch that records a trend fetch on the brand.
+
+    `has_trends` is True even for an EMPTY result, and that is the point: "we looked and this
+    market has no on-topic coverage" and "nobody has looked" are different facts, and a Trend tab
+    that cannot tell them apart shows an empty page with no explanation for either.
+    """
+    return {"trends": list(rows or []), "has_trends": True}
+
+
+def trends_of(brand: dict) -> list:
+    """The brand's market signals — its own key first, the SWOT mirror second.
+
+    The fallback is not politeness: every brand stored before 2026-07-26 has them only under
+    `swot.trends`, and dropping that path would empty a tab that works today.
+    """
+    if not isinstance(brand, dict):
+        return []
+    own = brand.get("trends")
+    if isinstance(own, list) and own:
+        return own
+    mirrored = (brand.get("swot") or {}).get("trends")
+    return list(mirrored or []) if isinstance(mirrored, list) else []
+
+
+def fetch_trends_for_brand(brand: dict) -> list:
+    """Fetch this brand's market signals, standalone — no SWOT required."""
+    return trend_rows(_trends_for(_profile_of(brand)))
+
+
+# =====================================================================
+# THE OWNER'S OWN NUMBERS
+#
+# `media_plan_v2.engine` has always accepted `capacity`, `monthly_budget` and `margin`, and always
+# announced their absence in `open_inputs` — the plan panel literally prints "Still needed from
+# you: طاقة الاستيعاب الفعلية / الميزانية الشهرية". There was nowhere to type them. The war-room
+# had `dashboard/owner_inputs.py` for exactly this, quoting her 2026-07-20 ask «حط مكان يحطها فيه»,
+# and it was deleted with that dashboard on 2026-07-26. Her question — "لو انا محدد ميزانيه اكتبها
+# فين؟ انا قاعده ف الديفولت مقدرش اغير فيه" — is that gap, seen from the other side.
+# =====================================================================
+
+def sanitize_owner_inputs(data: dict) -> dict:
+    """Keep what is usable, DROP what is not — never clamp.
+
+    A 500% margin clamped to 95% would put a number on her screen that she never typed and that
+    answers a different question. Out of range means "not answered", which the plan already knows
+    how to say.
+    """
+    out: dict = {}
+    src = data if isinstance(data, dict) else {}
+    try:
+        v = float(src.get("profit_margin_pct"))
+        if 1 <= v <= 95:
+            out["profit_margin_pct"] = round(v, 1)
+    except (TypeError, ValueError):
+        pass
+    try:
+        v = int(float(src.get("capacity_per_day")))
+        if 1 <= v <= 100000:
+            out["capacity_per_day"] = v
+    except (TypeError, ValueError):
+        pass
+    try:
+        v = float(src.get("monthly_budget"))
+        if v > 0:
+            out["monthly_budget"] = round(v, 2)
+    except (TypeError, ValueError):
+        pass
+    return out
+
+
+# =====================================================================
 # SWOT
 # =====================================================================
 
-def _compute_swot(profile: dict):
-    """The api/routes/swot.py recipe, in-process. Degrades to standalone with no Places/web keys."""
+def _compute_swot(profile: dict, trends: Optional[list] = None):
+    """The api/routes/swot.py recipe, in-process. Degrades to standalone with no Places/web keys.
+
+    `trends` lets the caller hand in market signals that were ALREADY fetched (the standalone Trend
+    stage). None means fetch them here, which is what every pre-2026-07-26 caller did — and what
+    made every SWOT regeneration spend a fresh paid Serper call for data that had not changed.
+    """
     from competitor import (
         ReviewThemeExtractor, PlacesClient, build_matrix,
         find_subject_places, route_discovery, synthesize_swot,
@@ -132,11 +238,12 @@ def _compute_swot(profile: dict):
     except Exception:  # noqa: BLE001 — ads-intel must never break a run
         ad_pres = []
 
-    try:
-        trends = _trends_for(profile)
-    except Exception:  # noqa: BLE001 — a trend source must never break a grounded SWOT
-        logger.exception("trend fetch failed; continuing without trends")
-        trends = []
+    if trends is None:
+        try:
+            trends = _trends_for(profile)
+        except Exception:  # noqa: BLE001 — a trend source must never break a grounded SWOT
+            logger.exception("trend fetch failed; continuing without trends")
+            trends = []
     # THE TREND TAB'S ACTUAL CONTENT. These are fetched, paid for and fed into the SWOT as
     # Opportunities/Threats — and the LIST was dropped here, so the one tab named after them
     # rendered SWOT bookkeeping instead ("quadrant counts", "benchmark quality"). Attached to the
@@ -349,8 +456,20 @@ def _swot_to_frontend(swot) -> dict:
 
 
 def generate_swot(brand: dict) -> dict:
-    """Returns the patch to apply to the stored brand: swot + _swot_raw + has_swot."""
-    swot, _peers = _compute_swot(_profile_of(brand))
+    """Returns the patch to apply to the stored brand: swot + _swot_raw + has_swot.
+
+    THE SWOT BUILDS ON THE TREND STAGE (owner's ruling: «السوات بناءً عليها»). When the brand
+    already carries fetched signals, they are handed in instead of re-bought — a SWOT regeneration
+    used to spend a fresh Serper call for data that had not changed. A brand with no trend stage
+    yet keeps the old behaviour (the SWOT fetches for itself), so nothing is ever blocked on a
+    stage the user has not run.
+    """
+    from types import SimpleNamespace
+    existing = trends_of(brand)
+    handed = [SimpleNamespace(title=r.get("title", ""), url=r.get("url", ""),
+                              matched_terms=tuple(r.get("matched_terms") or ()))
+              for r in existing if isinstance(r, dict)] or None
+    swot, _peers = _compute_swot(_profile_of(brand), trends=handed)
     return {
         "swot": _swot_to_frontend(swot),
         "_swot_raw": _swot_raw_dict(swot),   # asdict alone erased the trends it had just computed
