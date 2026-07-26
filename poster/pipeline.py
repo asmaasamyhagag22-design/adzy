@@ -237,6 +237,41 @@ def _product_scene_guard(product_name: str, *, composited: bool = False) -> str:
     return block
 
 
+
+
+def _copy_zones(spec) -> list:
+    """Where the copy actually sits, as (x, y, w, h) fractions — the regions the contrast gate
+    measures. Free-form specs carry their own box; the fixed archetypes have known bands."""
+    try:
+        box = list(getattr(spec, "text_box", None) or [])
+        if len(box) >= 3:
+            x, y, w = float(box[0]), float(box[1]), float(box[2])
+            return [(max(0.0, x), max(0.0, min(y, 0.78)), min(w, 1.0 - x), 0.22)]
+        layout = str(getattr(spec, "layout", "") or "")
+        if layout == "top_anchor":
+            return [(0.06, 0.06, 0.88, 0.24)]
+        if layout in ("side_panel_left",):
+            return [(0.04, 0.45, 0.52, 0.34)]
+        if layout in ("side_panel_right",):
+            return [(0.44, 0.45, 0.52, 0.34)]
+        if layout == "center_editorial":
+            return [(0.08, 0.38, 0.84, 0.28)]
+    except Exception:  # noqa: BLE001
+        pass
+    return [(0.06, 0.62, 0.88, 0.30)]           # the default bottom band
+
+
+def _cast_variation_rule() -> str:
+    """Two people in a frame must be two DIFFERENT people.
+
+    REVIEWER (2026-07-26): «البنتين شكلهم شبه بعض جداً… المخ بيقراها كأنها نفس الشخص مرتين».
+    With no explicit instruction the model samples both faces from the same neighbourhood of its
+    latent space, and the result reads as an accidental twin rather than a cast."""
+    return ("\n\nCASTING: if more than one person appears, they must be VISIBLY DIFFERENT "
+            "people — different age, different hair (colour, length and texture), different "
+            "build and different clothing. Never two near-identical faces in one frame.")
+
+
 def _generate_nano_background(
     profile: dict, brand_dna: Any, prompt: str, *,
     out_dir: str = "outputs/posters", log=_safe_log,
@@ -289,6 +324,7 @@ def _generate_nano_background(
         "Render NO text, letters, words, numbers, logos, captions or UI of any kind. Keep calm "
         "negative space where copy will be overlaid later. Photographic, premium, on-brand.")
     bg_prompt += _product_scene_guard(product_name, composited=composite_product_after)
+    bg_prompt += _cast_variation_rule()
     if picked:
         # «دي مفيهاش لعب» — the attachment is THE product, not a mood reference. Without saying so
         # the model treats a reference as inspiration and redraws the item, which is how a real
@@ -1227,7 +1263,12 @@ def generate_poster(
     if concept.subheadline:
         updates["subheadline"] = concept.subheadline
     if concept.cta:
-        updates["cta_text"] = concept.cta
+        # A BUTTON IS A LABEL, NOT A SENTENCE (reviewer 2026-07-26): no terminal full stop, no
+        # brand name that the composited logo and the subheadline already say, and short enough
+        # to read as a control. Deterministic — a convention belongs in code, not in a prompt.
+        from poster.copy_rules import tidy_cta
+        updates["cta_text"] = tidy_cta(concept.cta,
+                                       brand_name=(brief.business_name or "")) or concept.cta
     if concept.proof_points:
         updates["offerings"] = concept.proof_points[:3]
     if updates:
@@ -1386,8 +1427,28 @@ def generate_poster(
         filename = f"poster_{uuid.uuid4().hex[:8]}.png"
         poster_path = str(render_html_to_png(render_poster_html(brief, bg_path, spec=spec), out / filename))
         _refresh_canonical(poster_path)   # البند 1
+        # A CONTRAST RATIO, MEASURED (reviewer 2026-07-26: «أقل من 4.5:1 = reject»). Every
+        # legibility fix before this was an argument about gradient stops; this is the number
+        # the standard is written in, computed on the pixels that actually shipped.
+        _contrast = None
+        try:
+            from poster.contrast_gate import check_copy_contrast
+            _contrast = check_copy_contrast(
+                poster_path, zones=_copy_zones(spec), ink="#ffffff")
+            if _contrast.checked:
+                log(f"[contrast] worst {_contrast.worst_ratio}:1 "
+                    f"({'pass' if _contrast.passed else 'FAIL'})")
+        except Exception:  # noqa: BLE001 — a measurement failure must not kill a render
+            _contrast = None
+
         verdict = poster_vision_qa(poster_path, caller=qa_caller, brand_dna=brand_dna, arabic=arabic)
         verdict = _excuse_expected_brand(verdict, product_name or "")
+        if _contrast is not None and _contrast.passed is False and verdict.overall_pass:
+            # The art critic reads a poster the way a person does and still misses this: it
+            # judged "readable" on copy measured at 1.7:1. A number outranks an impression.
+            verdict = verdict.model_copy(update={
+                "overall_pass": False,
+                "reason": (verdict.reason + " | " if verdict.reason else "") + _contrast.reason})
         log(f"[qa] attempt={attempt} pass={verdict.overall_pass} checked={verdict.checked} "
             f"latin={verdict.has_latin_text} clip={verdict.cta_clipped} "
             f"color={verdict.on_brand_color} candid={verdict.candid_violation} :: {verdict.reason}")

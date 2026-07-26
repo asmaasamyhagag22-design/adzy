@@ -709,6 +709,37 @@ def _clampf(v: float, lo: float, hi: float) -> float:
 _SAFE_MARGIN = 42        # px every element must stay inside the frame by
 
 
+
+def avoid_product_zone(text_box, product_zone, *, cluster_h: float = 0.22):
+    """Move a free-form text cluster OFF the composited product.
+
+    REVIEWER (2026-07-26): «النص غطّى المنتج… تغطية المنتج بالتايبوجرافي خطيئة أساسية» — the
+    headline sat across the bottle and covered its SPF claim. The product now lands at a KNOWN
+    zone (`poster.product_composite.DEFAULT_ZONE`), so the copy no longer has to guess: if the
+    cluster overlaps that rectangle, it is pushed to whichever side has more room, and only
+    narrowed if it has to be. Boxes already clear of the product are returned untouched — the
+    LLM's composition still decides everything this rule does not have to."""
+    box = list(text_box or [])
+    if len(box) < 3 or not product_zone:
+        return box
+    x, y, w = float(box[0]), float(box[1]), float(box[2])
+    px, py, ph = (list(product_zone) + [0.5, 0.3, 0.4])[:3]
+    pw = 0.40                                   # the composite caps the product at ~40% width
+    overlaps_x = (x < px + pw) and (x + w > px)
+    overlaps_y = (y < py + ph) and (y + cluster_h > py)
+    if not (overlaps_x and overlaps_y):
+        return box
+    left_room = px
+    right_room = 1.0 - (px + pw)
+    if left_room >= right_room:
+        w = max(0.34, min(w, left_room - 0.03))
+        x = max(0.035, min(x, px - w - 0.02))
+    else:
+        w = max(0.34, min(w, right_room - 0.03))
+        x = min(0.93 - w, px + pw + 0.02)
+    return [round(x, 4), round(y, 4), round(w, 4)]
+
+
 def _freeform_lower_css(text_box, scrim_strength: float, align: str,
                         archetype: Optional[str] = None) -> str:
     """Position the text cluster at a free [x,y,w] (normalized) with a soft, rounded scrim
@@ -885,7 +916,15 @@ def render_poster_html(
     # been given this treatment; the text that carries the message had not.
     _scrim = effective_scrim_strength(spec.scrim_strength, background_path, spec.text_box)
     if spec.text_box:
-        lower_layout_css = _freeform_lower_css(spec.text_box, _scrim, align, arche)
+        # THE COPY NEVER SITS ON THE PRODUCT (reviewer 2026-07-26). The product is composited at
+        # a known zone, so the cluster is pushed off it before anything is laid out.
+        _tb = spec.text_box
+        try:
+            from poster.product_composite import DEFAULT_ZONE
+            _tb = avoid_product_zone(list(spec.text_box), DEFAULT_ZONE)
+        except Exception:  # noqa: BLE001 — a layout nicety must never break a render
+            _tb = spec.text_box
+        lower_layout_css = _freeform_lower_css(_tb, _scrim, align, arche)
         logo_pos_css = _freeform_logo_css(spec.logo_xy)
     else:
         mark_corner = _mirror_corner(spec.logo_corner, rtl)
