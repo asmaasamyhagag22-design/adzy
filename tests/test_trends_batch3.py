@@ -39,14 +39,6 @@ def test_cs44_salience_beats_insertion_order():
     assert q.index("ليزر") < q.index("استشارات")
 
 
-def test_noise_disclosure_reaches_the_market_page(tmp_path):
-    from tests.test_war_room import _build, _result
-    doc = _result()
-    doc["trends"] = [{"title": "Signal", "url": "https://news.example/a"}]
-    h = _build(tmp_path, result=doc)
-    assert "تكرار نفس البحث غيّر نحو ثلثي الروابط" in h      # measured, dated, no bare number
-    h2 = _build(tmp_path)                                    # no trends -> no disclosure needed
-    assert NOISE_DISCLOSURE not in h2
 
 
 def test_serper_meter_caps_and_records(tmp_path, monkeypatch):

@@ -44,8 +44,3 @@ def test_egypt_still_reads_in_pounds():
     assert "جنيه" in (rc.kill_switch.currency or "")
 
 
-def test_the_deck_does_not_relabel_an_unknown_currency_as_egyptian():
-    from dashboard.war_room import _deck_currency
-    assert _deck_currency({"kill_switch": {"currency": "ريال قطري"}}) == "ريال قطري"
-    assert "جنيه" not in _deck_currency({"kill_switch": {"currency": ""}})
-    assert "جنيه" not in _deck_currency({})

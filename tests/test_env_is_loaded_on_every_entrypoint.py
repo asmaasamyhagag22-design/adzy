@@ -56,8 +56,11 @@ def test_every_credential_entry_point_actually_sees_dotenv():
         pytest.skip("no .env in this environment (CI) — nothing to load")
     env = {k: v for k, v in os.environ.items() if k != "META_APP_ID"}
     env["PYTHONPATH"] = str(root)
+    # `dashboard.server` was the fourth entry point until the War Room was deleted (2026-07-26).
+    # The guard is retargeted, not dropped: `api.main` is now THE server the owner runs, so it is
+    # the one where a correct credential in .env must actually take effect.
     for module in ("scripts.pull_meta_ads", "competitor.full_run",
-                   "ads_intel.orchestrator", "dashboard.server"):
+                   "ads_intel.orchestrator", "api.main"):
         code = (f"import importlib, os; importlib.import_module('{module}'); "
                 "print(bool(os.environ.get('META_APP_ID')))")
         r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,

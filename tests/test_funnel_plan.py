@@ -66,17 +66,3 @@ def test_v2_nascent_grows_awareness_cell_summing_to_one():
     assert len(v2b.test_cells) == 3                              # today's shape untouched
 
 
-def test_war_room_shows_the_whole_funnel(tmp_path):
-    from tests.test_war_room import _build, _result
-    doc = _result()
-    doc["media_plan"]["objectives"] = [
-        {"objective": "OUTCOME_AWARENESS", "destination": "website", "funnel_stage": "tofu",
-         "budget_allocation_pct": 30.0},
-        {"objective": "OUTCOME_LEADS", "destination": "lead_form", "funnel_stage": "bofu",
-         "budget_allocation_pct": 70.0}]
-    doc["brand_maturity"] = _NASCENT.model_dump(mode="json")
-    h = _build(tmp_path, result=doc)
-    assert "Funnel:" in h and "30%" in h and "70%" in h          # both stages, both shares
-    assert "نضج البراند: ناشئ" in h                              # the maturity chip
-    h2 = _build(tmp_path)                                        # single-objective plan
-    assert "نضج البراند" not in h2

@@ -2864,6 +2864,32 @@ ecommerce/local/service/hybrid/unknown)؛ `IdentityResponse` + `ValidatedIdentit
 
 **السويت: 2960 ⟶ 2981 خضراء** (21 اختبار، RED-first). صفر صرف.
 
+## 8.14 — 2026-07-26: الور روم اتشالت من الوجود (بروداكت موازي كامل)
+
+**أمر المالكة:** «احنا شغالين ع داش بورد webapp … localhost:8000 / ور روم دا الغيها من الوجود تماما».
+
+### اللي اتقاس قبل المسح
+
+| السؤال | الإجابة المقاسة |
+|---|---|
+| مين بيستورد `dashboard/*` من الكود الإنتاجي؟ | **صفر.** ولا ملف بره الحزمة نفسها — لا `api/` ولا `reel/` ولا `poster/` |
+| حجم الحزمة | 10 موديولات، ~490 KB (`war_room.py` وحدها 113 KB، `build.py` 87 KB، `server.py` 81 KB) |
+| اختبارات مربوطة بيها | **38 ملف كامل** (199 اختبار) + **15 اختبار** متفرقين في 9 ملفات مختلطة |
+| بورت | 8770 (stdlib `http.server`)، مستقل تمامًا عن FastAPI بتاع الويب آب |
+
+يعني كان **بروداكت تاني كامل**: سيرفره وHTML بتاعه وSWOT بتاعه ومنطق منتجاته — بيتبني وبيتصان
+جنب الويب آب من غير ما يشوفه، والمالكة بتفتح الويب آب. **نص الشغل كان بيتعمل مرتين.**
+
+### اللي اتشال واللي اتحافظ عليه
+
+- **اتشال:** `dashboard/` بالكامل + 38 ملف اختبار.
+- **اتحافظ عليه بإعادة توجيه مش بالمسح:** `test_env_is_loaded_on_every_entrypoint` كان بيتأكد إن
+  `dashboard.server` بيقرا `.env`؛ اتحوّل لـ`api.main` — نفس الحارس على السيرفر اللي فعلاً بيشتغل.
+- **اتراجع واتأكد إنه مش خسارة:** `_deck_currency` (حارس D-8 للعملة) كان دالة عرض في الديك نفسه؛
+  الحارس الحقيقي فوق في `media_plan_v2` ولسه موجود (`test_media_plan_v2_reality_check`).
+
+**السويت: 2981 ⟶ 2761 خضراء** (220 اختبار اتشالوا مع الكود اللي كانوا بيختبروه، صفر فشل متبقّي).
+
 ## 9. Where things live (quick map)
 
 | Concern | Files |
@@ -2879,7 +2905,7 @@ ecommerce/local/service/hybrid/unknown)؛ `IdentityResponse` + `ValidatedIdentit
 | تسليم الريل + الأحكام | `reel/{encode_profile,verdicts,audit,final_screening}.py` (مظروف واحد · جهارة مقاسة · حكم واحد حاجب) |
 | صوت الريل | `reel/{voices,sfx,voiceover}.py` (كتالوج ElevenLabs محقَّق + SFX متمتَّر) |
 | Web | `api/routes/*`, `frontend/components/*` |
-| الداشبورد الموحّدة | `dashboard/war_room.py` (10 صفحات لافندر), `dashboard/server.py` (routing + لاندنج بالسلوجن), `dashboard/products.py` |
+| ~~الداشبورد الموحّدة~~ | **اتمسحت 2026-07-26** — شوف قسم 8.14. الواجهة الوحيدة = `api/main.py` + `frontend/{landing,index}.html` |
 | ذكاء الإعلانات | `ads_intel/{facts,config,relevance,live,pull_ledger,orchestrator,consumer}.py`, `ads_intel/providers/meta_ad_library.py` |
 | الذكاء التسويقي | `marketing_intel/{extractor,from_ads,schemas}.py` (الموات الحرفي) |
 | الخطة الاستراتيجية v2 | `media_plan_v2/{engine,reality_check,schemas}.py` (خلايا/خزنة/هجوم مضاد) |

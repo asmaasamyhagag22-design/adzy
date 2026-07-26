@@ -38,12 +38,3 @@ def test_consumer_aggregates_present_snapshots_and_degrades_honestly(tmp_path):
     assert ad_presence_for_refs([], snapshots_dir=str(tmp_path)) == []
 
 
-def test_dashboard_meta_gap_is_conditional_on_ad_presence():
-    from dashboard.build import _honesty_surface
-    comp_no_ads = {"competitor_count": 2}
-    html_blocked = _honesty_surface(comp_no_ads, {}, {}, 0)
-    assert "Meta ad-account identity" in html_blocked          # no snapshot -> the gap shows
-
-    comp_with_ads = {"competitor_count": 2, "ads_available": True}
-    html_ok = _honesty_surface(comp_with_ads, {}, {}, 0)
-    assert "Meta ad-account identity" not in html_ok           # snapshot present -> gap gone

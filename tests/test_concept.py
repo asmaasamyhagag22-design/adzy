@@ -128,35 +128,6 @@ def test_english_brand_keeps_english():
     assert c.language == "en" and c.headline == "Built for builders"
 
 
-def test_popup_manifest_raw_facts_reach_the_concept_prompt(monkeypatch):
-    # Owner law (raw-data-first, 2026-07-12): popup-scraped course text lives in the manifest;
-    # generation must read it VERBATIM. Fixture = the real coursesev.php?catID=205 popup family
-    # (the modal-resolved modules/2631.html page + the single-word 'fiber' noise page that,
-    # measured pre-fix, ate the whole raw-facts budget). Pins the full wiring so no refactor
-    # silently re-orphans the manifest: manifest -> _product_raw_facts -> concept prompt.
-    from pathlib import Path
-    import dashboard.products as dp
-    from dashboard.run import _product_raw_facts
-
-    fx = Path(__file__).resolve().parent / "fixtures" / "nti_popup_manifest.json"
-    monkeypatch.setattr(dp, "_latest_manifest", lambda slug, scrapes_dir="scrapes": fx)
-    rf = _product_raw_facts("nti_sci_eg", "Fiber Networks Essentials")
-    assert "Fiber Networks Essentials (72 Hours)" in rf                 # verbatim popup hours
-    assert "Optical Fiber Network Planning course is designed" in rf   # verbatim description
-    assert "Smart Village campus" not in rf   # 'fiber'-only noise no longer crowds the product out
-
-    captured: dict = {}
-
-    class _Rec:
-        def __call__(self, system, user, response_model, group_name="", images=None):
-            captured["user"] = user
-            return _resp(), None
-
-    build_creative_concept(_AR, caller=_Rec(), raw_facts=rf)
-    u = captured["user"]
-    assert "REAL PRODUCT-PAGE FACTS" in u                        # the raw-facts block is injected
-    assert "Fiber Networks Essentials (72 Hours)" in u           # ...carrying the popup verbatim
-    assert "Optical Fiber Network Planning course is designed" in u
 
 
 def test_concept_prompt_carries_brand_coherence_rule():

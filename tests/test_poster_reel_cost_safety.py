@@ -30,38 +30,8 @@ def test_canonical_sink_refreshes_after_each_render(tmp_path, monkeypatch):
     assert canonical.read_bytes().endswith(b"ATTEMPT2")
 
 
-def test_run_generate_poster_adopts_fresh_orphan_on_timeout(tmp_path, monkeypatch):
-    # exit-code blindness: subprocess "fails" (timeout) but a fresh render exists -> adopt it.
-    import dashboard.run as run
-    slug = "brand_x"
-    P = run.paths(slug, str(tmp_path))
-    P["profile"].parent.mkdir(parents=True, exist_ok=True)
-    P["profile"].write_text('{"name": {"value": "B"}, "offerings": [{"name": {"value": "s"}}]}',
-                            encoding="utf-8")
-    monkeypatch.setattr(run, "_profile_is_usable", lambda p: True)
-    posters = P["poster"].parent
-    posters.mkdir(parents=True, exist_ok=True)
-
-    def fake_run(args, timeout, label, on_progress, env=None):
-        (posters / "poster_deadbeef.png").write_bytes(b"\x89PNG\r\n\x1a\nFRESH")
-        return False, ""                                       # the 900s-wall shape
-
-    monkeypatch.setattr(run, "_run", fake_run)
-    out = run.generate_poster(slug, out_dir=str(tmp_path))
-    assert out == P["poster"] and P["poster"].read_bytes().endswith(b"FRESH")
-    assert not list(posters.glob("poster_*.png"))              # drafts swept out of the root
-    assert (posters / "_attempts" / slug).exists()
 
 
-def test_run_generate_poster_true_failure_stays_failure(tmp_path, monkeypatch):
-    import dashboard.run as run
-    slug = "brand_y"
-    P = run.paths(slug, str(tmp_path))
-    P["profile"].parent.mkdir(parents=True, exist_ok=True)
-    P["profile"].write_text('{"name": {"value": "B"}}', encoding="utf-8")
-    monkeypatch.setattr(run, "_profile_is_usable", lambda p: True)
-    monkeypatch.setattr(run, "_run", lambda *a, **k: (False, ""))   # no file produced at all
-    assert run.generate_poster(slug, out_dir=str(tmp_path)) is None
 
 
 def test_reel_prespend_gate_blocks_gutted_copy():
