@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import uuid
 from dataclasses import dataclass
@@ -907,6 +908,26 @@ def _excuse_expected_brand(verdict, product_name: str):
         return verdict
 
 
+def _oneshot_allowed(engine: str, *, arabic: bool) -> bool:
+    """May THIS render use the one-shot engine (the model draws the copy itself)?
+
+    ARABIC: NO — and not as a preference this time, as a refusal. The engine was already
+    un-preferred for Arabic, but `engine="oneshot"` still forced it and the webapp passed that
+    string on every render. MEASURED twice on live money — Abu Auf 2026-07-25 and Al Fouad
+    2026-07-26 — three attempts, `fidelity=0.0` every one, gibberish Arabic baked into each
+    image, then the fallback to the classic overlay the run could have started with. The owner
+    watched the third one arrive: «هو ليه في الأول لازم يحرق في إنه يطلع العبث والسيء ده».
+
+    A capability that is measured to fail 100% of the time on a script must not be reachable by
+    a caller that merely forgot. It stays available for LATIN copy, and behind
+    POSTER_ALLOW_ARABIC_ONESHOT=1 for the day the image model learns Arabic."""
+    if engine != "oneshot":
+        return False
+    if arabic and os.environ.get("POSTER_ALLOW_ARABIC_ONESHOT") != "1":
+        return False
+    return True
+
+
 def _trust_violation(v: PosterQAVerdict) -> bool:
     """A verdict that would make the poster LIE — a fabricated product/label presented as the
     brand's merchandise, another company's mark, or copy whose script is broken. These are
@@ -1211,7 +1232,10 @@ def generate_poster(
     #
     # Explicit engine="oneshot" still tries it: the capability is un-preferred, not removed, and
     # the day the image model learns Arabic this is one word to change back.
-    prefer_oneshot = engine == "oneshot"
+    prefer_oneshot = _oneshot_allowed(engine, arabic=bool(arabic))
+    if engine == "oneshot" and not prefer_oneshot:
+        log("[oneshot] refused for Arabic copy (measured fidelity=0.0) -> classic overlay "
+            "directly; no image spend wasted")
     if prefer_oneshot:
         r = _try_oneshot(profile, brief, concept, brand_dna, caller, arabic=arabic,
                          audit=audit, out_dir=out_dir, variation=variation,

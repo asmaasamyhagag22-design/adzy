@@ -115,3 +115,43 @@ def test_the_route_passes_the_product_link_through():
     import api.routes.generate as g
     src = "\n".join(l.split("#")[0] for l in inspect.getsource(g).splitlines())
     assert "product_url" in src
+
+
+# =====================================================================
+# «هو ليه في الأول لازم يحرق في إنه يطلع العبث والسيء ده... وبعد 3 محاولات يبدأ يظبط الكلام»
+# =====================================================================
+
+def test_arabic_never_burns_money_on_the_engine_that_cannot_write_arabic(monkeypatch):
+    """MEASURED TWICE (Abu Auf 2026-07-25, Al Fouad 2026-07-26): the one-shot engine draws the
+    copy ITSELF, and for Arabic it produces gibberish every time — `fidelity=0.0` on all three
+    attempts, ~$0.12-0.36 and minutes spent to arrive exactly where the run would have started.
+    `poster/pipeline.py` already documents this and un-preferred the engine — but an explicit
+    `engine="oneshot"` still forced it, and the Studio passed that string on every render.
+
+    The capability stays reachable for LATIN copy and behind an explicit env escape hatch; what
+    it must never do again is spend the owner's money drawing Arabic it cannot draw."""
+    import poster.pipeline as pp
+
+    called = {"oneshot": 0}
+    monkeypatch.setattr(pp, "_try_oneshot",
+                        lambda *a, **k: called.__setitem__("oneshot", called["oneshot"] + 1))
+    monkeypatch.delenv("POSTER_ALLOW_ARABIC_ONESHOT", raising=False)
+    assert pp._oneshot_allowed("oneshot", arabic=True) is False, (
+        "an Arabic render can still be routed into the text-baking engine")
+    assert pp._oneshot_allowed("oneshot", arabic=False) is True, (
+        "the engine must stay available for Latin copy")
+    assert pp._oneshot_allowed("classic", arabic=False) is False
+    monkeypatch.setenv("POSTER_ALLOW_ARABIC_ONESHOT", "1")
+    assert pp._oneshot_allowed("oneshot", arabic=True) is True, (
+        "the escape hatch is gone — the capability must stay reachable on purpose")
+
+
+def test_the_studio_does_not_force_the_oneshot_engine():
+    """The Studio hardcoded `engine="oneshot"`, which is how every Arabic poster took the
+    expensive scenic route. It must let the pipeline choose."""
+    import inspect
+
+    import api.webapp_images as wi
+    src = "\n".join(l.split("#")[0] for l in inspect.getsource(wi._render_real).splitlines())
+    assert 'engine="oneshot"' not in src, (
+        "the Studio still forces the engine that cannot write Arabic")

@@ -260,7 +260,10 @@ def _render_real(brand: dict, *, headline: str, language: str, product=None,
         face, face_mime = selected_face_bytes(brand)
     except Exception:  # noqa: BLE001 — no face is a normal state, never a failed render
         face, face_mime = None, ""
-    res = generate_poster(profile, caller=caller, engine="oneshot", language=language,
+    # NO ENGINE OVERRIDE. This said engine="oneshot", which forced the model-draws-the-copy
+    # path on every render — including Arabic, where it is measured to fail 100% of the time and
+    # burn three image calls first. The pipeline picks the engine from the script.
+    res = generate_poster(profile, caller=caller, language=language,
                           headline_override=headline or None,
                           trend_context=trend_context or None,
                           identity_image=((face, face_mime or "image/png") if face else None),

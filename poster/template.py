@@ -203,6 +203,25 @@ def _bg_region_luminance(background_path: Optional[str], box) -> Optional[float]
         return None
 
 
+
+def _badge_is_worth_it(*, logo_lum: float, bg_lum: float) -> bool:
+    """Would a plate behind the mark actually help?
+
+    MEASURED (Al Fouad, 2026-07-26): a dark wordmark on a light ground got a LIGHT frosted
+    badge — a tone within a hair of the ground it sat on. It separated nothing and read as a
+    sticker stuck onto the poster («مشكلة اللوجو تاني»). A plate earns its place only when the
+    badge tone it would use is genuinely further from the background than the logo already is.
+
+    The badge tone is chosen by the logo: a light logo gets a dark badge (~0.10), a dark logo a
+    light one (~0.92). If that tone is no further from the background than the logo itself,
+    there is nothing to gain and a sticker to lose."""
+    already = abs(logo_lum - bg_lum)
+    if already >= 0.28:
+        return False                       # the mark already reads — never a plate
+    badge_tone = 0.10 if logo_lum >= 0.5 else 0.92
+    return abs(badge_tone - bg_lum) > already + 0.12
+
+
 def _adaptive_logo_style(logo_src, background_path, region_box) -> Optional[str]:
     """Choose the logo plate from the LOGO's luminance vs the BACKGROUND behind it:
       * high contrast (logo already reads) -> NO plate, just a soft shape-shadow;
@@ -213,8 +232,8 @@ def _adaptive_logo_style(logo_src, background_path, region_box) -> Optional[str]
     bg_lum = _bg_region_luminance(background_path, region_box)
     if logo_lum is None or bg_lum is None:
         return None
-    if abs(logo_lum - bg_lum) >= 0.28:
-        # the mark already reads on the background -> NO plate, just a soft shape-shadow.
+    if not _badge_is_worth_it(logo_lum=logo_lum, bg_lum=bg_lum):
+        # the mark already reads, or a plate would add no separation -> no plate, just a shadow.
         return "background:transparent;box-shadow:none;filter:drop-shadow(0 2px 9px rgba(0,0,0,.6))"
     # low contrast -> a soft FROSTED-GLASS "designed badge" that contrasts the LOGO: tight
     # padding, real blur, a subtle border, and a MUTED tone (not stark white) so it reads as
@@ -397,6 +416,20 @@ def _fonts_head_and_stacks(
     return head, font_head, font_body
 
 
+
+def _fit_stacked_size(column_px: int, longest: int, n_words: int,
+                      *, advance: float, floor: int, ceiling: int) -> int:
+    """The size that fits the column in BOTH axes.
+
+    MEASURED (Al Fouad, 2026-07-26): the size came from the longest WORD alone, so a 6-word
+    Arabic headline stacked to ~615px of type, swallowed the middle of the poster and covered
+    the hero product — «طريقة الكلام اللي في نص الصفحة مش حلو». Each word is its own line, so
+    the number of words is a height, and a fit that ignores height is half a fit."""
+    by_width = int(column_px / max(1, longest * advance))
+    by_height = int((_CH * 0.44) / max(1, n_words) / 1.14)
+    return max(floor, min(ceiling, by_width, by_height))
+
+
 def _headline_block(
     brief: PosterBrief,
     rtl: bool,
@@ -437,7 +470,8 @@ def _headline_block(
         n = len(words)
         if 1 <= n <= 6 and 0 < longest <= 22:
             max_size = 154 if column_px >= 800 else 120
-            size = max(58, min(max_size, int(column_px / (longest * 0.58))))
+            size = _fit_stacked_size(column_px, longest, n,
+                                     advance=0.58, floor=58, ceiling=max_size)
             upper_cls = "" if rtl else " upper"
             spans = []
             for i, w in enumerate(words):
@@ -460,7 +494,8 @@ def _headline_block(
     # narrower in a side panel than a full-width band), so the hero is dramatic but
     # NEVER overflows the edge. ~0.62em average glyph advance for the bold display face.
     max_size = 136 if column_px >= 800 else 110
-    size = max(52, min(max_size, int(column_px / (longest * 0.6))))
+    size = _fit_stacked_size(column_px, longest, max(1, len(words)),
+                             advance=0.6, floor=52, ceiling=max_size)
     upper_cls = "" if rtl else " upper"        # Arabic/Hebrew have no letter case
     n = len(words)
     spans = []
@@ -714,9 +749,16 @@ def _freeform_lower_css(text_box, scrim_strength: float, align: str,
                 f"{scrim}}}")
     # Upper placement -> a soft RADIAL wash that melts into the image (a hint of legibility
     # backing, feathered to transparent at every edge — NOT a hard rounded-card with a drop-shadow).
+    # The cluster carries the headline AND the subline AND the CTA. This wash used to reach
+    # ZERO at its edges, so the bottom copy sat on bare bright photo — the same invisible-copy
+    # complaint the fixed layouts were fixed for, in the branch that fix did not touch
+    # («الكلام اللي تحت لسه فاتح»). It now keeps a legibility floor across the whole block and
+    # feathers only at the outer rim.
+    _floor = round(max(s_lo, s_hi * 0.42), 3)
     scrim = (
-        f"background:radial-gradient(135% 135% at 50% 42%, rgba(8,12,18,{s_hi}) 0%, "
-        f"rgba(8,12,18,{s_mid}) 50%, rgba(8,12,18,{s_lo}) 78%, rgba(8,12,18,0) 100%);"
+        f"background:radial-gradient(150% 150% at 50% 46%, rgba(8,12,18,{s_hi}) 0%, "
+        f"rgba(8,12,18,{round(s_hi * 0.92, 3)}) 46%, rgba(8,12,18,{s_mid}) 72%, "
+        f"rgba(8,12,18,{_floor}) 100%);"
     )
     common = (f"position:absolute; left:{left}px; width:{width}px; text-align:{align}; "
               f"display:flex; flex-direction:column; align-items:{items}; "
