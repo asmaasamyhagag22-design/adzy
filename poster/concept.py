@@ -116,6 +116,18 @@ def _concept_clean(c: CreativeConcept, *, arabic: bool, ledger: Any = None) -> C
     grounding ledger is supplied — carries an UNSOURCED falsifiable claim (a final
     deterministic safety so a fabricated chip never ships even if the regenerate loop
     didn't clear it)."""
+    # CLAIM SAFETY BEFORE STYLE (reviewer 2026-07-26): a therapeutic verb about a cosmetic is
+    # regulatory exposure, not copy flair — softened deterministically on every field, so a
+    # model that ignores the prompt's ban still cannot ship «بيعالج».
+    try:
+        from poster.copy_rules import soften_therapeutic_claims
+        for _f in ("headline", "subheadline", "cta", "single_message"):
+            _t, _ch = soften_therapeutic_claims(getattr(c, _f, "") or "")
+            if _ch:
+                setattr(c, _f, _t)
+        c.proof_points = [soften_therapeutic_claims(p)[0] for p in c.proof_points]
+    except Exception:  # noqa: BLE001 — safety net failing must not kill the concept
+        pass
     if arabic:
         c.proof_points = [p for p in c.proof_points if p and not has_latin(p)][:3]
     else:
@@ -193,6 +205,13 @@ def product_facts_block(*, name: str = "", description: str = "",
     lines.append(
         "Lead with what makes THIS product different (its own technology, protection factor, "
         "actives or claim) — naming the pharmacy is not a product benefit.")
+    lines.append(
+        "If the name or page carries a SPEC (SPF50+, UVMUNE, a dosage, a strength), that spec "
+        "MUST appear in the copy language as one of the proof chips — it is the product's "
+        "biggest number and it may not live only in the pack's fine print.")
+    lines.append(
+        "CLAIM SAFETY: this is a COSMETIC ad. Never write therapeutic verbs (يعالج / يشفي / "
+        "treats / cures) about it; say what the pack says (يقلل ظهور / يحمي / anti-dark-spots).")
     return "\n".join(lines)
 
 

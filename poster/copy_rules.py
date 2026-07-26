@@ -61,3 +61,32 @@ def _strip_dangling(text: str) -> str:
             break
         text = stripped
     return text
+
+
+# Therapeutic verbs on a cosmetic are a REGULATORY claim, not copywriting (reviewer 2026-07-26:
+# «كلمة بيعالج claim علاجي. العبوة نفسها بتقول ANTI-DARK SPOTS — يعني ضد البقع، مش علاج البقع…
+# لإعلان صيدلية في مصر ده حساس»). The pairs map a therapeutic verb to the cosmetic claim that
+# says the same thing safely. Applied to COPY only; a page that explicitly uses the therapeutic
+# term stays quotable through the Ledger path, not through ad copy.
+_THERAPEUTIC = [
+    (re.compile(r"بيعالج|يعالج|تعالج|بتعالج"), "بيقلل ظهور"),
+    (re.compile(r"\bعلاج\b"), "تقليل ظهور"),
+    (re.compile(r"يشفي|بيشفي|شفاء"), "بيساعد على تحسين"),
+    (re.compile(r"\btreats?\b", re.I), "helps reduce"),
+    (re.compile(r"\bcures?\b", re.I), "helps improve"),
+    (re.compile(r"\bheals?\b", re.I), "helps restore"),
+]
+
+
+def soften_therapeutic_claims(text: str) -> tuple[str, bool]:
+    """(softened_text, changed). A cosmetic 'treats/يعالج' becomes 'helps reduce/يقلل ظهور' —
+    the difference between a cosmetic and a drug, and for a pharmacy ad the difference between
+    postable and reportable."""
+    out = str(text or "")
+    changed = False
+    for pat, repl in _THERAPEUTIC:
+        new = pat.sub(repl, out)
+        if new != out:
+            changed = True
+            out = new
+    return _norm(out), changed

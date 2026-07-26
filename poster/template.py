@@ -574,10 +574,16 @@ def _mirror_corner(corner: str, rtl: bool) -> str:
     return corner.replace("left", "R").replace("right", "left").replace("R", "right")
 
 
+
+# ONE GUTTER (reviewer 2026-07-26: «زرار CTA x=96، الهيدلاين x=106، اللوجو x=116 — تلات حدود
+# شمال في 20 بكسل. لو متطابقين يبقى نظام؛ 20px = حاولنا ومظبطناهاش»). Every left/right offset of
+# the logo, the text block and the button hangs on this single number.
+_GUTTER_PX = 80
+
 def _logo_corner_css(corner: str) -> str:
     v, _, h = corner.partition("_")
     vside = "top:54px;" if v == "top" else "bottom:54px;"
-    hside = "left:80px;" if h == "left" else "right:80px;"
+    hside = (f"left:{_GUTTER_PX}px;" if h == "left" else f"right:{_GUTTER_PX}px;")
     return vside + hside
 
 
@@ -637,7 +643,7 @@ def _lower_css(layout: str, scrim_strength: float, align: str, rtl: bool) -> str
     s_mid = round(s_hi * 0.8, 3)
     al = f"text-align:{align};"
     if layout in ("bottom_band", "magazine_hero"):
-        pad = "300px 80px 70px" if layout == "magazine_hero" else "130px 80px 70px"
+        pad = (f"300px {_GUTTER_PX}px 70px" if layout == "magazine_hero" else f"130px {_GUTTER_PX}px 70px")
         return (
             f".lower{{position:absolute;left:0;right:0;bottom:0;padding:{pad};{al}"
             f"background:linear-gradient(to top, rgba(8,12,18,{s_hi}) 0%, "
@@ -646,7 +652,7 @@ def _lower_css(layout: str, scrim_strength: float, align: str, rtl: bool) -> str
         )
     if layout == "top_anchor":
         return (
-            f".lower{{position:absolute;left:0;right:0;top:0;padding:200px 80px 96px;{al}"
+            f".lower{{position:absolute;left:0;right:0;top:0;padding:200px {_GUTTER_PX}px 96px;{al}"
             f"background:linear-gradient(to bottom, rgba(8,12,18,{s_hi}) 0%, "
             f"rgba(8,12,18,{s_hi}) 72%, rgba(8,12,18,{s_mid}) 86%, "
             f"rgba(8,12,18,0) 100%);}}"
@@ -668,7 +674,7 @@ def _lower_css(layout: str, scrim_strength: float, align: str, rtl: bool) -> str
         return (
             f".lower{{position:absolute;top:0;bottom:0;width:60%;{box}{al}"
             f"display:flex;flex-direction:column;justify-content:flex-end;"
-            f"padding:80px 64px 100px;background:{grad};}}"
+            f"padding:80px {_GUTTER_PX}px 100px;background:{grad};}}"
         )
     if layout == "center_editorial":
         # A soft radial faded out at the horizontal extremes, so a full-width headline's
@@ -684,7 +690,7 @@ def _lower_css(layout: str, scrim_strength: float, align: str, rtl: bool) -> str
             f"rgba(8,12,18,{s_mid}) 76%, rgba(8,12,18,0) 100%);}}"
         )
     return (
-        f".lower{{position:absolute;left:0;right:0;bottom:0;padding:130px 80px 70px;{al}"
+        f".lower{{position:absolute;left:0;right:0;bottom:0;padding:130px {_GUTTER_PX}px 70px;{al}"
         f"background:linear-gradient(to top, rgba(8,12,18,{s_hi}) 0%, "
         f"rgba(8,12,18,{s_hi}) 72%, rgba(8,12,18,0) 100%);}}"
     )

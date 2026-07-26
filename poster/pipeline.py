@@ -1451,6 +1451,20 @@ def generate_poster(
         except Exception:  # noqa: BLE001 — a measurement failure must not kill a render
             _contrast = None
 
+        if _contrast is not None and _contrast.passed is False:
+            # THE RETRY MOVES, IT DOES NOT HOPE (reviewer: «الهيدلاين مكانه الطبيعي فوق في
+            # الفراغ… بتحل الكونتراست والتوزيع بضربة واحدة»). The next attempt hosts the copy
+            # in the measured clearest band instead of retrying the same busy spot.
+            try:
+                from poster.placement import clearest_copy_zone
+                from poster.product_composite import DEFAULT_ZONE as _PZ
+                _zone = clearest_copy_zone(bg_path,
+                                           product_zone=(_PZ if _composite_after else None))
+                if _zone:
+                    spec = spec.model_copy(update={"text_box": list(_zone)})
+            except Exception:  # noqa: BLE001
+                pass
+
         verdict = poster_vision_qa(poster_path, caller=qa_caller, brand_dna=brand_dna, arabic=arabic)
         verdict = _excuse_expected_brand(verdict, product_name or "")
         # EVERY STRING ON THE POSTER IS ONE WE ASKED FOR (reviewer: «لو فيه نص مش موجود في الـ
