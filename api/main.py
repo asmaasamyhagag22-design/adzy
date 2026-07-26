@@ -30,6 +30,7 @@ from pathlib import Path  # noqa: E402
 
 from fastapi import Depends, FastAPI, HTTPException  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi import Request, Response  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
@@ -155,11 +156,36 @@ async def _security_headers(request, call_next):
 # Route mounts
 # ---------------------------------------------------------------------
 
-def _serve(name: str):
-    """Serve a frontend HTML file, or a JSON hint if the web app isn't present."""
+def _serve(name: str, request=None):
+    """Serve a frontend HTML file, or a JSON hint if the web app isn't present.
+
+    `Cache-Control: no-cache` — MEASURED 2026-07-26, right after three false claims about the tech
+    stack were corrected on the landing page: the file on disk had 0 hits, curl over HTTP had 0
+    hits, and the browser still rendered all three. The response carried an ETag and a
+    Last-Modified but no Cache-Control, so the browser picked its own freshness window and simply
+    never asked again.
+
+    `no-cache` does not mean "don't store"; it means "revalidate before use". The ETag below turns
+    that into a 304 with no body, so the cost is one conditional request and the guarantee is that
+    an edit reaches a returning visitor. Assets under /assets stay hard-cached — they are addressed
+    by filename and do not change under the same name.
+    """
     f = _FRONTEND_DIR / name
     if f.is_file():
-        return FileResponse(str(f))
+        # `stat_result` is passed so the ETag exists NOW: without it Starlette computes the header
+        # lazily while sending, so reading it here returned None and the 304 branch below could
+        # never fire — the check would have looked correct and done nothing.
+        resp = FileResponse(str(f), headers={"Cache-Control": "no-cache"},
+                            stat_result=f.stat())
+        # Answer the revalidation ourselves. Starlette's FileResponse computes an ETag but does not
+        # act on If-None-Match, so without this every reload re-sent the whole page — which would
+        # have made the docstring above a claim rather than a description.
+        etag = resp.headers.get("etag")
+        inm = (request.headers.get("if-none-match") or "") if request is not None else ""
+        if etag and inm and etag in [t.strip() for t in inm.split(",")]:
+            return Response(status_code=304, headers={"Cache-Control": "no-cache",
+                                                      "ETag": etag})
+        return resp
     return JSONResponse({
         "status": "ok", "app": "Marketing Strategist API",
         "hint": "Backend is up; the web app files were not found.",
@@ -168,15 +194,15 @@ def _serve(name: str):
 
 
 @app.get("/", include_in_schema=False)
-def landing():
+def landing(request: Request):
     """The marketing landing page (frontend/landing.html)."""
-    return _serve("landing.html")
+    return _serve("landing.html", request)
 
 
 @app.get("/app", include_in_schema=False)
-def webapp():
+def webapp(request: Request):
     """The AdArchitect SPA (frontend/index.html)."""
-    return _serve("index.html")
+    return _serve("index.html", request)
 
 
 # Static assets (logos, showcase images) referenced as /assets/... by both HTML files.
