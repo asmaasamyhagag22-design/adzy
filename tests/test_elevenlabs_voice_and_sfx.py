@@ -157,22 +157,94 @@ def test_the_scene_cue_maps_to_a_real_description():
     assert describe_cue("") == ""
 
 
-def test_the_vocalized_script_is_what_elevenlabs_receives(monkeypatch, tmp_path):
-    """OWNER: «ومتستغناش عن حوار التشكيل المنطوق علشان نتجنب أي مشاكل». The tashkeel pass is
-    NOT an edge-voice workaround — a native voice reads «عُوف» and «عَوْف» differently too, and
-    the owner's ear caught exactly that. It must reach the paid path as well."""
+# --- the tashkeel belongs to the engine that needs it, and only to it -------------------------
+
+def test_a_native_engine_gets_the_plain_spelling():
+    """OWNER (2026-07-26): «طريقة كتابتك هي اللي مبوّظة الأصوات، لأنها كانت مية مية على 11 لاب».
+
+    MEASURED, same voice and same sentence through ElevenLabs: plain 82,799 bytes vs vocalized
+    105,787 — the diacritics make the model pronounce every short vowel, so the read slows 28%
+    and breaks into syllables. The tashkeel was invented for the FREE edge voice, which reads
+    unvocalized dialect Arabic with MSA guesses; applying it to a native multilingual model is a
+    true rule answering a different question."""
+    from reel.voiceover import needs_vocalization
+    assert needs_vocalization("edge") is True
+    assert needs_vocalization("elevenlabs") is False
+    assert needs_vocalization("gemini") is False
+
+
+def test_the_paid_path_is_handed_the_raw_lines(monkeypatch, tmp_path):
     import reel.voiceover as vo
 
     heard = {}
-    monkeypatch.setattr(vo, "_vocalize_for_tts", lambda lines, **kw: ["مُشَكَّل::" + lines[0]])
+    monkeypatch.setattr(vo, "_vocalize_for_tts",
+                        lambda lines, **kw: ["مُشَكَّل::" + lines[0]])   # must NOT be called
     monkeypatch.setattr(vo, "_elevenlabs_segment",
                         lambda text, out, **kw: (heard.__setitem__("text", text),
                                                  out.write_bytes(b"mp3"), True)[2])
     monkeypatch.setattr(vo, "_audio_dur", lambda p: 4.0)
-    monkeypatch.setattr(vo, "run_ffmpeg", lambda args: __import__("pathlib").Path(args[-1]).write_bytes(b"a"))
+    monkeypatch.setattr(vo, "run_ffmpeg",
+                        lambda args: __import__("pathlib").Path(args[-1]).write_bytes(b"a"))
     monkeypatch.setenv("ELEVENLABS_API_KEY", "k")
-    out = vo.synth_voiceover(["اطلب دلوقتي"], [3.0], tmp_path / "vo.m4a", backend="elevenlabs",
-                             voice="QvNF0qyyt1Tuy1YAmnzH")
-    assert out is not None
-    assert "مُشَكَّل::" in heard.get("text", ""), (
-        f"the paid voice received the RAW spelling: {heard.get('text')!r}")
+    vo.synth_voiceover(["اطلب دلوقتي"], [3.0], tmp_path / "vo.m4a", backend="elevenlabs",
+                       voice="5REPlS2Ja1VZ7zNA0ykn")
+    assert "مُشَكَّل::" not in heard.get("text", ""), (
+        f"the native voice was handed the vocalized spelling again: {heard.get('text')!r}")
+
+
+def test_the_free_path_still_gets_it(monkeypatch, tmp_path):
+    """Dropping it everywhere would re-break the engine it was built for."""
+    import reel.voiceover as vo
+
+    heard = {}
+    monkeypatch.setattr(vo, "_vocalize_for_tts", lambda lines, **kw: ["مُشَكَّل::" + lines[0]])
+    monkeypatch.setattr(vo, "_edge_segment",
+                        lambda text, out, **kw: (heard.__setitem__("text", text),
+                                                 out.write_bytes(b"mp3"), True)[2])
+    monkeypatch.setattr(vo, "_audio_dur", lambda p: 4.0)
+    monkeypatch.setattr(vo, "run_ffmpeg",
+                        lambda args: __import__("pathlib").Path(args[-1]).write_bytes(b"a"))
+    vo.synth_voiceover(["اطلب دلوقتي"], [3.0], tmp_path / "vo.m4a", backend="edge")
+    assert "مُشَكَّل::" in heard.get("text", ""), heard
+
+
+# --- the voice's GENDER follows the audience, not a default ------------------------------------
+
+def test_a_womens_category_gets_a_female_voice():
+    """OWNER (2026-07-26): «على حسب الكاتيجوري اختار الصوت — سكين كير وملابس وبرفان حاجة نسائي
+    نشغّل النسائي، رجالي يختار رجالي، غير كده هو يختار»."""
+    from reel.voices import pick_voice
+    for cat in ("skincare", "العناية بالبشرة", "perfume", "عطور", "women fashion", "ملابس حريمي",
+                "cosmetics", "مكياج"):
+        v = pick_voice(dialect="Egyptian Arabic", tone="warm", category=cat)
+        assert v["gender"] == "female", (cat, v)
+        assert v["accent"] == "egyptian", (cat, v)
+
+
+def test_a_mens_category_gets_a_male_voice():
+    from reel.voices import pick_voice
+    for cat in ("men grooming", "ملابس رجالي", "beard care", "منتجات رجالي"):
+        v = pick_voice(dialect="Egyptian Arabic", tone="bold", category=cat)
+        assert v["gender"] == "male", (cat, v)
+
+
+def test_a_neutral_category_leaves_the_choice_to_the_register():
+    """«غير كده هو يختار» — a pharmacy or a snack brand is not gendered, so the register picks."""
+    from reel.voices import pick_voice
+    v = pick_voice(dialect="Egyptian Arabic", tone="professional trustworthy pharmacy",
+                   category="pharmacy")
+    assert v["voice_id"] == "Ojb0nFbyzZn95u0i5a5p", v
+
+
+def test_an_explicit_gender_request_wins_over_the_category():
+    from reel.voices import pick_voice
+    v = pick_voice(dialect="Egyptian Arabic", tone="bold", category="skincare", gender="male")
+    assert v["gender"] == "male", v
+
+
+def test_the_female_catalogue_is_real_and_egyptian():
+    from reel.voices import FEMALE_EGYPTIAN_VOICES
+    assert FEMALE_EGYPTIAN_VOICES, "no female voice exists at all"
+    for v in FEMALE_EGYPTIAN_VOICES:
+        assert v["gender"] == "female" and v["accent"] == "egyptian"
+        assert len(v["voice_id"]) > 10

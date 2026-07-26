@@ -379,6 +379,24 @@ def _elevenlabs_segment(text: str, out_mp3: Path, *, voice: str, model: str,
     return False
 
 
+def needs_vocalization(backend: str) -> bool:
+    """Does THIS engine need the spelling rewritten as-spoken?
+
+    Only the free `edge` voice does. It reads unvocalized dialect Arabic with MSA guesses — the
+    wrong vowels, the wrong stress — so writing the vowels in is the only lever available.
+
+    A NATIVE multilingual model already knows the dialect, and the diacritics actively hurt it:
+    MEASURED on the same voice and sentence through ElevenLabs, plain came back 82,799 bytes and
+    vocalized 105,787 — it pronounces every short vowel, so the read slows about 28% and breaks
+    into syllables. The owner heard it immediately: «كانت مية مية على 11 لاب».
+
+    `REEL_TTS_VOCALIZE=1` forces it back on for a one-off comparison."""
+    import os as _os
+    if _os.environ.get("REEL_TTS_VOCALIZE") == "1":
+        return True
+    return str(backend or "").lower() == "edge"
+
+
 def _vocalize_for_tts(lines: "list[str]", *, caller: Any = None,
                       dialect: str = "") -> "list[str]":
     """«طريقة كتابة الكلام بتخلي الصوت يقوله صح» — the owner's engineer, quoted twice.
@@ -721,7 +739,31 @@ def synth_voiceover(
             default_voice = _prev            # an explicit override/env id still wins
         else:
             from reel.voices import pick_voice
-            default_voice = pick_voice(dialect=dialect_name, tone=tone)["voice_id"]
+            # WHO IS BEING SPOKEN TO decides the gender (owner: «سكين كير وملابس وبرفان حاجة
+            # نسائي نشغّل النسائي، رجالي يختار رجالي، غير كده هو يختار»). The category comes from
+            # the brand's own profile — both the market vertical and its offerings, since a
+            # pharmacy's `category` is "ecommerce" while its offerings say "skincare".
+            _cat = ""
+            try:
+                _p = (profile or {}).get("profile", profile) if isinstance(profile, dict) else {}
+                _bits = []
+                for _f in ("market_category", "category", "description"):
+                    _v = (_p or {}).get(_f)
+                    _v = _v.get("value") if isinstance(_v, dict) else _v
+                    if _v:
+                        _bits.append(str(_v))
+                for _o in ((_p or {}).get("offerings") or [])[:6]:
+                    _n = _o.get("name") if isinstance(_o, dict) else _o
+                    _n = _n.get("value") if isinstance(_n, dict) else _n
+                    if _n:
+                        _bits.append(str(_n))
+                _cat = " ".join(_bits)
+            except Exception:  # noqa: BLE001
+                _cat = ""
+            _v = pick_voice(dialect=dialect_name, tone=tone, category=_cat)
+            default_voice = _v["voice_id"]
+            logger.info("[voice] %s (%s, %s) for category signal %r",
+                        _v.get("name"), _v.get("gender"), _v.get("register"), _cat[:60])
     else:
         default_voice = _DEFAULT_VOICE
     voice = voice or os.environ.get("REEL_TTS_VOICE") or default_voice
@@ -739,7 +781,14 @@ def synth_voiceover(
             _dial = arabic_dialect_for(profile)
         except Exception:  # noqa: BLE001
             _dial = ""
-    parts = _vocalize_for_tts(parts, dialect=_dial)
+    # THE TASHKEEL BELONGS TO THE ENGINE THAT NEEDS IT (owner, 2026-07-26: «طريقة كتابتك هي اللي
+    # مبوّظة الأصوات، لأنها كانت مية مية على 11 لاب»). MEASURED, same voice and sentence through
+    # ElevenLabs: plain 82,799 bytes vs vocalized 105,787 — the diacritics make the model
+    # pronounce every short vowel, so the read slows ~28% and breaks into syllables. It was built
+    # for the FREE edge voice, which guesses MSA vowels on unvocalized dialect; a native
+    # multilingual model needs no help and is harmed by it.
+    if needs_vocalization(chosen):
+        parts = _vocalize_for_tts(parts, dialect=_dial)
     script = _join_script(parts)
     total = sum(max(0.5, float(d)) for d in durations) or 10.0
     instructions = _instructions_for(lines, list(deliveries or []), tone, dialect=dialect_name)

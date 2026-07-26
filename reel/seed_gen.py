@@ -29,8 +29,13 @@ logger = logging.getLogger(__name__)
 
 
 def build_seed_prompt(veo_prompt: str, *, brand_name: str = "", dna_lines: str = "",
-                      locale_line: str = "", n_refs: int = 0) -> str:
-    """The conditioned still-frame prompt: the scene lives INSIDE the brand's real world."""
+                      locale_line: str = "", n_refs: int = 0, look: str = "") -> str:
+    """The conditioned still-frame prompt: the scene lives INSIDE the brand's real world.
+
+    `look` is the run's LOOK LOCK (`brand.look.look_lock`) — the identical camera/lighting/grade
+    sentence appended to EVERY prompt of one film. Measured on abuauf_agency_v2: a warm kitchen,
+    a cold gym and a flat studio in one 17-second reel, because each shot chose its own light.
+    No grade after the fact repairs that; the shadows are already in the pixels."""
     place_block = ""
     if n_refs:
         place_block = (
@@ -52,6 +57,8 @@ def build_seed_prompt(veo_prompt: str, *, brand_name: str = "", dna_lines: str =
         "in the frame; natural TRUE-TO-LIFE colours and warm realistic skin tones (no colour "
         "cast); ONE clear focal point, clean composition with natural headroom for vertical "
         "video; believable, professionally lit, ad-grade."
+        + (f"\nTHE LOOK (identical in every shot of this film): {look.strip()}"
+           if str(look or "").strip() else "")
     )
 
 
@@ -135,7 +142,7 @@ def _ref_bytes(url: Optional[str]) -> Optional[tuple[bytes, str]]:
 def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
                          brand_dna: Any = None, out_dir: "str | Path" = "outputs/reels",
                          caller: Any = None, ref_pool: Optional[List[str]] = None,
-                         identity_ref: Optional[tuple] = None,
+                         identity_ref: Optional[tuple] = None, look: str = "",
                          log=logger.info) -> List[Tuple[Optional[str], Optional[str]]]:
     """One generated, gate-passed 9:16 seed per scene. Returns [(seed_path|None, real_ref_url)]
     aligned with creative.scenes — seed None means BOTH attempts failed the art-critic gate

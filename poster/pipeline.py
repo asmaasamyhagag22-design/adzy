@@ -350,6 +350,16 @@ def _generate_nano_background(
         "negative space where copy will be overlaid later. Photographic, premium, on-brand.")
     bg_prompt += _product_scene_guard(product_name, composited=composite_product_after)
     bg_prompt += _cast_variation_rule()
+    # ONE LOOK FOR THE BRAND (owner 2026-07-26: «ثبّت كلمات وصف الإضاءة والألوان في كل
+    # البرومبتات»). The poster and the reel of one brand must come out of the same camera, so
+    # they share the same lock — derived from the brand's own DNA, not a house style.
+    try:
+        from brand.look import look_lock
+        _look = look_lock(brand_dna=brand_dna, profile=profile)
+        if _look:
+            bg_prompt += f"\n\nTHE LOOK (identical for every asset of this brand): {_look}"
+    except Exception:  # noqa: BLE001
+        pass
     # THE REAL MARK IS COMPOSITED ON TOP, so any mark the model draws is fake by definition —
     # measured as "FoMad" and a blurry giant wordmark filling the scene. Naming the brand is
     # what makes the ban concrete; "no logos" in the abstract has never held.
