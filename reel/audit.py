@@ -133,6 +133,7 @@ def gate_clip_audio(clip_path: "str | Path", profile: dict, caller: Any = None,
 def build_reel_audit(profile: dict, creative: Any = None, *,
                      render_result: Any = None,
                      audio_verdicts: Optional[list] = None,
+                     extra_gates: Optional[list] = None,
                      audio_surface: str = "creative-path: Veo audio structurally stripped; "
                                           "spoken audio = Ledger-gated TTS voice-over only") -> dict:
     """The poster-style per-asset trail for a reel: coverage scoping, the copy audit
@@ -155,6 +156,35 @@ def build_reel_audit(profile: dict, creative: Any = None, *,
         out["fallback_used"] = bool(getattr(render_result, "fallback_used", False))
     except Exception:  # noqa: BLE001
         out["scene_qa"] = []
+
+    # ONE BLOCKING DECISION (directive §6.4). Until now this dict reported `copy_passes: true`
+    # beside four failing scenes, a morphing product and `fallback_used: true`, with nothing
+    # anywhere that combined them — so a reel whose product turned into a different object could
+    # leave the pipeline under a true-valued field. Every part is wrapped in `gate()`, which
+    # downgrades a pass carrying no measurement to `null`.
+    try:
+        from reel.verdicts import artifact_verdict, gate
+        gates = list(extra_gates or [])
+        if "copy_passes" in out:
+            _copy = out.get("copy_audit") or {}
+            _n = len(_copy.get("fields") or _copy.get("claims") or [])
+            gates.append(gate("copy_passes", value=bool(out["copy_passes"]), method="code",
+                              measure="fields_grounded", threshold="all",
+                              observed=_n or None, units_checked={"fields": _n},
+                              evidence_count=_n))
+        scenes = out.get("scene_qa") or []
+        if scenes:
+            failing = sum(1 for s in scenes
+                          if isinstance(s, dict) and s.get("overall_pass") is False)
+            gates.append(gate("scene_qa", value=(failing == 0), method="vlm",
+                              measure="scenes_failing", threshold=0, observed=failing,
+                              units_checked={"scenes": len(scenes)}))
+        out["gates"] = gates
+        out["artifact_verdict"] = artifact_verdict(
+            gates, fallback_used=bool(out.get("fallback_used")))
+    except Exception:  # noqa: BLE001 — an audit that cannot decide must say so, not vanish
+        out["artifact_verdict"] = {"gate": "artifact_verdict", "value": None,
+                                   "reason": "verdict could not be computed"}
     return out
 
 

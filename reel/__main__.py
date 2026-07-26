@@ -33,6 +33,27 @@ def _load_env() -> None:
         pass
 
 
+def _finalize(reel_path) -> dict:
+    """THE ONE PASS THAT DECIDES THE DELIVERED CONTAINER (directive §2). Everything upstream
+    encodes however it likes; this rewrites the file to 1080x1920 / yuv420p / bt709-tv with
+    normalised audio and MEASURES what it wrote. A failed envelope is a REJECT, never a
+    warning — the platform's transcoder destroys grading and loudness work silently."""
+    try:
+        from reel.encode_profile import finalize_delivery
+        v = finalize_delivery(reel_path)
+    except Exception:  # noqa: BLE001 — a finalise that cannot run must not lose the render
+        return {"value": None, "reason": "finalise unavailable", "issues": []}
+    if v.get("value") is True:
+        o = v.get("observed") or {}
+        print(f"     + delivery container {o.get('width')}x{o.get('height')} · "
+              f"{o.get('audio_hz')} Hz · bt709", file=sys.stderr)
+    elif v.get("value") is False:
+        print(f"     ! container: {v.get('reason')}", file=sys.stderr)
+    else:
+        print(f"     ! container NOT finalised ({v.get('reason')})", file=sys.stderr)
+    return v
+
+
 def _final_screening(reel_path) -> "int | None":
     """The last viewer before the owner: screen the ASSEMBLED film (letterboxing, silence,
     endcard state). Returns 3 to stop the ship on a failed screening, None to proceed.
@@ -338,7 +359,13 @@ def main() -> int:
                 build_reel_audit(profile, creative, render_result=result), result.reel_path)
             if audit_p:
                 print(f"     audit trail -> {audit_p}")
+            # THE CONTAINER IS DECIDED HERE, once, on the file about to ship.
+            _env = _finalize(result.reel_path)
             _stop = _final_screening(result.reel_path)
+            if _env.get("value") is False and _stop is None:
+                print("[X] the delivery container failed the platform envelope — not shipping. "
+                      "Set REEL_ALLOW_BELOW_GRADE=1 to override.", file=sys.stderr)
+                _stop = None if os.environ.get("REEL_ALLOW_BELOW_GRADE") == "1" else 3
             if _stop is not None:
                 return _stop
             print(f"\n[ok] CREATIVE reel -> {Path(result.reel_path).resolve()}")
@@ -420,7 +447,12 @@ def main() -> int:
                   or ("template_explicit" if args.template else "template"))
     _write_reel_sidecar(result.reel_path, {"path": _path_kind})
 
+    _env = _finalize(result.reel_path)
     _stop = _final_screening(result.reel_path)
+    if _env.get("value") is False and _stop is None:
+        print("[X] the delivery container failed the platform envelope — not shipping. "
+              "Set REEL_ALLOW_BELOW_GRADE=1 to override.", file=sys.stderr)
+        _stop = None if os.environ.get("REEL_ALLOW_BELOW_GRADE") == "1" else 3
     if _stop is not None:
         return _stop
     print(f"\n[ok] reel -> {Path(result.reel_path).resolve()}")

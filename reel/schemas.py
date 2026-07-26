@@ -141,3 +141,8 @@ class ReelFromProfileResponse(BaseModel):
     # What the final screening saw: "clean" | "issues: ..." | "not screened". Never absent —
     # a reel nobody could screen must not read as a screened one.
     screening: str = ""
+    # The delivery container, measured on the file that shipped: "ok" | "issues: ..." |
+    # "not finalised". Never absent — a container nobody could check must not read as checked.
+    envelope: str = ""
+    # The ONE blocking decision (directive 6.4): "ok" | "blocked: ..." | "unverified".
+    artifact_verdict: str = ""

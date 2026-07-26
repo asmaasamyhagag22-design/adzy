@@ -4579,10 +4579,21 @@ async function generateReel() {
     document.getElementById('gen-actions').style.display = 'flex';
     const dl = document.getElementById('download-btn');
     if (dl) dl.onclick = () => downloadReel();
+    // THE VERDICT LEADS. `screening` used to be the only quality signal on screen, and it only
+    // looks at black bands and silence. `artifact_verdict` is the ONE blocking decision over
+    // every gate (copy grounding, scene QA, container, loudness) — and `unverified` is shown by
+    // name, because a reel nobody could measure must never read like a clean one.
+    const verdict = data.artifact_verdict || '';
     const bits = [`${data.duration_s ? data.duration_s.toFixed(1) + 's' : ''}`,
                   data.mode === 'motion' ? 'Ken Burns fallback' : 'directed',
+                  verdict ? 'الحكم: ' + (verdict === 'ok' ? 'سليم'
+                            : verdict === 'unverified' ? 'ماتقاسش' : verdict) : '',
+                  data.envelope ? 'envelope: ' + data.envelope : '',
                   data.screening ? 'screening: ' + data.screening : ''].filter(Boolean);
-    document.getElementById('gen-image-meta').textContent = bits.join(' · ');
+    const meta = document.getElementById('gen-image-meta');
+    meta.textContent = bits.join(' · ');
+    meta.style.color = verdict.startsWith('blocked') ? 'var(--danger, #d9534f)'
+      : verdict === 'unverified' ? 'var(--warn, #c98a20)' : '';
     // The caption rides WITH the reel — same block the poster path uses.
     showCaption({ caption: data.social_caption, hashtags: data.hashtags });
     if ((data.warnings || []).length) {

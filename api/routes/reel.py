@@ -141,10 +141,55 @@ def create_reel_from_profile(request: ReelFromProfileRequest) -> ReelFromProfile
     except Exception:  # noqa: BLE001
         pass
 
+    # THE DELIVERY CONTAINER, decided once for BOTH paths (directive §2). The CLI does the same
+    # thing at the same point; a fix on one path only is how the dashboard ended up on its own
+    # reel engine in the first place. Measured on the last shipped reel: 772x1372, yuvj420p,
+    # full-range, bt470bg, 44.1 kHz — every field wrong, and the platform's transcoder would
+    # have crushed the blacks of an already-dark film.
+    envelope = {"value": None, "reason": "not finalised"}
+    try:
+        from reel.encode_profile import finalize_delivery
+        envelope = finalize_delivery(out)
+    except Exception:  # noqa: BLE001
+        logger.exception("finalize_delivery unavailable")
+    if envelope.get("value") is False:
+        warnings.append("الحاوية مش مطابقة لمواصفات المنصة: " + str(envelope.get("reason") or ""))
+    elif envelope.get("value") is None:
+        warnings.append("الحاوية ماتظبطتش (الملف اتسلّم زي ما هو).")
+
     try:
         data = out.read_bytes()
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Reel render produced no file: {exc}") from exc
+
+    # THE AUDIT TRAIL, for web reels too. `build_reel_audit` existed and was correct-shaped, and
+    # this route had never called it — every reel the owner generated from the dashboard shipped
+    # with no exportable proof of anything. The envelope and loudness verdicts join it as gates,
+    # so the single `artifact_verdict` covers the container as well as the content.
+    audit_path = None
+    verdict = {"value": None, "reason": "audit unavailable"}
+    try:
+        from reel.audit import build_reel_audit, write_reel_audit
+        from reel.encode_profile import check_audio
+        from reel.verdicts import gate
+
+        gates = [gate(**{k: v for k, v in envelope.items()
+                         if k in ("value", "method", "measure", "threshold", "observed",
+                                  "units_checked", "reason")}, name="platform_envelope")]
+        _aud = check_audio(out)
+        gates.append(gate("audio_loudness", value=_aud.get("value"), method="code",
+                          measure="lufs", threshold=_aud.get("threshold"),
+                          observed=_aud.get("observed"),
+                          units_checked=_aud.get("units_checked") or {},
+                          reason=_aud.get("reason") or ""))
+        audit = build_reel_audit(profile, creative, render_result=_res if mode == "creative"
+                                 else None, extra_gates=gates)
+        verdict = audit.get("artifact_verdict") or verdict
+        audit_path = write_reel_audit(audit, out)
+    except Exception:  # noqa: BLE001 — an audit failure must not cost the owner her reel
+        logger.exception("reel audit failed")
+    if verdict.get("value") is False:
+        warnings.append("الحكم النهائي: " + str(verdict.get("reason") or ""))
 
     lang = request.language if request.language in ("ar", "en") else "auto"
     caption, tags = _caption(profile, lang)
@@ -165,4 +210,10 @@ def create_reel_from_profile(request: ReelFromProfileRequest) -> ReelFromProfile
         social_caption=caption,
         hashtags=tags,
         screening=screening,
+        artifact_verdict=("ok" if verdict.get("value") is True
+                          else ("unverified" if verdict.get("value") is None
+                                else "blocked: " + str(verdict.get("reason") or ""))),
+        envelope=("ok" if envelope.get("value") is True
+                  else ("not finalised" if envelope.get("value") is None
+                        else "issues: " + str(envelope.get("reason") or ""))),
     )
