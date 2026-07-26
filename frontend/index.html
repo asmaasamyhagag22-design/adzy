@@ -2012,6 +2012,13 @@
         <button class="strat-generate-btn" id="strat-gen-swot-btn" onclick="generateSwot()">
           <i class="ph ph-sparkle"></i> <span id="strat-gen-swot-label">Generate SWOT</span>
         </button>
+        <!-- Free and instant: this brand may ALREADY have a full analysis on disk from a CLI run.
+             Measured on Al Fouad — a real competitive SWOT sat in outputs/ while this panel said
+             "no SWOT yet" and the only button offered was one that pays to compute it again. -->
+        <button class="strat-generate-btn" id="strat-adopt-swot-btn" onclick="adoptAnalysis()"
+                style="display:none; background:var(--surface2); color:var(--text);">
+          <i class="ph ph-download-simple"></i> <span id="strat-adopt-swot-label">Show existing analysis</span>
+        </button>
         <button class="strat-generate-btn" id="strat-approve-swot-btn" onclick="approveSwot()" style="display:none; background:var(--surface2); color:var(--text);">
           <i class="ph ph-check"></i> Approve SWOT
         </button>
@@ -3591,6 +3598,10 @@ function renderStrategyDashboard(b) {
     document.getElementById('strat-approve-swot-btn').style.display = (swotExists && !swotApproved) ? '' : 'none';
     document.getElementById('strat-gen-strategy-btn').style.display = (swotApproved && !strategyExists) ? '' : 'none';
     document.getElementById('strat-regen-swot-btn').style.display = (swotExists && swotApproved) ? '' : 'none';
+    // Offered only when there is nothing to show yet — importing a file must never look like an
+    // alternative to the owner's approved SWOT.
+    const adoptBtn = document.getElementById('strat-adopt-swot-btn');
+    if (adoptBtn) adoptBtn.style.display = swotExists ? 'none' : '';
 
     const strategyLabel = document.getElementById('strat-gen-strategy-label');
     if (strategyLabel) strategyLabel.textContent = strategyExists ? 'Regenerate Strategy' : 'Generate Strategy';
@@ -4135,6 +4146,35 @@ async function generateInfluencerPoster() {
     btn.disabled = false;
     label.textContent = priorLabel;
     toast('Failed to start: ' + e.message, 'error');
+  }
+}
+
+// Adopt the analysis a CLI run already produced for this brand. Reads a file — no model calls,
+// no spend. It is a no-op that SAYS SO when there is nothing on disk, rather than reporting a
+// success that changed nothing.
+async function adoptAnalysis() {
+  const b = state.studioBrand;
+  if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
+  const btn = document.getElementById('strat-adopt-swot-btn');
+  const priorLabel = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'Loading…';
+  try {
+    const r = await api('POST', '/api/brands/' + encodeURIComponent(b.domain_key) + '/adopt-analysis');
+    if (!r.adopted) {
+      toast(r.reason || 'No analysis on disk for this brand', 'error');
+      return;
+    }
+    toast(`Loaded from ${r.source}: SWOT${r.trends ? ', ' + r.trends + ' trends' : ''}` +
+          `${r.competitors ? ', ' + r.competitors + ' competitors' : ''}`, 'success');
+    const fresh = await api('GET', '/api/brands/' + b.domain_key);
+    state.studioBrand = fresh;
+    renderStrategyDashboard(fresh);
+  } catch (e) {
+    toast('Could not load the existing analysis: ' + (e.message || e), 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = priorLabel;
   }
 }
 

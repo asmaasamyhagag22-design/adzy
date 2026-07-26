@@ -42,6 +42,71 @@ def get_brand(domain_key: str, user: dict = Depends(require_user)) -> dict:
     return brand
 
 
+def _cli_result_for(domain_key: str) -> tuple[dict, str]:
+    """The newest CLI full-run result that belongs to this brand, as (result, filename).
+
+    A CLI run names its output after whatever slug the operator typed, so matching on the filename
+    alone is unreliable — Al Fouad's run landed in `alfouad_full_result.json` while the brand key
+    is `alfouadpharmacies_com`. The `subject_url` INSIDE each result is the authority; the filename
+    is only a tiebreak. ({}, "") when nothing matches — never a guess.
+    """
+    import json
+    import re
+    from pathlib import Path
+
+    def _key(url: str) -> str:
+        host = re.sub(r"^https?://", "", str(url or "")).split("/")[0].lower()
+        return re.sub(r"[^a-z0-9]+", "_", host.removeprefix("www.")).strip("_")
+
+    best: tuple[float, dict, str] = (-1.0, {}, "")
+    out = Path("outputs")
+    if not out.is_dir():
+        return {}, ""
+    for p in out.glob("*_result.json"):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 — an unreadable neighbour must not break the lookup
+            continue
+        if not isinstance(data, dict) or _key(data.get("subject_url")) != domain_key:
+            continue
+        mtime = p.stat().st_mtime
+        if mtime > best[0]:
+            best = (mtime, data, p.name)
+    return best[1], best[2]
+
+
+@router.post("/brands/{domain_key}/adopt-analysis")
+def adopt_analysis(domain_key: str, user: dict = Depends(require_user)) -> dict:
+    """Show the analysis this brand ALREADY has, instead of paying to compute it a second time.
+
+    Measured on the owner's own brand: a full CLI run produced a competitive SWOT (11 strengths,
+    6 opportunities, 1 threat, 2 site-readiness items) plus 6 market trends and 2 competitors, and
+    the Studio displayed `has_swot: false` beside it — because no supported path existed from a
+    `<slug>_result.json` into the brand store. Her question was "how did the SWOT not come out?";
+    it had come out, in the other world.
+
+    Free and instant: it reads a file. `POST /api/analysis/swot` still exists for a fresh compute.
+    """
+    store = BrandStore()
+    brand = store.get(domain_key, for_user=user["id"])
+    if brand is None:
+        raise HTTPException(status_code=404, detail="Brand not found.")
+
+    result, filename = _cli_result_for(domain_key)
+    if not result:
+        return {"adopted": False, "reason": "no CLI analysis on disk for this brand",
+                "source": ""}
+
+    from ..webapp_analysis import adopt_full_result
+    patch = adopt_full_result(brand, result)
+    store.update(domain_key, patch, for_user=user["id"])
+    return {"adopted": True, "source": filename,
+            "swot": bool(patch.get("has_swot")),
+            "trends": len(((patch.get("swot") or {}).get("trends")) or []),
+            "competitors": len(patch.get("competitors") or []),
+            "keys": sorted(result.keys())}
+
+
 @router.delete("/brands/{domain_key}")
 def delete_brand(domain_key: str, user: dict = Depends(require_user)) -> dict:
     """DELETE stays idempotent: absent, and belonging-to-someone-else, both answer 200.

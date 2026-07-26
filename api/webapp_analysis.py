@@ -353,7 +353,7 @@ def generate_swot(brand: dict) -> dict:
     swot, _peers = _compute_swot(_profile_of(brand))
     return {
         "swot": _swot_to_frontend(swot),
-        "_swot_raw": dataclasses.asdict(swot),
+        "_swot_raw": _swot_raw_dict(swot),   # asdict alone erased the trends it had just computed
         "has_swot": True,
     }
 
@@ -362,8 +362,29 @@ def generate_swot(brand: dict) -> dict:
 # STRATEGY (TOWS -> marketing_strategy)
 # =====================================================================
 
+def _swot_raw_dict(swot) -> dict:
+    """The stored `_swot_raw`, WITH the parts `dataclasses.asdict` cannot see.
+
+    `market_trends` is attached dynamically (`_compute_swot`, above) because it is not a field on
+    the SWOT dataclass. `asdict` therefore never captured it, so every SWOT this app stored had
+    its trends erased at the moment of writing — and the rebuild below could not put back what was
+    never recorded. The Trend tab then read empty and looked like a brand with no market signals.
+    """
+    import dataclasses
+    raw = dataclasses.asdict(swot)
+    trends = list(getattr(swot, "market_trends", []) or [])
+    if trends:
+        raw["market_trends"] = trends
+    return raw
+
+
 def _swot_from_raw(raw: dict):
-    """Rebuild a SWOT dataclass from the stored _swot_raw so build_tows can consume it."""
+    """Rebuild a SWOT dataclass from the stored _swot_raw so build_tows can consume it.
+
+    Carries `site_readiness` and `market_trends` too. It used to drop both: site mechanics were
+    MOVED out of the strategic quadrants on the owner's ruling and `_swot_to_frontend` carries them
+    precisely so the move is honest rather than a deletion — and then this rebuild deleted them.
+    """
     from competitor.swot import SWOT, SWOTItem
 
     def _mk(items):
@@ -372,10 +393,57 @@ def _swot_from_raw(raw: dict):
                          claim_strength=i.get("claim_strength", "internally_supported"))
                 for i in (items or [])]
 
-    return SWOT(
+    swot = SWOT(
         strengths=_mk(raw.get("strengths")), weaknesses=_mk(raw.get("weaknesses")),
         opportunities=_mk(raw.get("opportunities")), threats=_mk(raw.get("threats")),
-        notes=list(raw.get("notes", []) or []), mode=raw.get("mode", "competitive"))
+        notes=list(raw.get("notes", []) or []), mode=raw.get("mode", "competitive"),
+        site_readiness=_mk(raw.get("site_readiness")))
+    swot.market_trends = list(raw.get("market_trends") or [])
+    return swot
+
+
+def adopt_full_result(brand: dict, result: dict) -> dict:
+    """Bring a CLI full-run `<slug>_result.json` into the webapp brand — the ONE front end.
+
+    THE DEFECT THIS CLOSES (measured 2026-07-26, Al Fouad Pharmacies): the CLI computed a real
+    competitive SWOT — 11 strengths, 6 opportunities, 1 threat, 2 site-readiness items — wrote it
+    to `outputs/alfouad_full_result.json`, and the stored brand said `has_swot: false, swot: null`.
+    A `grep` for `_full_result` across every .py in the repo returns ZERO writers: the partial copy
+    in the store was left by a throwaway script that listed 8 keys by hand, so the other 12 —
+    swot, trends and competitors among them — were never on the wire.
+
+    NO ALLOW-LIST. `_full_result` takes the whole result verbatim, so an analysis key added next
+    month arrives without anyone remembering to widen a list. That hand-written list IS the bug.
+
+    NON-DESTRUCTIVE. An owner-approved SWOT is her signature; an import never overwrites it. And a
+    result with no SWOT leaves `has_swot` untouched rather than asserting one — absence is not a
+    pass.
+
+    Returns the PATCH to apply to the stored brand (never writes).
+    """
+    result = dict(result or {})
+    patch: dict = {"_full_result": result}
+
+    comps = result.get("competitors")
+    if isinstance(comps, list) and comps:
+        patch["competitors"] = comps
+
+    raw = result.get("swot")
+    if not isinstance(raw, dict) or not raw:
+        return patch                     # nothing to claim
+    if (brand or {}).get("swot_approved"):
+        return patch                     # her signature wins
+
+    raw = dict(raw)
+    # The CLI keeps market signals at the TOP level of the result; the webapp reads them off the
+    # SWOT. Same facts, different address — carried across here rather than lost in the gap.
+    if not raw.get("market_trends") and result.get("trends"):
+        raw["market_trends"] = list(result["trends"])
+    swot = _swot_from_raw(raw)
+    patch["swot"] = _swot_to_frontend(swot)
+    patch["_swot_raw"] = _swot_raw_dict(swot)
+    patch["has_swot"] = True
+    return patch
 
 
 def _strategy_readiness_notes(brand: dict, profile: dict) -> list[str]:
