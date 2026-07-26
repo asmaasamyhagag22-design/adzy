@@ -3732,8 +3732,10 @@ function renderStrategyDashboard(b) {
     const bs = ctx.benchmark_summary || {};
     document.getElementById('trend-benchmark').innerHTML = `
       <span class="strat-chip">quality: ${bq}</span>
-      <span class="strat-chip">competitors seen: ${bs.total_competitors ?? 0}</span>
-      <span class="strat-chip">min reviews recommended: ${bs.recommended_min_reviews ?? '-'}</span>
+      ${(b.competitors || []).length
+          ? `<span class="strat-chip">competitors seen: ${(b.competitors || []).length}</span>` : ''}
+      ${bs.recommended_min_reviews != null
+          ? `<span class="strat-chip">min reviews recommended: ${bs.recommended_min_reviews}</span>` : ''}
     `;
 
     const lowConf = ctx.low_benchmark_items || [];
@@ -4948,7 +4950,6 @@ async function generateImage() {
         product_name: productName,
         product_description: productDesc,
       };
-      console.log('Generate payload:', payload);
       data = await api('POST', '/api/generate', payload);
     }
 
@@ -5020,10 +5021,6 @@ function downloadImage() {
 // is still a dead end: «لو شايف فيتشر او حاجه ملهاش لازم شيها». Same reasoning that retired the
 // product reference-photo upload. The ROUTE stays — a client already calling it should get the
 // honest answer, not a 404.
-
-function saveToHistory() {
-  toast('Image saved to history', 'success');
-}
 
 // ── History ─────────────────────────────────────────────────────────────────
 async function loadHistory() {
