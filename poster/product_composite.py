@@ -31,6 +31,16 @@ logger = logging.getLogger(__name__)
 DEFAULT_ZONE = (0.52, 0.34, 0.44)
 
 
+def _fetch(url: str) -> Optional[bytes]:
+    """Bytes for a remote asset. A seam so tests never touch the network."""
+    try:
+        from reel.video_provider import _load_reference_image
+        loaded = _load_reference_image(str(url))
+        return loaded[0] if loaded else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _load(asset: "bytes | str | Path") -> Optional["object"]:
     from PIL import Image
     try:
@@ -40,14 +50,30 @@ def _load(asset: "bytes | str | Path") -> Optional["object"]:
             return Image.open(io.BytesIO(bytes(asset))).convert("RGBA")
         p = str(asset)
         if p.startswith(("http://", "https://")):
-            from reel.video_provider import _load_reference_image
-            loaded = _load_reference_image(p)
-            if not loaded:
-                return None
-            return Image.open(io.BytesIO(loaded[0])).convert("RGBA")
+            data = _fetch(p)
+            return Image.open(io.BytesIO(data)).convert("RGBA") if data else None
         return Image.open(p).convert("RGBA")
     except Exception:  # noqa: BLE001
         return None
+
+
+def _feather(im, radius_frac: float = 0.06):
+    """Soft-edge an unkeyable panel so it blends instead of reading as a pasted card.
+
+    THE THIRD STATE (measured on v8): refusing to paste shipped a poster with NO product and an
+    empty hand reaching for nothing — worse for the owner than anything the refusal protected
+    her from. A feathered blend keeps the label pixel-exact and removes the 177-level edge
+    cliff that made the panel read as tape."""
+    from PIL import Image, ImageDraw, ImageFilter
+    w, h = im.size
+    r = max(4, int(min(w, h) * radius_frac))
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([r // 2, r // 2, w - r // 2, h - r // 2],
+                                           radius=r, fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(radius=r))
+    out = im.copy()
+    out.putalpha(mask)
+    return out
 
 
 def _key_studio_background(im):
@@ -116,28 +142,37 @@ def _trim(im):
     return im.crop(box) if box else im
 
 
-def composite_product(background: "str | Path", asset: "bytes | str | Path", *,
+def composite_product(background: "str | Path", asset, *,
                       zone: tuple = DEFAULT_ZONE, contact_shadow: bool = True,
                       out_path: "str | Path | None" = None) -> Optional[str]:
-    """Paste `asset` onto `background` inside `zone`. Returns the new path, or None when the
-    asset is unusable — a caller that gets None must NOT claim the real product is shown."""
+    """Paste the product onto `background` inside `zone`. `asset` is bytes, a URL/path, or a
+    LIST of candidates — the first that keys into a clean cut-out wins; if none does, the first
+    usable one is FEATHERED in. Returns the new path, or None only when nothing loads at all."""
     from PIL import Image, ImageFilter
 
     try:
         bg = Image.open(str(background)).convert("RGBA")
     except Exception:  # noqa: BLE001
         return None
-    prod = _load(asset)
+
+    candidates = list(asset) if isinstance(asset, (list, tuple)) else [asset]
+    prod, feathered = None, False
+    first_usable = None
+    for cand in candidates:
+        loaded = _load(cand)
+        if loaded is None:
+            continue
+        first_usable = first_usable or loaded
+        keyed = _key_studio_background(loaded)
+        if keyed is not None:
+            prod = _trim(keyed)
+            break
     if prod is None:
-        return None
-    keyed = _key_studio_background(prod)
-    if keyed is None:
-        # A photographic panel pasted onto a poster is a CARD, not a product («البانل الملزوق»).
-        # No product beats a glued rectangle.
-        logger.info("[product] the asset's background is photographic and cannot be keyed — "
-                    "not compositing")
-        return None
-    prod = _trim(keyed)
+        if first_usable is None:
+            return None
+        # No candidate keyed — blend the best one softly rather than ship no product at all.
+        logger.info("[product] no candidate keyed cleanly — feathering the panel")
+        prod, feathered = _feather(first_usable), True
     if prod.width < 8 or prod.height < 8:
         return None
 
@@ -157,7 +192,7 @@ def composite_product(background: "str | Path", asset: "bytes | str | Path", *,
     y = max(0, min(y, H - target_h))
 
     layer = Image.new("RGBA", bg.size, (0, 0, 0, 0))
-    if contact_shadow:
+    if contact_shadow and not feathered:
         # A soft ellipse where the product meets the surface — the reviewer's «العبوة طايرة
         # مش واقفة على حاجة». Deterministic, and it is what makes a paste read as a photograph.
         shadow = Image.new("RGBA", bg.size, (0, 0, 0, 0))

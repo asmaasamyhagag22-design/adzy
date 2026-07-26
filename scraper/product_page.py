@@ -27,6 +27,12 @@ _PRODUCT_TYPES = {"product", "productmodel", "individualproduct", "productgroup"
 class ProductInfo(BaseModel):
     name: str = ""
     image: str = ""
+    # EVERY candidate image the page shows, best-first. MEASURED (Al Fouad × La Roche,
+    # 2026-07-26): `image` is the og:image, and for this product that is a composed marketing
+    # BANNER — gradient ground, its own heart prop — which cannot be keyed into a cut-out, so
+    # the poster shipped with no product at all. The gallery holds clean pack shots; nothing
+    # ever looked at them.
+    images: list[str] = []
     url: str = ""
     description: str = ""
     price: str = ""
@@ -159,6 +165,27 @@ def parse_product(html: str, url: str) -> Optional[ProductInfo]:
             info.description = info.description or (
                 getattr(meta, "meta_description", "") or getattr(meta, "description", "")
                 or getattr(meta, "og_description", "") or "").strip()
+
+    # The gallery: every <img> that looks like a product asset, og:image first.
+    try:
+        from bs4 import BeautifulSoup
+        from urllib.parse import urljoin
+        soup = BeautifulSoup(html, "html.parser")
+        seen, gallery = set(), []
+        for src in ([info.image] if info.image else []) + [
+                (t.get("src") or t.get("data-src") or "") for t in soup.find_all("img")]:
+            u = str(src or "").strip()
+            if not u or u.startswith("data:"):
+                continue
+            u = urljoin(url, u)
+            base = u.split("?", 1)[0].lower()
+            if base in seen or not base.endswith((".png", ".jpg", ".jpeg", ".webp")):
+                continue
+            seen.add(base)
+            gallery.append(u)
+        info.images = gallery[:8]
+    except Exception:  # noqa: BLE001 — the gallery is an enrichment
+        info.images = [info.image] if info.image else []
 
     if not info.name:                                 # last resort: the first <h1>
         try:

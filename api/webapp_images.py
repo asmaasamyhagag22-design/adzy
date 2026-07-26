@@ -267,7 +267,12 @@ def _render_real(brand: dict, *, headline: str, language: str, product=None,
                           headline_override=headline or None,
                           trend_context=trend_context or None,
                           identity_image=((face, face_mime or "image/png") if face else None),
-                          product_image=(getattr(product, "image", "") or None) if product else None,
+                          # EVERY candidate the product page showed, best-first: the og:image is
+                          # often a composed banner that cannot be keyed, while the gallery holds
+                          # the clean pack shot the composite needs.
+                          product_image=((list(getattr(product, "images", None) or [])
+                                          or [getattr(product, "image", "")])
+                                         if product else None),
                           product_name=(getattr(product, "name", "") or None) if product else None,
                           # The item's OWN facts — its page description and the price exactly as
                           # shown — so the copy can sell the product (SPF, actives, price) and not

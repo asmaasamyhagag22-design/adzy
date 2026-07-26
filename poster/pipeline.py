@@ -740,7 +740,7 @@ def _profile_category(profile) -> str:
 
 
 def _gather_product_props(profile, caller, log,
-                          product_image: Optional[str] = None) -> tuple[list, list[str], str]:
+                          product_image=None) -> tuple[list, list[str], str]:
     """The brand's REAL photos attached to the one-shot composite, with their ROLE (the
     owner's radical fix: a real asset composites correctly — like the logo — instead of the
     model inventing packaging or a stock office).
@@ -757,6 +757,9 @@ def _gather_product_props(profile, caller, log,
     failure — never raises."""
     role = "prop"
     try:
+        # `product_image` may be the page's whole gallery; the FIRST is the primary prop.
+        if isinstance(product_image, (list, tuple)):
+            product_image = product_image[0] if product_image else None
         picked = [product_image] if product_image else []
         if not picked and _profile_category(profile) in _SERVICE_NO_PROP_CATS:
             role = "place"
@@ -1401,12 +1404,17 @@ def generate_poster(
             # THE PRODUCT IS PASTED, NOT PROMPTED (2026-07-26). With a real product asset in
             # hand the scene is generated WITHOUT it and the real photo is composited on top, so
             # its label is pixel-identical instead of being rewritten by the model.
+            # `product_image` may be a LIST of candidates (the page's gallery). The composite
+            # picks among them; anything expecting one URL gets the first.
             _composite_after = bool(product_image)
+            _primary_product_img = (product_image[0] if isinstance(product_image, (list, tuple))
+                                    and product_image else product_image)
             try:
                 if use_edit:
                     bg_path, model_used = _generate_background(
                         profile, brand_dna, prompt, log=log,
-                        product_images=([product_image] if product_image else None),
+                        product_images=(list(product_image) if isinstance(product_image, (list, tuple))
+                                        else ([product_image] if product_image else None)),
                         identity_ref=identity_image, product_name=product_name or "",
                         composite_product_after=_composite_after)
                 else:

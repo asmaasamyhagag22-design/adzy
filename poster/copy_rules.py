@@ -45,7 +45,14 @@ def tidy_cta(cta: str, *, brand_name: str = "", max_words: int = MAX_CTA_WORDS) 
     text = text.strip(_TERMINALS + " ")
     words = text.split()
     if len(words) > max_words:
-        text = " ".join(words[:max_words])
+        # v8 shipped «اطلبيه دلوقتي من صيدليات» — the cap sliced a name in half. Cut at the last
+        # CONNECTIVE before the limit when there is one, so the label ends on a whole idea.
+        cut = max_words
+        for i in range(min(max_words, len(words)) - 1, 0, -1):
+            if _DANGLING.search(" " + words[i]):
+                cut = i
+                break
+        text = " ".join(words[:cut])
         text = _strip_dangling(text)
     return text.strip(_TERMINALS + " ")
 

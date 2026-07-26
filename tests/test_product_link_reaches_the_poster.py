@@ -75,7 +75,12 @@ def test_a_product_link_puts_that_product_in_the_poster(monkeypatch, _brand, _ca
     monkeypatch.setattr(wi, "scrape_product_page", lambda u: _product(), raising=False)
     wi.generate_image(_brand, headline="عرض", product_url="https://shop.test/p/serum")
     assert _capture.get("product_name") == "Vitamin C Serum", _capture
-    assert _capture.get("product_image") == "https://shop.test/img/serum.jpg", _capture
+    # `product_image` carries the page's CANDIDATE LIST since 2026-07-26 (the og:image is often
+    # a composed banner that cannot be keyed; the gallery holds the clean pack shot). The
+    # contract that matters is unchanged: the pasted link's own photo reaches the render.
+    got = _capture.get("product_image")
+    got = got[0] if isinstance(got, (list, tuple)) else got
+    assert got == "https://shop.test/img/serum.jpg", _capture
 
 
 def test_no_link_leaves_the_normal_path_untouched(monkeypatch, _brand, _capture):
