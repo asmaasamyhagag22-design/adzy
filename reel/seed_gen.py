@@ -200,7 +200,11 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
                     product_images=(attach or None),
                     identity_ref=identity_ref)
                 stats["generated"] += 1
-                v = check_seed_frame(p, caller=caller, brand_hint=name)
+                # attach non-empty = this seed was conditioned on the brand's REAL product
+                # images -> the gate must judge label text as the deliverable, not a defect
+                # (live finding 2026-07-25: the blanket ban rejected every Abu Auf seed).
+                v = check_seed_frame(p, caller=caller, brand_hint=name,
+                                     real_product_refs=bool(attach))
                 # FAIL-CLOSED (P6 #7): only an explicit PASS animates. This was
                 # `(not v.checked) or v.overall_pass` — so no vision caller, an unreadable PNG, or
                 # ONE Gemini timeout accepted the seed and spent Veo money on it, which is the

@@ -223,10 +223,18 @@ class _SeedResponse(BaseModel):
 
 
 def check_seed_frame(image: "str | Path | bytes", *, caller: Any = None,
-                     brand_hint: str = "", log=logger.info) -> SeedVerdict:
+                     brand_hint: str = "", real_product_refs: bool = False,
+                     log=logger.info) -> SeedVerdict:
     """One generated still -> pass/fail BEFORE Veo. Degrades permissive (checked=False)
     with no caller / unreadable image / call failure — the gate never blocks a render
-    by itself; it only stops KNOWN-bad seeds from being animated."""
+    by itself; it only stops KNOWN-bad seeds from being animated.
+
+    real_product_refs: the seed was CONDITIONED on the brand's real product images (pool /
+    gated photo attached to the generation). LIVE FINDING (Abu Auf 2026-07-25): the blanket
+    no_text ban — calibrated on Veo-era invented signage — rejected EVERY such seed for
+    "readable text on the packaging", i.e. it killed the real label the owner explicitly
+    ordered kept («عايزة المنتج يجي زي ما هو بالظبط»). With refs attached, faithful label
+    text IS the deliverable; only invented/garbled text remains a defect."""
     if caller is None:
         return SeedVerdict(reason="no vision caller: seed gate skipped", checked=False)
     try:
@@ -234,6 +242,23 @@ def check_seed_frame(image: "str | Path | bytes", *, caller: Any = None,
     except Exception:  # noqa: BLE001
         return SeedVerdict(reason="could not read the seed image", checked=False)
     hint = f" The brand context: {brand_hint.strip()}." if brand_hint.strip() else ""
+    if real_product_refs:
+        # The generation attached the brand's REAL product references: readable packaging
+        # text that faithfully reproduces the real product label is CORRECT (the motion
+        # model animates around a static pack). Invented text is still a kill.
+        text_rule = (
+            "- no_text: TRUE when the only readable text in frame is the real product's own "
+            "packaging/label, reproduced faithfully from the attached reference (correct "
+            "spelling, real script). FALSE for garbled or invented pseudo-text, misspelled "
+            "brand words, or made-up signage/posters/screens on NON-product surfaces.\n")
+    else:
+        # CALIBRATION FINDING (NTI run 2026-07-12): 4/5 motion-QA failures were garbled text
+        # the motion model drew over text-bearing surfaces — kill those seeds HERE, at cents.
+        text_rule = (
+            "- no_text: the frame contains NO readable or pseudo-text of any kind — no "
+            "signage, screen text, labels, posters or logos; text-bearing surfaces must be "
+            "abstract, blurred or out of frame (the motion model garbles any text it "
+            "inherits).\n")
     system = (
         "You are a WORLD-CLASS advertising ART DIRECTOR reviewing ONE frame that is about to "
         "be animated into a brand video. Your bar: would a top brand run this frame?" + hint +
@@ -245,11 +270,7 @@ def check_seed_frame(image: "str | Path | bytes", *, caller: Any = None,
         "- composition_clean: ONE clear focal point, no clutter, no half-formed or garbled "
         "elements.\n"
         "- ad_grade: overall, professional-campaign quality for this brand.\n"
-        # CALIBRATION FINDING (NTI run 2026-07-12): 4/5 motion-QA failures were garbled text
-        # Veo drew over text-bearing surfaces — kill those seeds HERE, at cents, not there.
-        "- no_text: the frame contains NO readable or pseudo-text of any kind — no signage, "
-        "screen text, labels, posters or logos; text-bearing surfaces must be abstract, "
-        "blurred or out of frame (the motion model garbles any text it inherits).\n"
+        + text_rule +
         "- score: 1..10 as an art director.\n"
         "- reason: one short sentence naming the worst problem (or 'clean')."
     )

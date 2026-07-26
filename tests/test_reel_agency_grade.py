@@ -290,3 +290,88 @@ def test_image_lane_pro_puts_pro_first(monkeypatch):
     assert "pro-image" in oneshot.resolve_oneshot_model()
     monkeypatch.delenv("IMAGE_LANE", raising=False)
     assert oneshot.resolve_oneshot_model() == oneshot.DEFAULT_ONESHOT_MODEL
+
+
+# =====================================================================
+# 7) the seed gate vs the REAL product label
+#    LIVE FINDING (Abu Auf run 2026-07-25, runs/reel_abuauf_agency.log): the gate rejected
+#    EVERY pool-conditioned seed with "the product packaging contains clear, readable text
+#    which will be garbled" — 13 paid attempts, ~all scenes seedless. The no_text rule was
+#    calibrated for VEO-era invented signage; it now kills exactly what the owner ordered:
+#    «عايزة المنتج يجي زي ما هو بالظبط». Real label text from an attached reference is the
+#    DELIVERABLE; invented pseudo-text is still the defect.
+# =====================================================================
+
+def _seed_gate_probe(real_refs: bool):
+    from reel.scene_qa import check_seed_frame
+    seen = {}
+
+    def caller(system, user, schema, group_name=None, images=None):
+        seen["system"] = system
+
+        class _R:
+            anatomy_ok = True; lighting_real = True; composition_clean = True
+            ad_grade = True; no_text = True; score = 9; reason = "clean"
+        return _R(), {}
+
+    check_seed_frame(b"fakepng", caller=caller, brand_hint="Abu Auf",
+                     real_product_refs=real_refs)
+    return seen["system"]
+
+
+def test_the_gate_allows_the_real_label_when_refs_were_attached():
+    """real_product_refs=True: readable text that faithfully reproduces the ATTACHED product's
+    real packaging must be acceptable; invented/garbled text must still fail."""
+    system = _seed_gate_probe(True)
+    low = system.lower()
+    assert "no readable or pseudo-text of any kind" not in low, (
+        "the blanket Veo-era text ban is still active even though the seed was conditioned "
+        "on the brand's real product reference")
+    assert "packaging" in low and ("faithful" in low or "real product" in low), system
+    assert "garbled" in low or "invented" in low, (
+        "pseudo-text lost its ban entirely — the gate swung from too strict to absent")
+
+
+def test_the_gate_keeps_the_blanket_ban_for_unconditioned_seeds():
+    """No real refs attached -> any readable text is still invented text -> still banned."""
+    system = _seed_gate_probe(False)
+    assert "no readable or pseudo-text of any kind" in system.lower()
+
+
+def test_seed_gen_tells_the_gate_when_real_refs_were_attached(monkeypatch, tmp_path):
+    """The wiring: an attempt that attached real product refs must call the gate with
+    real_product_refs=True; the unconditioned attempt 3 must not."""
+    import reel.seed_gen as sg
+    import reel.scene_qa as sq
+
+    calls = []
+
+    def fake_gate(image, *, caller=None, brand_hint="", real_product_refs=False, **kw):
+        calls.append(bool(real_product_refs))
+
+        class _V:
+            overall_pass = False if len(calls) < 3 else True
+            checked = True; reason = "probe"
+        return _V()
+
+    import poster.oneshot as oneshot
+    monkeypatch.setattr(sq, "check_seed_frame", fake_gate)
+    monkeypatch.setattr(oneshot, "generate_oneshot_poster",
+                        lambda prompt, path, **kw: Path(path).write_bytes(b"png"))
+    monkeypatch.setattr(sg, "_ref_bytes", lambda url: b"refbytes")
+
+    class _Scene:
+        veo_prompt = "a hand lifts the pack"
+        image_index = 0
+
+    class _Creative:
+        scenes = [_Scene()]
+
+    profile = {"name": "Abu Auf", "source_url": "https://abuauf.test/"}
+    sg.generate_scene_seeds(_Creative(), [], profile=profile, out_dir=tmp_path,
+                            caller=object(), ref_pool=["https://abuauf.test/p.jpg"],
+                            log=lambda *a, **k: None)
+    assert calls, "the gate was never called"
+    # attempts 1-2 attach the pool (no gated photo) -> True; attempt 3 is unconditioned -> False
+    assert calls[0] is True, f"pool-conditioned attempt hid the refs from the gate: {calls}"
+    assert False in calls[:3], f"the unconditioned attempt still claimed real refs: {calls}"

@@ -121,7 +121,7 @@ def test_generate_scene_seeds_gate_retry_and_fallback(monkeypatch, tmp_path):
                      SeedVerdict(overall_pass=False, checked=True,      # plain 3rd: fail
                                  reason="still warped")])
     monkeypatch.setattr("reel.scene_qa.check_seed_frame",
-                        lambda p, caller=None, brand_hint="", log=None: next(verdicts))
+                        lambda p, caller=None, brand_hint="", log=None, **kw: next(verdicts))
 
     out = generate_scene_seeds(_plan(), ["https://x/real0.jpg", "https://x/real1.jpg"],
                                profile={"name": {"value": "NTI"}}, out_dir=tmp_path,
@@ -152,7 +152,7 @@ def test_an_UNJUDGED_seed_never_animates(monkeypatch, tmp_path):
     monkeypatch.setattr(sg, "_ref_bytes", lambda url: (b"refbytes", "image/jpeg"))
     # the gate could not run — the exact shape scene_qa returns on no-caller / unreadable / timeout
     monkeypatch.setattr("reel.scene_qa.check_seed_frame",
-                        lambda p, caller=None, brand_hint="", log=None:
+                        lambda p, caller=None, brand_hint="", log=None, **kw:
                         SeedVerdict(checked=False, reason="seed gate call failed (TimeoutError)"))
 
     out = generate_scene_seeds(_plan(), ["https://x/real0.jpg", "https://x/real1.jpg"],
@@ -188,7 +188,7 @@ def test_the_seed_lane_is_chosen_EXPLICITLY_not_inherited(monkeypatch, tmp_path)
     monkeypatch.setattr("poster.oneshot.generate_oneshot_poster", _fake_gen)
     monkeypatch.setattr(sg, "_ref_bytes", lambda url: None)
     monkeypatch.setattr("reel.scene_qa.check_seed_frame",
-                        lambda p, caller=None, brand_hint="", log=None:
+                        lambda p, caller=None, brand_hint="", log=None, **kw:
                         SeedVerdict(overall_pass=True, checked=True))
 
     generate_scene_seeds(_plan(), ["https://x/real0.jpg", "https://x/real1.jpg"],
@@ -215,7 +215,7 @@ def test_the_POSTERS_env_cannot_move_the_seed_lane(monkeypatch, tmp_path):
     monkeypatch.setattr("poster.oneshot.generate_oneshot_poster", _fake_gen)
     monkeypatch.setattr(sg, "_ref_bytes", lambda url: None)
     monkeypatch.setattr("reel.scene_qa.check_seed_frame",
-                        lambda p, caller=None, brand_hint="", log=None:
+                        lambda p, caller=None, brand_hint="", log=None, **kw:
                         SeedVerdict(overall_pass=True, checked=True))
 
     generate_scene_seeds(_plan(), ["https://x/real0.jpg"], profile={"name": {"value": "NTI"}},
