@@ -73,22 +73,36 @@ def test_the_freeform_low_placement_keeps_its_strong_base():
 
 # --- «مشكلة اللوجو تاني» -------------------------------------------------------------------
 
-def test_a_near_invisible_badge_is_not_drawn():
-    """MEASURED on the La Roche poster: the mark got a light frosted badge whose tone is within
-    a hair of the ground it sits on — a visible sticker that adds no contrast. A plate must
-    EARN its place: if it cannot separate the logo from the background, draw none."""
-    from poster.template import _badge_is_worth_it
-    # dark logo (0.16) on a light ground (0.90): the mark already reads -> no badge
-    assert _badge_is_worth_it(logo_lum=0.16, bg_lum=0.90) is False
-    # dark logo on a mid ground: a light badge genuinely separates it -> badge
-    assert _badge_is_worth_it(logo_lum=0.16, bg_lum=0.34) is True
-    # light logo on a light ground -> a dark badge separates it -> badge
-    assert _badge_is_worth_it(logo_lum=0.88, bg_lum=0.80) is True
+def test_the_logo_never_gets_a_plate_behind_it():
+    """OWNER RULING (2026-07-26): «انا عايزة اللوجو من غير خلفية وراه». No badge, no chip, no
+    frosted panel — on ANY background. The mark sits directly on the image; legibility comes
+    from a shadow sized to what is behind it, never from a box."""
+    from poster.template import _logo_style_for
+    for logo_lum, bg_lum in ((0.16, 0.90), (0.16, 0.20), (0.88, 0.85), (0.50, 0.50)):
+        style = _logo_style_for(logo_lum=logo_lum, bg_lum=bg_lum)
+        assert "background:transparent" in style, (logo_lum, bg_lum, style)
+        assert "backdrop-filter" not in style and "border:" not in style, style
+        assert "drop-shadow" in style, style
 
 
-def test_the_style_chooser_uses_the_rule():
+def test_a_logo_on_a_matching_ground_gets_a_stronger_shadow():
+    """No plate does not mean no legibility: the harder the mark is to separate, the stronger
+    the shadow that separates it."""
+    from poster.template import _logo_style_for
+    easy = _logo_style_for(logo_lum=0.16, bg_lum=0.92)
+    hard = _logo_style_for(logo_lum=0.50, bg_lum=0.52)
+
+    def _blur(style: str) -> float:
+        import re
+        return float(re.search(r"drop-shadow\([^)]*?([\d.]+)px\s+rgba", style).group(1))
+    assert _blur(hard) > _blur(easy), (easy, hard)
+
+
+def test_the_unmeasurable_logo_path_does_not_fall_back_to_a_box():
+    """An SVG logo cannot be measured — that used to mean a dark chip. A box drawn because we
+    could not measure is the worst version of the box the owner does not want."""
     import inspect
 
     import poster.template as T
-    src = "\n".join(l.split("#")[0] for l in inspect.getsource(T._adaptive_logo_style).splitlines())
-    assert "_badge_is_worth_it" in src
+    src = "\n".join(l.split("#")[0] for l in inspect.getsource(T).splitlines())
+    assert "background:rgba(18,20,26,.92)" not in src, "the fallback chip is still drawn"

@@ -204,47 +204,38 @@ def _bg_region_luminance(background_path: Optional[str], box) -> Optional[float]
 
 
 
-def _badge_is_worth_it(*, logo_lum: float, bg_lum: float) -> bool:
-    """Would a plate behind the mark actually help?
+def _logo_style_for(*, logo_lum: float, bg_lum: float) -> str:
+    """The mark's inline style: NO PLATE, EVER — a shadow sized to the ground behind it.
 
-    MEASURED (Al Fouad, 2026-07-26): a dark wordmark on a light ground got a LIGHT frosted
-    badge — a tone within a hair of the ground it sat on. It separated nothing and read as a
-    sticker stuck onto the poster («مشكلة اللوجو تاني»). A plate earns its place only when the
-    badge tone it would use is genuinely further from the background than the logo already is.
+    OWNER RULING (2026-07-26): «انا عايزة اللوجو من غير خلفية وراه». Every plate variant this
+    file has tried — the white chip, the dark chip, the frosted badge — reads as a sticker
+    glued onto the poster, and the last one was measured putting a light tone on a light ground
+    where it separated nothing at all. So the mark now sits directly on the image.
 
-    The badge tone is chosen by the logo: a light logo gets a dark badge (~0.10), a dark logo a
-    light one (~0.92). If that tone is no further from the background than the logo itself,
-    there is nothing to gain and a sticker to lose."""
-    already = abs(logo_lum - bg_lum)
-    if already >= 0.28:
-        return False                       # the mark already reads — never a plate
-    badge_tone = 0.10 if logo_lum >= 0.5 else 0.92
-    return abs(badge_tone - bg_lum) > already + 0.12
+    Legibility still has to be earned, so it comes from the shadow instead: the closer the
+    logo's luminance is to the background's, the harder that shadow works. A light logo casts
+    a dark shadow, a dark logo a light one — the halo is the separation."""
+    delta = abs(float(logo_lum) - float(bg_lum))
+    # 0.55 apart -> a whisper; identical -> a real halo.
+    t = max(0.0, min(1.0, (0.55 - delta) / 0.55))
+    blur = round(8 + 22 * t, 1)
+    alpha = round(0.35 + 0.45 * t, 2)
+    if logo_lum >= 0.5:                       # light mark -> dark halo
+        rgb = "0,0,0"
+    else:                                     # dark mark -> light halo
+        rgb = "255,255,255"
+    return (f"background:transparent;box-shadow:none;"
+            f"filter:drop-shadow(0 2px {blur}px rgba({rgb},{alpha}))")
 
 
 def _adaptive_logo_style(logo_src, background_path, region_box) -> Optional[str]:
-    """Choose the logo plate from the LOGO's luminance vs the BACKGROUND behind it:
-      * high contrast (logo already reads) -> NO plate, just a soft shape-shadow;
-      * low contrast -> a plate that CONTRASTS the logo (dark plate for a light logo, light
-        plate for a dark logo) — never a fixed white box, never blind removal.
-    Returns the inline-style body, or None when luminance can't be judged (SVG / failure)."""
+    """Measure the logo against what is behind it and return its inline style. None when the
+    luminance cannot be judged (SVG / failure) — the caller then draws the mark plain."""
     logo_lum = _logo_luminance(logo_src)
     bg_lum = _bg_region_luminance(background_path, region_box)
     if logo_lum is None or bg_lum is None:
         return None
-    if not _badge_is_worth_it(logo_lum=logo_lum, bg_lum=bg_lum):
-        # the mark already reads, or a plate would add no separation -> no plate, just a shadow.
-        return "background:transparent;box-shadow:none;filter:drop-shadow(0 2px 9px rgba(0,0,0,.6))"
-    # low contrast -> a soft FROSTED-GLASS "designed badge" that contrasts the LOGO: tight
-    # padding, real blur, a subtle border, and a MUTED tone (not stark white) so it reads as
-    # glass, not a screenshot box. A light logo gets a dark badge; a dark logo a soft light
-    # one (kept light enough that a dark wordmark stays legible).
-    badge = ("padding:9px 14px;border-radius:13px;"
-             "backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);"
-             "border:1px solid rgba(255,255,255,.16);box-shadow:0 7px 22px rgba(0,0,0,.34)")
-    if logo_lum >= 0.5:                       # light logo -> dark frosted badge
-        return f"background:rgba(12,15,22,.46);{badge}"
-    return f"background:rgba(236,238,243,.60);{badge}"   # dark logo -> soft light frosted badge
+    return _logo_style_for(logo_lum=logo_lum, bg_lum=bg_lum)
 
 
 def _esc(value) -> str:
@@ -902,16 +893,18 @@ def render_poster_html(
         if logo_src:
             # ADAPTIVE plate: contrast the logo against the real background behind it — no
             # plate when the mark already reads (natural integration), else a plate that
-            # contrasts the LOGO. Falls back to the capture-time chip flag when luminance
-            # can't be judged (e.g. an SVG logo): light/white logo -> dark plate.
+            # NO PLATE ON ANY PATH (owner ruling: «اللوجو من غير خلفية وراه»). The measured
+            # style is a shadow; when luminance cannot be judged (SVG) the mark still gets a
+            # neutral halo rather than the old dark chip — a box was never wanted, and a box
+            # drawn because we could not measure is the worst version of it.
             region = _logo_region_box(None if spec.text_box else mark_corner,
                                       spec.logo_xy if spec.text_box else None)
             adaptive = _adaptive_logo_style(logo_src, background_path, region)
-            if adaptive:
-                chip_style = f' style="{adaptive}"'
-            else:
-                chip_style = (' style="background:rgba(18,20,26,.92)"'
-                              if getattr(brief, "logo_chip", "light") == "dark" else "")
+            if not adaptive:
+                adaptive = _logo_style_for(
+                    logo_lum=(0.85 if getattr(brief, "logo_chip", "light") == "dark" else 0.20),
+                    bg_lum=0.5)
+            chip_style = f' style="{adaptive}"' 
             brand_html = f'<img class="brand-logo"{chip_style} src="{logo_src}" alt="{_esc(brief.business_name)}">'
         else:
             brand_html = f'<div class="brand">{_esc(brief.business_name)}</div>'
