@@ -355,6 +355,66 @@ def _elevenlabs_segment(text: str, out_mp3: Path, *, voice: str, model: str,
     return False
 
 
+def _vocalize_for_tts(lines: "list[str]", *, caller: Any = None,
+                      dialect: str = "") -> "list[str]":
+    """«طريقة كتابة الكلام بتخلي الصوت يقوله صح» — the owner's engineer, quoted twice.
+
+    A TTS voice reads UNVOCALIZED dialect Arabic with MSA guesses: wrong vowels, wrong
+    stress, dead rhythm — measured straight on the v2/v3 samples the owner rejected. Each
+    line is rewritten EXACTLY AS SPOKEN (full tashkeel on every word, phonetic dialect
+    spelling, the same words in the same order) before ANY engine hears it.
+
+    Fail-closed to the ORIGINAL lines: wrong line count (durations align per line), no
+    Arabic, no caller, REEL_TTS_VOCALIZE=0, or any call failure."""
+    parts = [str(l) for l in (lines or [])]
+    if not parts or os.environ.get("REEL_TTS_VOCALIZE") == "0":
+        return parts
+    if not _AR_RE.search(" ".join(parts)):
+        return parts
+    if caller is None:
+        try:
+            from business_profile.llm import default_caller
+            caller = default_caller(strong=False)
+        except Exception:  # noqa: BLE001
+            caller = None
+    if caller is None:
+        return parts
+
+    class _Voc:
+        _model = None
+
+        @classmethod
+        def get(cls):
+            if cls._model is None:
+                from pydantic import BaseModel
+
+                class VocalizedLines(BaseModel):
+                    lines: list[str]
+
+                cls._model = VocalizedLines
+            return cls._model
+
+    reg = dialect.strip() or "Egyptian Arabic (مصري)"
+    system = (
+        "You are a voice-over SCRIPT PHONETICIAN. Rewrite every Arabic narration line below "
+        f"EXACTLY as a native {reg} narrator pronounces it, so a TTS engine reads it right:\n"
+        "- FULL tashkeel (فتحة/ضمة/كسرة/سكون/شدة/تنوين) on EVERY Arabic word.\n"
+        "- Phonetic dialect spelling — write what is SAID (e.g. «أوي» not «قوي», «دِلْوَقْتِي»), "
+        "never 'correct' the dialect into fusha.\n"
+        "- KEEP the same words, the same order, the same count of lines, and every ! and ؟ "
+        "mark — change ONLY the written form.\n"
+        "Return the same number of lines."
+    )
+    try:
+        resp, _u = caller(system, "\n".join(parts), _Voc.get(), group_name="tts_vocalize")
+        out = [str(l).strip() for l in (getattr(resp, "lines", None) or [])]
+        if len(out) == len(parts) and all(out):
+            return out
+    except Exception:  # noqa: BLE001 — the read must never die on a spelling pass
+        logger.warning("tts vocalization failed; using the raw spelling")
+    return parts
+
+
 def _join_script(lines: "list[str]") -> str:
     """ONE continuous script whose EMOTIVE terminal marks survive the join.
 
@@ -624,6 +684,15 @@ def synth_voiceover(
     parts = [str(l).strip() for l in lines if l and str(l).strip()]
     if not parts:
         return None
+    # THE SPELLING IS THE PERFORMANCE (owner's engineer): rewrite as-spoken before any engine.
+    _dial = ""
+    if profile is not None:
+        try:
+            from poster.locale import arabic_dialect_for
+            _dial = arabic_dialect_for(profile)
+        except Exception:  # noqa: BLE001
+            _dial = ""
+    parts = _vocalize_for_tts(parts, dialect=_dial)
     script = _join_script(parts)
     total = sum(max(0.5, float(d)) for d in durations) or 10.0
     # Dialect follows the brand's evidenced region (poster.locale) — not a hardcoded Egyptian read.

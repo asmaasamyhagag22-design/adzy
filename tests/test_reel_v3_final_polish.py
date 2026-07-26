@@ -450,3 +450,61 @@ def test_the_cli_refuses_to_ship_a_failed_screening(monkeypatch):
     src = "\n".join(l.split("#")[0] for l in inspect.getsource(rm).splitlines())
     assert "screen_reel" in src, "the screening gate is not wired into the shipping surface"
     assert "REEL_ALLOW_BELOW_GRADE" in src, "no explicit override — or no enforcement at all"
+
+
+# =====================================================================
+# 7) TTS orthography — «طريقة كتابة الكلام بتخلي الصوت يقوله صح»
+#    (the owner's engineer, quoted twice). A TTS voice reads unvocalized
+#    dialect Arabic with MSA guesses: wrong vowels, wrong stress, dead
+#    rhythm. The lines must be REWRITTEN AS SPOKEN (full tashkeel,
+#    phonetic Egyptian spelling) before any engine sees them.
+# =====================================================================
+
+def _voc_caller(returned_lines):
+    def caller(system, user, schema, **kw):
+        class _R:
+            lines = returned_lines
+        return _R(), {"total_tokens": 5}
+    return caller
+
+
+def test_lines_are_vocalized_before_synthesis():
+    from reel.voiceover import _vocalize_for_tts
+    voc = ["نُصُّ اليُومْ وِطَاقْتَكْ خِلْصِتْ؟"]
+    out = _vocalize_for_tts(["نص اليوم وطاقتك خلصت؟"], caller=_voc_caller(voc))
+    assert out == voc
+
+
+def test_a_wrong_line_count_falls_back_to_the_originals():
+    """Durations align per line — a rewrite that merges/splits lines would desync the edit."""
+    from reel.voiceover import _vocalize_for_tts
+    orig = ["سطر أول", "سطر تاني"]
+    out = _vocalize_for_tts(orig, caller=_voc_caller(["سَطْر وَاحِد بس"]))
+    assert out == orig
+
+
+def test_no_caller_means_original_lines_not_a_crash():
+    from reel.voiceover import _vocalize_for_tts
+    orig = ["اطلب دلوقتي!"]
+    assert _vocalize_for_tts(orig, caller=None) == orig
+
+
+def test_synth_voiceover_feeds_the_vocalized_text_to_the_engine(monkeypatch, tmp_path):
+    import reel.voiceover as vo
+
+    monkeypatch.setattr(vo, "_vocalize_for_tts",
+                        lambda lines, **kw: [f"مُشَكَّل::{l}" for l in lines])
+    heard = []
+
+    def fake_edge(text, out_mp3, *, voice, rate=None, pitch=None):
+        heard.append(text)
+        Path(out_mp3).write_bytes(b"mp3")
+        return True
+
+    monkeypatch.setattr(vo, "_edge_segment", fake_edge)
+    monkeypatch.setattr(vo, "_audio_dur", lambda p: 4.0)
+    monkeypatch.setattr(vo, "run_ffmpeg", lambda args: Path(args[-1]).write_bytes(b"aac"))
+    out = vo.synth_voiceover(["اطلب دلوقتي!"], [3.0], tmp_path / "vo.m4a", backend="edge")
+    assert out is not None
+    assert heard and "مُشَكَّل::" in heard[0], (
+        f"the engine heard the raw spelling, not the spoken one: {heard!r}")
