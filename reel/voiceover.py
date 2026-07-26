@@ -401,6 +401,11 @@ def _vocalize_for_tts(lines: "list[str]", *, caller: Any = None,
         "- FULL tashkeel (فتحة/ضمة/كسرة/سكون/شدة/تنوين) on EVERY Arabic word.\n"
         "- Phonetic dialect spelling — write what is SAID (e.g. «أوي» not «قوي», «دِلْوَقْتِي»), "
         "never 'correct' the dialect into fusha.\n"
+        # OWNER'S EAR (2026-07-26): the vocalizer wrote «عَوْف» and the voice said 'awf —
+        # the brand is pronounced ʿŌF. Names follow the STREET, not morphology.
+        "- PROPER NOUNS & BRAND NAMES are vocalized exactly as LOCALS say them: a name heard "
+        "with a long ō/ū takes ضمة + واو ساكنة («أَبُو عُوف» — NEVER «عَوْف»), a long ē/ī takes "
+        "كسرة + ياء ساكنة. When unsure, prefer the long-vowel reading over a diphthong.\n"
         "- KEEP the same words, the same order, the same count of lines, and every ! and ؟ "
         "mark — change ONLY the written form.\n"
         "Return the same number of lines."
