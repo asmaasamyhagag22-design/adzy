@@ -2180,6 +2180,11 @@
           <i class="ph ph-sparkle"></i> <span id="mp-generate-label">Generate Marketing Plan + Calendar</span>
         </button>
       </div>
+      <!-- THE MEDIA PLAN v2 — test cells, spend ceiling, kill-switch, guardrails.
+           2,561 bytes of this already reached the browser on every load and NOTHING read it:
+           a grep of all seven field names in this file returned 0. It is the part of the product
+           that makes the plan a media-buying plan rather than a mood board. -->
+      <div id="mpv2-panel" style="display:none; margin-bottom:20px;"></div>
       <div class="brief-grid" id="mp-campaigns" style="grid-template-columns:1fr;"></div>
       <div class="empty-state" id="mp-empty">
         <i class="ph ph-calendar-check"></i>
@@ -2381,7 +2386,15 @@
             <button class="btn-secondary" id="inf-retry-btn" onclick="retryInfluencerPortrait()" style="font-size:0.8rem; padding:7px 12px;">
               <i class="ph ph-arrow-clockwise"></i> Retry (new look)
             </button>
+            <!-- KEEP the current face and add another. "Retry" replaces — the previous look is
+                 gone — so there was no way to compare two and pick. /api/influencer/another and
+                 /api/influencer/select both existed and had zero call sites in this file. -->
+            <button class="btn-secondary" id="inf-another-btn" onclick="anotherInfluencerLook()" style="font-size:0.8rem; padding:7px 12px;">
+              <i class="ph ph-plus"></i> Keep + try another
+            </button>
           </div>
+          <!-- The looks generated so far, pickable. Hidden while there is only one. -->
+          <div id="inf-candidates" style="display:none; margin-top:12px;"></div>
           <p id="inf-validated-badge" style="display:none; margin-top:10px; font-size:0.8rem; color:var(--green, #3fb950);">
             <i class="ph ph-check-circle"></i> Approved - ready to use in a poster
           </p>
@@ -3558,7 +3571,90 @@ function _stratChipRow(elId, items, ranked = false) {
   });
 }
 
+// The media-buying half of the plan: which bets get tested, what stops the spend, and what the
+// system is still guessing. Every number is rendered WITH the disclosure that says whether it came
+// from the brand's real data or from a category default — a kill-switch figure printed bare reads
+// as a measurement, and here it often is not one.
+function renderMediaPlanV2(b) {
+  const el = document.getElementById('mpv2-panel');
+  if (!el) return;
+  const v2 = ((b._full_result || {}).media_plan_v2) || {};
+  const cells = v2.test_cells || [];
+  const rc = v2.reality_check || {};
+  const ks = rc.kill_switch || {};
+  if (!cells.length && !Object.keys(rc).length && !v2.strategic_narrative) {
+    el.style.display = 'none';
+    return;
+  }
+  const esc = t => String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const num = n => (typeof n === 'number' ? n.toLocaleString() : esc(n));
+  const box = 'background:var(--surface2); border:1px solid var(--border);' +
+              'border-radius:var(--radius-sm); padding:14px 16px;';
+  const label = 'font-size:0.7rem; letter-spacing:.08em; text-transform:uppercase;' +
+                'color:var(--text3); font-weight:700; margin-bottom:6px;';
+
+  let h = '';
+  if (v2.strategic_narrative) {
+    h += `<div style="${box} margin-bottom:12px;"><div style="${label}">North star</div>` +
+         `<div style="font-size:0.92rem; line-height:1.7;">${esc(v2.strategic_narrative)}</div></div>`;
+  }
+
+  // The guarded numbers. `basis` / `capacity_source` say whether a figure was derived from the
+  // brand's own prices or is a category placeholder; both travel together or neither is shown.
+  const facts = [];
+  if (rc.daily_spend_ceiling != null) {
+    facts.push(['Daily spend ceiling', `${num(rc.daily_spend_ceiling)} ${esc(ks.currency || '')}`, '']);
+  }
+  if (ks.max_cpl != null) {
+    facts.push(['Kill-switch (max CPL)', `${num(ks.max_cpl)} ${esc(ks.currency || '')}`,
+                ks.disclosure || (ks.basis ? `basis: ${ks.basis}` : '')]);
+  }
+  if (rc.max_daily_leads != null) {
+    facts.push(['Capacity / day', num(rc.max_daily_leads),
+                rc.capacity_source === 'human' ? 'your number' : 'category default — replace it']);
+  }
+  if (facts.length) {
+    h += `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr));` +
+         ` gap:10px; margin-bottom:12px;">` +
+         facts.map(([k, v, note]) =>
+           `<div style="${box}"><div style="${label}">${esc(k)}</div>` +
+           `<div style="font-size:1.15rem; font-weight:700;">${v}</div>` +
+           (note ? `<div style="font-size:0.72rem; color:var(--text3); margin-top:5px;` +
+                   ` line-height:1.5;">${esc(note)}</div>` : '') +
+           `</div>`).join('') + `</div>`;
+  }
+
+  if (cells.length) {
+    h += `<div style="${label} margin-bottom:8px;">Test cells (${cells.length})</div>` +
+         `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr));` +
+         ` gap:10px; margin-bottom:12px;">` +
+      cells.map(c => `<div style="${box}">` +
+        `<div style="font-weight:700; margin-bottom:4px;">${esc(c.name || c.axis || '')}` +
+        (c.budget_share != null
+          ? ` <span style="color:var(--text3); font-weight:600;">· ${Math.round(c.budget_share * 100)}%</span>`
+          : '') + `</div>` +
+        (c.hypothesis ? `<div style="font-size:0.82rem; line-height:1.6;">${esc(c.hypothesis)}</div>` : '') +
+        (c.funnel_stage ? `<div style="font-size:0.72rem; color:var(--text3); margin-top:6px;">` +
+                          `${esc(c.funnel_stage)}${c.cta ? ' · ' + esc(c.cta) : ''}</div>` : '') +
+        `</div>`).join('') + `</div>`;
+  }
+
+  // What the system does NOT know. Printing this next to the numbers is the difference between a
+  // plan and a claim — these are the inputs the figures above are standing in for.
+  const open = v2.open_inputs || [];
+  if (open.length) {
+    h += `<div style="${box} border-color:var(--ph-pending);"><div style="${label}">` +
+         `Still needed from you</div><ul style="margin:0; padding-inline-start:18px;` +
+         ` font-size:0.82rem; line-height:1.8;">` +
+         open.map(o => `<li>${esc(o)}</li>`).join('') + `</ul></div>`;
+  }
+  el.innerHTML = h;
+  el.style.display = '';
+}
+
 function renderStrategyDashboard(b) {
+  renderMediaPlanV2(b);
   const swot     = b.swot || {};
   const strategy = b.marketing_strategy || {};
   // site_readiness belongs in this gate. Site mechanics are MOVED there rather than deleted, so a
@@ -3941,11 +4037,53 @@ function renderInfluencerView(b) {
     posterImg.style.display = 'none';
   }
 
+  // THE LOOKS SO FAR. With more than one candidate the server refuses a bare "approve" — it
+  // answers "choose one with /api/influencer/select {candidate_id}" — and until now the UI had no
+  // control that could say WHICH, so the user read that sentence as an error and was stuck.
+  const cands = inf.candidates || {};
+  const ids = Object.keys(cands);
+  const strip = document.getElementById('inf-candidates');
+  if (strip) {
+    if (ids.length > 1) {
+      strip.innerHTML =
+        `<div style="font-size:0.72rem; letter-spacing:.08em; text-transform:uppercase;` +
+        ` color:var(--text3); font-weight:700; margin-bottom:8px;">` +
+        `${ids.length} looks — pick the one to keep</div>` +
+        `<div style="display:flex; gap:10px; flex-wrap:wrap;">` +
+        ids.map(id => {
+          const c = cands[id] || {};
+          const on = inf.selected_id === id;
+          return `<button class="btn-secondary" onclick="selectInfluencerLook('${id}')"` +
+            ` title="${(c.persona || '').replace(/"/g, '&quot;')}"` +
+            ` style="padding:4px; border-radius:var(--radius-sm); line-height:0;` +
+            ` border:2px solid ${on ? 'var(--green, #3fb950)' : 'var(--border)'};">` +
+            `<img src="${c.url}" alt="Look ${id}" style="width:74px; height:74px;` +
+            ` object-fit:cover; border-radius:6px; display:block;" /></button>`;
+        }).join('') + `</div>`;
+      strip.style.display = '';
+    } else {
+      strip.style.display = 'none';
+    }
+  }
+  // Three is the server's cap; offering a fourth click would only produce a 409.
+  const anotherBtn = document.getElementById('inf-another-btn');
+  if (anotherBtn) {
+    anotherBtn.style.display = ids.length >= 3 ? 'none' : '';
+  }
+
   const validateRow = document.getElementById('inf-validate-row');
   const validatedBadge = document.getElementById('inf-validated-badge');
   if (inf.has_portrait && !inf.validated) {
     validateRow.style.display = 'flex';
     validatedBadge.style.display = 'none';
+    // With several looks and none chosen, "Approve this look" cannot mean anything — the server
+    // rejects it with a 409 telling the user to call an API. Hide it; the strip above IS the
+    // choice, and Approve comes back the moment one is selected.
+    const approveBtn = document.getElementById('inf-approve-btn');
+    if (approveBtn) {
+      const ambiguous = ids.length > 1 && !inf.selected_id;
+      approveBtn.style.display = ambiguous ? 'none' : '';
+    }
   } else if (inf.has_portrait && inf.validated) {
     validateRow.style.display = 'none';
     validatedBadge.style.display = '';
@@ -4074,6 +4212,58 @@ async function approveInfluencerPortrait() {
     toast('Portrait approved - ready to use in a poster', 'success');
   } catch (e) {
     toast('Failed to approve: ' + e.message, 'error');
+  }
+}
+
+// Add a look WITHOUT destroying the current one. `/api/influencer/create` resets; this does not.
+async function anotherInfluencerLook() {
+  const b = state.studioBrand;
+  if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
+  const btn = document.getElementById('inf-another-btn');
+  const prior = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'Generating…';
+  try {
+    const { job_id } = await api('POST', '/api/influencer/another',
+                                 { domain_key: b.domain_key, ...influencerFormPayload() });
+    const poll = setInterval(async () => {
+      try {
+        const job = await api('GET', '/api/jobs/' + job_id);
+        if (job.status === 'done' || job.status === 'error') {
+          clearInterval(poll);
+          btn.disabled = false;
+          btn.innerHTML = prior;
+          if (job.status === 'error') {
+            toast('Could not add a look: ' + (job.error || 'Unknown error'), 'error');
+            return;
+          }
+          const fresh = await api('GET', '/api/brands/' + b.domain_key);
+          state.studioBrand = fresh;
+          renderInfluencerView(fresh);
+          toast('New look added — pick the one you want', 'success');
+        }
+      } catch (e) { /* ignore transient poll errors */ }
+    }, 3000);
+  } catch (e) {
+    btn.disabled = false;
+    btn.innerHTML = prior;
+    toast(e.message || String(e), 'error');
+  }
+}
+
+// Lock ONE look in as the brand's face.
+async function selectInfluencerLook(candidateId) {
+  const b = state.studioBrand;
+  if (!b || !b.domain_key) return;
+  try {
+    await api('POST', '/api/influencer/select',
+              { domain_key: b.domain_key, candidate_id: candidateId });
+    const fresh = await api('GET', '/api/brands/' + b.domain_key);
+    state.studioBrand = fresh;
+    renderInfluencerView(fresh);
+    toast('Look selected — approve it to use in a poster', 'success');
+  } catch (e) {
+    toast('Could not select that look: ' + (e.message || e), 'error');
   }
 }
 
