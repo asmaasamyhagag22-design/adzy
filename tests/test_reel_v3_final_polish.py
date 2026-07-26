@@ -564,3 +564,18 @@ def test_one_sidecar_file_carries_both_the_path_and_the_endcard_state(monkeypatc
     data = json.loads((tmp_path / "reel.path.json").read_text(encoding="utf-8"))
     assert data.get("path") == "template_fallback", f"the path stamp was clobbered: {data}"
     assert data.get("endcard") == "appended", f"the endcard state is missing: {data}"
+
+
+def test_odd_reel_dimensions_are_evened_before_the_card_encode(monkeypatch, tmp_path):
+    """libx264 rejects odd dimensions: an odd-width reel would fail the card encode and cost
+    the endcard a second time, in a different way than the v2 dims mismatch."""
+    import reel.endcard as ec
+    seen = {}
+    monkeypatch.setattr(ec, "_video_dims", lambda p: (773, 1371))
+    monkeypatch.setattr(ec, "render_endcard",
+                        lambda profile, out_png, *, width, height: seen.update(
+                            dims=(width, height)) or None)
+    vid = tmp_path / "reel.mp4"
+    vid.write_bytes(b"fake")
+    ec.append_endcard_to_reel({"name": "X"}, vid)
+    assert seen["dims"] == (772, 1370), seen

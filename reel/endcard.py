@@ -241,7 +241,9 @@ def append_endcard_to_reel(profile: dict, video_path: str | Path, *, seconds: fl
             return False
         dims = _video_dims(video_path)
         if dims:
-            width, height = dims
+            # libx264 needs EVEN dimensions; an odd-width reel would fail the card encode
+            # and silently cost the card again.
+            width, height = (dims[0] - dims[0] % 2, dims[1] - dims[1] % 2)
         elif not (width and height):
             logger.warning("endcard: could not probe the reel's dimensions — not appending")
             return False
