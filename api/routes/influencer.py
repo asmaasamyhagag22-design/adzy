@@ -77,11 +77,15 @@ def _candidate_job(request: Request, req: "CreateRequest", user: dict, *, reset:
                         "Pick one, or start over to replace them."))
     if reset:
         # Starting over discards the old set deliberately — the owner asked for a fresh three.
-        BrandStore().update(req.domain_key,
-                            {"ai_influencer": {"candidates": {}, "selected_id": "",
-                                               "has_portrait": False, "validated": False,
-                                               "portrait_url": None}},
-                            for_user=user["id"])
+        # REPLACE, not update: `_merge_one_level` recurses into dicts, so the empty `candidates`
+        # dict this passes merged into the old one and removed nothing. MEASURED — the reset was a
+        # no-op, the second click left two candidates, and the fourth hit MAX_CANDIDATES and
+        # reached the user as "Generation step failed."
+        BrandStore().replace_block(req.domain_key, "ai_influencer",
+                                   {"candidates": {}, "selected_id": "",
+                                    "has_portrait": False, "validated": False,
+                                    "portrait_url": None},
+                                   for_user=user["id"])
     return start_brand_job(request, req.domain_key,
                            lambda b: influencer.generate_candidate(b, cfg),
                            owner_id=user["id"])

@@ -1608,14 +1608,6 @@
         <div class="step-dot pending" id="dot-score"></div>
         <span>Scoring &amp; saving</span>
       </div>
-      <div class="scan-step-item" data-step="swot">
-        <div class="step-dot pending" id="dot-swot"></div>
-        <span>Generating Trend &amp; SWOT analysis</span>
-      </div>
-      <div class="scan-step-item" data-step="strategy">
-        <div class="step-dot pending" id="dot-strategy"></div>
-        <span>Building marketing strategy</span>
-      </div>
     </div>
   </div>
 </div>
@@ -2164,7 +2156,7 @@
       </div>
       <div class="empty-state" id="strategy-empty">
         <i class="ph ph-compass"></i>
-        <p>No strategy generated yet for this brand.<br>Click "Generate SWOT" above to run it.</p>
+        <p>No strategy generated yet for this brand.<br>Approve the SWOT, then click "Generate Strategy" above.</p>
       </div>
     </div>
 
@@ -2180,8 +2172,8 @@
           <option value="customer retention">Customer retention</option>
         </select>
         <select class="input" id="mp-period-select" style="width:auto; padding:8px 12px; font-size:0.82rem;">
-          <option value="week">1 Week</option>
-          <option value="month" selected>1 Month</option>
+          <option value="1_week">1 Week</option>
+          <option value="1_month" selected>1 Month</option>
           <option value="quarter">3 Months</option>
         </select>
         <button class="strat-generate-btn" id="mp-generate-btn" onclick="generateMarketingPlan()">
@@ -2199,8 +2191,8 @@
     <div class="strat-view" id="strat-view-calendar">
       <div class="strat-toolbar" style="margin-bottom:16px;">
         <select class="input" id="mp-period-select-2" style="width:auto; padding:8px 12px; font-size:0.82rem;">
-          <option value="week">1 Week</option>
-          <option value="month" selected>1 Month</option>
+          <option value="1_week">1 Week</option>
+          <option value="1_month" selected>1 Month</option>
           <option value="quarter">3 Months</option>
         </select>
         <button class="strat-generate-btn" onclick="document.getElementById('mp-period-select').value = document.getElementById('mp-period-select-2').value; generateMarketingPlan();">
@@ -3075,9 +3067,7 @@ function stepForProgress(pct) {
   if (pct < 35) return 'reviews';
   if (pct < 45) return 'classify';
   if (pct < 60) return 'extract';
-  if (pct < 75) return 'score';
-  if (pct < 92) return 'swot';
-  return 'strategy';
+  return 'score';
 }
 
 function updateScanSteps(pct, stepText) {
@@ -4789,6 +4779,11 @@ async function generateImage() {
     imgEl.style.display = 'block';
     document.getElementById('gen-loading').classList.remove('active');
     document.getElementById('gen-actions').style.display = 'flex';
+    // CLAIM THE DOWNLOAD BUTTON BACK. The reel path assigns download-btn.onclick as a DOM
+    // property, which beats the inline attribute and is never rebound — so after one reel,
+    // Download silently handed out that mp4 even with a poster on screen.
+    const _dl = document.getElementById('download-btn');
+    if (_dl) _dl.onclick = () => downloadImage();
     // Show edit panel with the generated text pre-filled
     document.getElementById('gen-edit-panel').style.display = 'block';
     document.getElementById('edit-headline').value = data.headline || headline || '';

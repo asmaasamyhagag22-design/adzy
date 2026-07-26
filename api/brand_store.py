@@ -190,6 +190,29 @@ class BrandStore:
                 return None
             return self.save(_merge_one_level(brand, patch))
 
+    def replace_block(self, domain_key: str, block: str, value: dict, *,
+                      for_user: Optional[str] = None) -> Optional[dict]:
+        """REPLACE one top-level block outright — the write `update` deliberately cannot express.
+
+        `_merge_one_level` recurses into dicts, so patching `{"ai_influencer": {"candidates": {}}}`
+        merges an empty dict and removes NOTHING. Its docstring says as much: "none of them means
+        'remove this nested key'". That is right for enrichment and wrong for "start over", which
+        is exactly what the influencer reset needed — MEASURED: the reset left both candidates in
+        place, so the second portrait click produced a two-candidate state the UI has no control
+        for, and the fourth hit MAX_CANDIDATES and surfaced as "Generation step failed."
+
+        Same ownership rule and same lock as `update`: returns None when the brand is absent or
+        belongs to another account. Destructive by design — only for a block the user asked to
+        discard.
+        """
+        with _WRITE_LOCK:
+            brand = self.get(domain_key, for_user=for_user)
+            if brand is None:
+                return None
+            brand = dict(brand)
+            brand[block] = value
+            return self.save(brand)
+
     def add_nested(self, domain_key: str, block: str, collection: str, item_id: str,
                    item: dict, *, for_user: Optional[str] = None) -> Optional[dict]:
         """Add ONE entry to `brand[block][collection][item_id]`, read and written under one lock.
