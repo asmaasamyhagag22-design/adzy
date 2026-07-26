@@ -24,6 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from api.text_shaping import has_rtl, shape_for_pillow, wrap_shaped
 from api.user_auth import webapp_dir
+from api.webapp_influencer import selected_face_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -241,16 +242,28 @@ def _render_real(brand: dict, *, headline: str, language: str, product=None,
 
     `product`: a `ProductInfo` read from a link the owner pasted. `generate_poster` has taken
     `product_image` / `product_name` all along — the webapp simply never passed them, so "make me
-    an ad for THIS item" was not expressible."""
+    an ad for THIS item" was not expressible.
+
+    THE CHOSEN FACE rides `identity_image` (owner, 2026-07-26, looking at an Al Fouad poster
+    minutes after picking a face from three candidates: «انا عايزة نفس الوش يظهر في البوستر»).
+    The picker, the candidates and `selected_face_bytes` all existed; only the influencer's OWN
+    poster endpoint passed them on, so the Studio's normal render — the one she actually uses —
+    invented a different person every time."""
     profile = brand.get("_profile") or {}
     if not profile:
         raise MissingProfile("no stored _profile for this brand — nothing to ground a render on")
     from business_profile.llm import default_caller
     from poster.pipeline import generate_poster
     caller = default_caller(strong=True)
+    face, face_mime = (None, "")
+    try:
+        face, face_mime = selected_face_bytes(brand)
+    except Exception:  # noqa: BLE001 — no face is a normal state, never a failed render
+        face, face_mime = None, ""
     res = generate_poster(profile, caller=caller, engine="oneshot", language=language,
                           headline_override=headline or None,
                           trend_context=trend_context or None,
+                          identity_image=((face, face_mime or "image/png") if face else None),
                           product_image=(getattr(product, "image", "") or None) if product else None,
                           product_name=(getattr(product, "name", "") or None) if product else None)
     import base64

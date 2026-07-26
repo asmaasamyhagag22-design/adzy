@@ -211,6 +211,7 @@ def _generate_nano_background(
     profile: dict, brand_dna: Any, prompt: str, *,
     out_dir: str = "outputs/posters", log=_safe_log,
     product_images: Optional[list] = None,
+    identity_ref: Optional[tuple] = None,
 ) -> tuple[str, str]:
     """Text-free background via nano-banana (Gemini image), style-conditioned on the brand's REAL
     creatives. This is the classic overlay's image source now that every Vertex Imagen id 404s on
@@ -262,12 +263,24 @@ def _generate_nano_background(
             "proportions, colours, packaging, cap, and every label element exactly as attached. "
             "Do NOT redesign, restyle, relabel, recolour or 'improve' it, and do not invent any "
             "additional product. Light it to match the scene; change nothing else about it.")
+    if identity_ref and identity_ref[0]:
+        # THE CHOSEN FACE (owner, 2026-07-26: «الوش والشعر الكيرلي اللي اخترته اتغيروا — عايزة
+        # الصورة اللي اخترتها تطلع بالظبط»). Same lesson as the product attachment one paragraph
+        # up: an unexplained reference is treated as inspiration and the model draws a different,
+        # prettier person. The instruction has to say it IS the person.
+        bg_prompt += (
+            "\n\nATTACHED PERSON — THE SAME PERSON, UNCHANGED. One attached image is this "
+            "brand's chosen presenter. Put HER/HIM in the scene with an IDENTICAL face: same "
+            "facial features and proportions, same skin tone, same hair colour, length and "
+            "curl pattern, same age. Only pose, wardrobe and lighting may change to fit the "
+            "scene. Do NOT beautify, restyle the hair, or substitute a different model.")
     out_path = Path(out_dir) / f"bg_{uuid.uuid4().hex[:8]}.png"
     # Go straight to nano-banana (the model that serves) instead of the retired id .env pins; the
     # generator's model-chain still covers us if this id ever drifts.
     nano = oneshot._MODEL_CHAIN[0]   # "gemini-2.5-flash-image"
     oneshot.generate_oneshot_poster(bg_prompt, out_path, model=nano, logo_bytes=None,
-                                    product_images=refs or None)
+                                    product_images=refs or None,
+                                    identity_ref=identity_ref or None)
     return str(out_path), f"{nano}/bg"
 
 
@@ -275,6 +288,7 @@ def _generate_background(
     profile: dict, brand_dna: Any, prompt: str, *,
     log=_safe_log, fetch=None, edit_provider=None, t2i=None,
     product_images: Optional[list] = None,
+    identity_ref: Optional[tuple] = None,
 ) -> tuple[str, str]:
     """ADAPTIVE brand-anchored background, safe cascade (never raises here).
 
@@ -290,7 +304,8 @@ def _generate_background(
     if t2i is None:
         try:
             return _generate_nano_background(profile, brand_dna, prompt, log=log,
-                                             product_images=product_images)
+                                             product_images=product_images,
+                                             identity_ref=identity_ref)
         except Exception as e:  # noqa: BLE001 — fall through to the legacy cascade, never crash here
             log(f"[bg] nano-banana background failed ({type(e).__name__}: {e}); -> legacy Imagen")
 
@@ -870,6 +885,28 @@ _TRUST_NOTE_AR = ("كل محاولات التوليد رجعت بعيب موثو
                   "اترسمت غلط). دي أفضل محاولة، بس ماتتنشرش من غير مراجعة بصرية.")
 
 
+def _excuse_expected_brand(verdict, product_name: str):
+    """Clear `third_party_mark` when the "third party" IS the product the owner asked for.
+
+    ROOT (Al Fouad 2026-07-26): she pasted a La Roche-Posay link, the poster showed exactly that
+    product, and the hard gate failed it as a third-party mark — so a correct ad shipped stamped
+    untrustworthy. Applied to the VERDICT so every reader (trust check, attempt ranking, the
+    client disclosure) sees one consistent story, and `overall_pass` is recomputed rather than
+    left contradicting its own flags. Unrelated marks are untouched."""
+    try:
+        from poster.vision_qa import third_party_is_expected
+        if not (getattr(verdict, "third_party_mark", False) and product_name):
+            return verdict
+        if not third_party_is_expected(getattr(verdict, "reason", ""), product_name=product_name):
+            return verdict
+        cleared = verdict.model_copy(update={"third_party_mark": False})
+        if cleared.overall_pass is False and not _trust_violation(cleared)                 and int(cleared.score or 0) >= 7 and cleared.logo_ok:
+            cleared = cleared.model_copy(update={"overall_pass": True})
+        return cleared
+    except Exception:  # noqa: BLE001 — an excuse that fails leaves the strict verdict standing
+        return verdict
+
+
 def _trust_violation(v: PosterQAVerdict) -> bool:
     """A verdict that would make the poster LIE — a fabricated product/label presented as the
     brand's merchandise, another company's mark, or copy whose script is broken. These are
@@ -1233,7 +1270,8 @@ def generate_poster(
             if use_edit:
                 bg_path, model_used = _generate_background(
                     profile, brand_dna, prompt, log=log,
-                    product_images=([product_image] if product_image else None))
+                    product_images=([product_image] if product_image else None),
+                    identity_ref=identity_image)
             else:
                 bg_path, model_used = _generate_imagen(prompt)
             # Deterministic letterbox safety net: crop any black bars so the background fills
@@ -1247,6 +1285,7 @@ def generate_poster(
         poster_path = str(render_html_to_png(render_poster_html(brief, bg_path, spec=spec), out / filename))
         _refresh_canonical(poster_path)   # البند 1
         verdict = poster_vision_qa(poster_path, caller=qa_caller, brand_dna=brand_dna, arabic=arabic)
+        verdict = _excuse_expected_brand(verdict, product_name or "")
         log(f"[qa] attempt={attempt} pass={verdict.overall_pass} checked={verdict.checked} "
             f"latin={verdict.has_latin_text} clip={verdict.cta_clipped} "
             f"color={verdict.on_brand_color} candid={verdict.candid_violation} :: {verdict.reason}")

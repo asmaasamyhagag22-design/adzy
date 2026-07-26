@@ -590,7 +590,15 @@ def effective_scrim_strength(requested: float, background_path, text_box=None) -
 
 
 def _lower_css(layout: str, scrim_strength: float, align: str, rtl: bool) -> str:
-    """The position + scrim CSS for the text block of one layout archetype."""
+    """The position + scrim CSS for the text block of one layout archetype.
+
+    THE SCRIM HOLDS ACROSS THE TEXT, then fades (owner, 2026-07-26: «الكلام أبيض مش باين»).
+    MEASURED on that poster: the pixels behind the white headline averaged 185/255 — about a
+    1.7:1 contrast, unreadable — even though a scrim WAS applied. The gradient reached full
+    strength at the very bottom EDGE and fell to zero going up, while the block's 130px top
+    padding puts the biggest type near the TOP. The backing was under the margin, not under
+    the words. The stops now hold `s_hi` through the copy and fade only in the last stretch,
+    so a bright scene still gets a real plate and a dark one still keeps its photograph."""
     s_hi = round(max(0.0, min(1.0, scrim_strength)), 3)
     s_mid = round(s_hi * 0.8, 3)
     al = f"text-align:{align};"
@@ -599,13 +607,15 @@ def _lower_css(layout: str, scrim_strength: float, align: str, rtl: bool) -> str
         return (
             f".lower{{position:absolute;left:0;right:0;bottom:0;padding:{pad};{al}"
             f"background:linear-gradient(to top, rgba(8,12,18,{s_hi}) 0%, "
-            f"rgba(8,12,18,{s_mid}) 50%, rgba(8,12,18,0) 100%);}}"
+            f"rgba(8,12,18,{s_hi}) 72%, rgba(8,12,18,{s_mid}) 86%, "
+            f"rgba(8,12,18,0) 100%);}}"
         )
     if layout == "top_anchor":
         return (
             f".lower{{position:absolute;left:0;right:0;top:0;padding:200px 80px 96px;{al}"
             f"background:linear-gradient(to bottom, rgba(8,12,18,{s_hi}) 0%, "
-            f"rgba(8,12,18,{s_mid}) 55%, rgba(8,12,18,0) 100%);}}"
+            f"rgba(8,12,18,{s_hi}) 72%, rgba(8,12,18,{s_mid}) 86%, "
+            f"rgba(8,12,18,0) 100%);}}"
         )
     if layout in ("side_panel_left", "side_panel_right"):
         on_left = layout.endswith("left")
@@ -614,11 +624,13 @@ def _lower_css(layout: str, scrim_strength: float, align: str, rtl: bool) -> str
         if on_left:
             box = "left:0;right:auto;"
             grad = (f"linear-gradient(to right, rgba(8,12,18,{s_hi}) 0%, "
-                    f"rgba(8,12,18,{s_mid}) 62%, rgba(8,12,18,0) 100%)")
+                    f"rgba(8,12,18,{s_hi}) 74%, rgba(8,12,18,{s_mid}) 88%, "
+                    f"rgba(8,12,18,0) 100%)")
         else:
             box = "right:0;left:auto;"
             grad = (f"linear-gradient(to left, rgba(8,12,18,{s_hi}) 0%, "
-                    f"rgba(8,12,18,{s_mid}) 62%, rgba(8,12,18,0) 100%)")
+                    f"rgba(8,12,18,{s_hi}) 74%, rgba(8,12,18,{s_mid}) 88%, "
+                    f"rgba(8,12,18,0) 100%)")
         return (
             f".lower{{position:absolute;top:0;bottom:0;width:60%;{box}{al}"
             f"display:flex;flex-direction:column;justify-content:flex-end;"
@@ -639,7 +651,8 @@ def _lower_css(layout: str, scrim_strength: float, align: str, rtl: bool) -> str
         )
     return (
         f".lower{{position:absolute;left:0;right:0;bottom:0;padding:130px 80px 70px;{al}"
-        f"background:linear-gradient(to top, rgba(8,12,18,{s_hi}) 0%, rgba(8,12,18,0) 100%);}}"
+        f"background:linear-gradient(to top, rgba(8,12,18,{s_hi}) 0%, "
+        f"rgba(8,12,18,{s_hi}) 72%, rgba(8,12,18,0) 100%);}}"
     )
 
 

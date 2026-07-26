@@ -17,6 +17,7 @@ note (we can't gate without vision). Never raises.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -231,3 +232,30 @@ def poster_vision_qa(
         reason=(resp.reason or "").strip(),
         checked=True,
     )
+
+
+def third_party_is_expected(reason: str, *, product_name: str = "") -> bool:
+    """Is the "third-party mark" the very product the owner asked us to advertise?
+
+    ROOT (Al Fouad, 2026-07-26). The owner pasted a La Roche-Posay product link; the poster
+    correctly showed that product; the QA hard-gate then failed it — "the ad is for a pharmacy
+    but is dominated by a third-party product brand" — and the result shipped stamped
+    untrustworthy. The rule is right for an INVENTED swoosh on a model's shirt and wrong for a
+    retailer advertising the stock it sells. A true statement answering a different question.
+
+    So: when a product was explicitly requested, a mark whose name appears in that product's
+    name is EXPECTED, not a violation. Everything else stays a violation, and with no requested
+    product nothing is ever excused."""
+    name = str(product_name or "").strip().lower()
+    text = str(reason or "").lower()
+    if not name or not text:
+        return False
+    # Compare on the product's distinctive words, not the whole string: the verdict says
+    # "La Roche-Posay", the product is "La Roche-Posay Anthelios Anti-Dark Spot Fluid SPF50+".
+    stop = {"the", "and", "for", "with", "spf", "ml", "gm", "pack", "size", "new", "kit"}
+    words = [w for w in re.split(r"[^\w؀-ۿ]+", name) if len(w) > 2 and w not in stop]
+    if not words:
+        return False
+    hits = sum(1 for w in words if w in text)
+    # Two matching words (or one, for a single-word brand) is the brand being named.
+    return hits >= min(2, len(words))
