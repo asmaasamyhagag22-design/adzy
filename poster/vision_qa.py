@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PosterQAVerdict(BaseModel):
@@ -41,6 +41,10 @@ class PosterQAVerdict(BaseModel):
     # PLACEMENT (owner-caught 2026-07-20: the medicine box landed anywhere, any way, floating and
     # mis-scaled). Permissive default so old verdicts/models don't retro-fail every poster.
     placement_logical: bool = True   # the product sits somewhere physically real for its category
+    # EVERY STRING THE CRITIC COULD READ. Without this the stray-text gate downstream sees an
+    # empty list and reports "could not verify" forever — a dead gate that looks alive, which is
+    # the failure class this repo keeps paying for.
+    text_lines: list = Field(default_factory=list)
     score: int = 7                  # art-director score 1..10
     # TRI-STATE (P6, 2026-07-15): True = PASS, False = FAIL, None = NOT_CHECKED.
     # It used to default to True, so a single Vertex 429 on the QA call silently converted the art
@@ -67,6 +71,7 @@ class _QAResponse(BaseModel):
     invented_product: bool = False   # additive (permissive default keeps older tests valid)
     third_party_mark: bool = False
     placement_logical: bool = True   # additive (permissive default keeps older tests valid)
+    text_lines: list[str] = []       # every readable string in the image, verbatim
     score: int = 7
 
 
@@ -185,6 +190,11 @@ def poster_vision_qa(
         # PLACEMENT (2026-07-20): the prompt now carries placement physics; the critic must be
         # able to SEE the failure, otherwise a floating box still ships. Phrased per CATEGORY, not
         # "on a surface" — shoes belong on the ground, a car on a road, a sofa in a room.
+        + "- text_lines: EVERY readable string in the image, VERBATIM, one entry each — the "
+        "headline, the subheadline, the button, any chip, any word on packaging, any sign, any "
+        "fine print, in whatever script it appears. Transcribe exactly what is drawn, including "
+        "misspelled or nonsensical strings; do NOT correct, translate, tidy or omit anything. "
+        "This list is compared in code against the copy that was actually authored.\n"
         + "- placement_logical = true if any product shown sits somewhere physically real for a "
         "product OF ITS KIND: supported by something that would truly carry it (counter, shelf, "
         "ground, road, room, hand, worn), at a believable SIZE next to the objects around it, with "
@@ -230,6 +240,8 @@ def poster_vision_qa(
             third_party_mark=bool(resp.third_party_mark), score=int(resp.score or 0),
             model_pass=bool(resp.overall_pass), logo_composited=logo_composited),
         reason=(resp.reason or "").strip(),
+        text_lines=[str(t).strip() for t in (getattr(resp, "text_lines", None) or [])
+                    if str(t).strip()],
         checked=True,
     )
 

@@ -1173,6 +1173,9 @@ def generate_poster(
     language: str = "auto",
     product_image: Optional[str] = None,
     product_name: Optional[str] = None,
+    product_description: str = "",
+    product_price: str = "",
+    product_currency: str = "",
     prompt_override: Optional[str] = None,
     canonical_out: Optional[str] = None,
     # The brand's SELECTED presenter, as bytes. Its own parameter on purpose: `product_images` is
@@ -1233,8 +1236,15 @@ def generate_poster(
     # 2) ONE creative concept -> the copy is built FROM it (coherent, brand-language).
     #    enforce_grounding=True: the Evidence Ledger gate softens any falsifiable claim
     #    (number/year/certification/ranking) that isn't backed by the brand's real evidence.
+    # THE PRODUCT'S OWN FACTS (reviewer 2026-07-26: «مفيش أي إشارة لـ SPF 50+ ولا UVMUNE… أهم
+    # selling point ضايع» / «مفيش سعر… الـ conversion path مقطوع»). The writer used to get the
+    # NAME alone, so the only thing it could sell was the pharmacy.
+    from poster.concept import product_facts_block
+    _facts = product_facts_block(name=product_name or "", description=product_description,
+                                 price=product_price, currency=product_currency)
     concept = build_creative_concept(profile, caller=caller, brand_dna=brand_dna,
                                      featured_product=product_name,
+                                     product_facts=_facts,
                                      variation=variation, enforce_grounding=True,
                                      arabic=arabic, research=research,
                                      trend_context=trend_context)
@@ -1443,6 +1453,25 @@ def generate_poster(
 
         verdict = poster_vision_qa(poster_path, caller=qa_caller, brand_dna=brand_dna, arabic=arabic)
         verdict = _excuse_expected_brand(verdict, product_name or "")
+        # EVERY STRING ON THE POSTER IS ONE WE ASKED FOR (reviewer: «لو فيه نص مش موجود في الـ
+        # approved copy list -> reject»). The vision verdict already lists what it read; the
+        # judgement is code comparing strings, so nothing hallucinates a pass.
+        try:
+            from poster.ocr_gate import stray_text_verdict
+            _seen = list(getattr(verdict, "text_lines", None) or [])
+            _stray = stray_text_verdict(
+                seen_lines=_seen,
+                approved=[brief.headline or "", brief.subheadline or "", brief.cta_text or ""]
+                         + list(brief.offerings or []),
+                brand_name=brief.business_name or "",
+                product_name=product_name or "")
+            if _stray.checked and _stray.passed is False:
+                log(f"[ocr] {_stray.reason}")
+                verdict = verdict.model_copy(update={
+                    "overall_pass": False,
+                    "reason": (verdict.reason + " | " if verdict.reason else "") + _stray.reason})
+        except Exception:  # noqa: BLE001 — a gate that cannot run must not fail the render
+            pass
         if _contrast is not None and _contrast.passed is False and verdict.overall_pass:
             # The art critic reads a poster the way a person does and still misses this: it
             # judged "readable" on copy measured at 1.7:1. A number outranks an impression.

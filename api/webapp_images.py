@@ -268,7 +268,13 @@ def _render_real(brand: dict, *, headline: str, language: str, product=None,
                           trend_context=trend_context or None,
                           identity_image=((face, face_mime or "image/png") if face else None),
                           product_image=(getattr(product, "image", "") or None) if product else None,
-                          product_name=(getattr(product, "name", "") or None) if product else None)
+                          product_name=(getattr(product, "name", "") or None) if product else None,
+                          # The item's OWN facts — its page description and the price exactly as
+                          # shown — so the copy can sell the product (SPF, actives, price) and not
+                          # just the shop. Empty when the link gave none; nothing is invented.
+                          product_description=(getattr(product, "description", "") or "") if product else "",
+                          product_price=(getattr(product, "price", "") or "") if product else "",
+                          product_currency=(getattr(product, "currency", "") or "") if product else "")
     import base64
     png = base64.b64decode(res.image_base64) if res and res.image_base64 else None
     return RealRender(png=png, result=res)

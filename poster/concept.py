@@ -158,6 +158,44 @@ def _grounding_problems(c: CreativeConcept, ledger: Any) -> list[str]:
 # Build
 # ---------------------------------------------------------------------
 
+
+def product_facts_block(*, name: str = "", description: str = "",
+                        price: str = "", currency: str = "") -> str:
+    """The featured product's OWN facts, for the copywriter.
+
+    REVIEWER (2026-07-26): «مفيش أي إشارة لـ SPF 50+ ولا لتقنية UVMUNE… أهم selling point في
+    المنتج ضايع» and «مفيش سعر… الـ conversion path مقطوع». The writer was handed the product's
+    NAME and nothing else, so the only thing it could sell was the pharmacy.
+
+    Everything here is VERBATIM from the product's own page — the name, the page's own
+    description, and the price exactly as shown. A page with no price yields no price line: an
+    invented number on a pharmacy ad is the worst kind of hallucination, so the absence is
+    stated rather than filled."""
+    name = str(name or "").strip()
+    if not name:
+        return ""
+    lines = [
+        "\n\nTHE FEATURED PRODUCT — these facts are VERBATIM from its own product page and are "
+        "the ONLY product claims you may make:",
+        f"- name: {name}",
+    ]
+    desc = str(description or "").strip()
+    if desc:
+        lines.append(f"- what its page says: {desc[:400]}")
+    price = str(price or "").strip()
+    cur = str(currency or "").strip()
+    if price:
+        lines.append(f"- price EXACTLY as shown: {(cur + ' ' + price).strip()}")
+        lines.append("  You MAY name this price in the copy; write it exactly, never rounded, "
+                     "never as an offer or discount unless the page says so.")
+    else:
+        lines.append("- no price is shown on the page: do NOT state, imply or invent one.")
+    lines.append(
+        "Lead with what makes THIS product different (its own technology, protection factor, "
+        "actives or claim) — naming the pharmacy is not a product benefit.")
+    return "\n".join(lines)
+
+
 def _placement_rule(featured_product: Optional[str]) -> str:
     """Ask the concept WHERE the featured product physically belongs in the scene it just invented.
 
@@ -227,6 +265,7 @@ def build_creative_concept(
     trend_context: Optional[str] = None,
     raw_facts: Optional[str] = None,
     featured_product: Optional[str] = None,
+    product_facts: Optional[str] = None,
 ) -> CreativeConcept:
     """One coherent campaign concept + brand-language copy. Arabic brands -> Arabic copy with
     ZERO Latin (validated + regenerated). Never raises.
@@ -367,6 +406,7 @@ def build_creative_concept(
         + (f" The scene is set in {country} with authentic local people from {country} — "
            f"say so explicitly in the visual_idea." if country else "") + "\n"
         + _placement_rule(featured_product)
+        + str(product_facts or "")
         + "- proof_points: 2-3 SHORT consumer-language points that support single_message (these "
         "become on-poster chips). Each must serve the message — drop anything unrelated. NOT a "
         "dump of internal/B2B product names.\n"
