@@ -929,12 +929,14 @@ def default_video_provider() -> VideoProvider:
       REEL_VIDEO_BACKEND=aiml           -> AIML gateway (Veo 3.1 i2v)
       REEL_VIDEO_BACKEND=stub           -> offline stub
 
-    AUTO (no REEL_VIDEO_BACKEND): the project's OWN provisioned Veo 3.1 on Vertex is the
-    default (owner directive: the GCP credit pool is THE resource for Veo/Imagen). A stale
-    THIRD-PARTY key in .env (AIML_API_KEY) must NOT hijack the pipeline — it is opt-in via
+    AUTO (no REEL_VIDEO_BACKEND): KLING first whenever its credentials exist, then Veo, then
+    AIML, then the stub. This docstring used to say Veo was the AUTO default and it CONTRADICTED
+    the code below it — Kling took that position on 2026-07-25 on the owner's cost ruling. Anyone
+    quoting the docstring would have told her a reel render bills $0.40/second when it does not.
+    A stale THIRD-PARTY key must NOT hijack the pipeline — AIML stays opt-in via
     REEL_VIDEO_BACKEND. (Runway was REMOVED 2026-07-05 by owner directive: a stale len-132
     RUNWAY_API_KEY had silently overridden Veo and returned HTTP 400 on every scene, so the
-    reel fell back to Ken Burns stills — no real motion. Veo 3.1 is the only i2v engine now.)
+    reel fell back to Ken Burns stills — no real motion.)
     """
     if os.getenv("REEL_FORCE_STUB") == "1":
         return StubVideoProvider()
