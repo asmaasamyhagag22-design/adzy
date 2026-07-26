@@ -1464,7 +1464,8 @@ def generate_poster(
                 approved=[brief.headline or "", brief.subheadline or "", brief.cta_text or ""]
                          + list(brief.offerings or []),
                 brand_name=brief.business_name or "",
-                product_name=product_name or "")
+                product_name=product_name or "",
+                assets_composited=bool(_composite_after))
             if _stray.checked and _stray.passed is False:
                 log(f"[ocr] {_stray.reason}")
                 verdict = verdict.model_copy(update={

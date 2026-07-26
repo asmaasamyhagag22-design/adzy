@@ -133,3 +133,38 @@ def test_the_verdict_carries_the_lines_the_model_returned():
     Image.new("RGB", (8, 8), (0, 0, 0)).save(buf, format="PNG")
     v = poster_vision_qa(buf.getvalue(), caller=caller, arabic=True)
     assert v.text_lines == ["احمي بشرتك", "LABORATONE DERHATOLOGIQUE"], v.text_lines
+
+
+def test_a_composited_asset_is_not_stray_even_when_the_critic_misreads_it():
+    """MEASURED on the v7 render (2026-07-26), the gate's first live run: it flagged "FoMad"
+    (the critic misreading the REAL composited wordmark «Fo♥ad», the heart read as an M) and
+    "LABORATOIRE DERMATOLOGIQUE" (the REAL product label, pixel-exact from the product photo).
+
+    Both are pasted assets — correct by construction, and neither is a word the product NAME
+    happens to contain. The gate exists to catch text the MODEL wrote; when the logo and the
+    product are composited, the Latin on the poster comes from those files. So Latin lines are
+    no longer judged once assets are composited, and the copy's own script still is."""
+    from poster.ocr_gate import stray_text_verdict
+    v = stray_text_verdict(
+        seen_lines=["FoMad", "LABORATOIRE DERMATOLOGIQUE", "ANTI-TACHES", "وقّفي البقع"],
+        approved=["وقّفي البقع قبل ما توقفك"], brand_name="AlFouad Pharmacies",
+        product_name="La Roche-Posay Anthelios Anti-Dark Spot Fluid SPF50+",
+        assets_composited=True)
+    assert v.passed is True, v.stray
+
+
+def test_invented_arabic_is_still_caught_when_assets_are_composited():
+    """Latin is trusted because its sources are pasted; the COPY's own script is not."""
+    from poster.ocr_gate import stray_text_verdict
+    v = stray_text_verdict(
+        seen_lines=["وقّفي البقع", "حصيء عرفل ش تيشي تتمن"],
+        approved=["وقّفي البقع قبل ما توقفك"], brand_name="AlFouad",
+        product_name="La Roche-Posay", assets_composited=True)
+    assert v.passed is False and any("حصيء" in s for s in v.stray), v.stray
+
+
+def test_without_composited_assets_latin_is_judged_as_before():
+    from poster.ocr_gate import stray_text_verdict
+    v = stray_text_verdict(seen_lines=["LABORATONE DERHATOLOGIQUE"], approved=["احمي بشرتك"],
+                           brand_name="AlFouad", product_name="")
+    assert v.passed is False

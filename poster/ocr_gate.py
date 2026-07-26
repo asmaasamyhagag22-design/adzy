@@ -54,9 +54,27 @@ class StrayTextVerdict:
     reason: str = ""
 
 
+_LATIN_RE = re.compile(r"[A-Za-z]")
+_NON_LATIN_WORD_RE = re.compile(r"[^\W\dA-Za-z_]", re.UNICODE)
+
+
+def _is_latin_line(text: str) -> bool:
+    """A line written in Latin script (allowing digits and punctuation around it)."""
+    return bool(_LATIN_RE.search(text or "")) and not _NON_LATIN_WORD_RE.search(text or "")
+
+
 def stray_text_verdict(*, seen_lines, approved, brand_name: str = "",
-                       product_name: str = "") -> StrayTextVerdict:
-    """Which rendered lines were never authorized? Empty `seen_lines` -> could-not-verify."""
+                       product_name: str = "",
+                       assets_composited: bool = False) -> StrayTextVerdict:
+    """Which rendered lines were never authorized? Empty `seen_lines` -> could-not-verify.
+
+    `assets_composited`: the logo AND the product were pasted from their real files. MEASURED on
+    this gate's first live run: it flagged "FoMad" — the critic misreading the real wordmark
+    «Fo♥ad», the heart read as an M — and "LABORATOIRE DERMATOLOGIQUE", the product's real label,
+    which is simply not a word the product's NAME contains. Both are correct by construction, and
+    both would have failed a good poster. When the assets are composited the Latin on the page
+    comes from those files, so Latin lines are not judged; the copy's own script still is, which
+    is where invented text actually appears."""
     v = StrayTextVerdict()
     lines = [str(x) for x in (seen_lines or []) if str(x).strip()]
     if not lines:
@@ -72,6 +90,8 @@ def stray_text_verdict(*, seen_lines, approved, brand_name: str = "",
         norm = _norm(line)
         if len(norm) < _MIN_LEN:
             continue
+        if assets_composited and _is_latin_line(line):
+            continue                    # its only sources are pixel-exact pasted files
         toks = _tokens(line)
         if not toks:
             continue
