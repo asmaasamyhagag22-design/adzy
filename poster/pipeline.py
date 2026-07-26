@@ -208,11 +208,42 @@ def _brand_style_refs(profile: dict, brand_dna: Any, *, limit: int = 2) -> list[
     return refs[:limit]
 
 
+def _product_scene_guard(product_name: str, *, composited: bool = False) -> str:
+    """The scene rule when ONE named product is the subject.
+
+    Two measured lessons in one block:
+      * «شعر إيه مع صن سكرين؟» — the brand DNA, learned from real Al Fouad creatives, names
+        Before/After HAIR panels as a signature move. True about the brand, wrong for a
+        sunscreen: a learned motif never outranks the item the owner asked to advertise.
+      * `composited=True` — the real product is PASTED IN afterwards
+        (`poster.product_composite`), so the model must LEAVE ITS ROOM EMPTY. Asking it to draw
+        the product is what produced "LABORATONE DERHATOLOGIQUE" on a registered label."""
+    name = str(product_name or "").strip()
+    if not name:
+        return ""
+    block = (
+        "\n\nSINGLE-PRODUCT AD — the product being advertised is: " + name + ".\n"
+        "Show NO other product, package, bottle or tube of any kind, and NO unrelated category "
+        "imagery (no hair before/after panels, no split-screen comparisons of other items) even "
+        "if the brand's usual style uses them. One subject, nothing else."
+    )
+    if composited:
+        block += (
+            "\nDO NOT DRAW THE PRODUCT ITSELF. The real product photo is composited into this "
+            "scene afterwards, so leave its place EMPTY: clean, uncluttered surface with room "
+            "for a bottle to be placed, correct surface and lighting for something to stand "
+            "there. No invented packaging, no labels, no product text anywhere in frame."
+        )
+    return block
+
+
 def _generate_nano_background(
     profile: dict, brand_dna: Any, prompt: str, *,
     out_dir: str = "outputs/posters", log=_safe_log,
     product_images: Optional[list] = None,
     identity_ref: Optional[tuple] = None,
+    product_name: str = "",
+    composite_product_after: bool = False,
 ) -> tuple[str, str]:
     """Text-free background via nano-banana (Gemini image), style-conditioned on the brand's REAL
     creatives. This is the classic overlay's image source now that every Vertex Imagen id 404s on
@@ -236,7 +267,10 @@ def _generate_nano_background(
     import poster.oneshot as oneshot
     refs: list[tuple[bytes, str]] = []
     picked: list[tuple[bytes, str]] = []
-    for u in (product_images or []):
+    # When the real product is composited afterwards, it is NOT attached here: a reference the
+    # model can see is a reference it redraws, and a redrawn registered label is the defect this
+    # whole change exists to end.
+    for u in ([] if composite_product_after else (product_images or [])):
         data, mime = _image_bytes_from_url(u)
         if data:
             picked.append((data, mime))
@@ -254,6 +288,7 @@ def _generate_nano_background(
         + "\n\nCRITICAL: produce a BACKGROUND IMAGE ONLY — scene, texture, lighting, composition. "
         "Render NO text, letters, words, numbers, logos, captions or UI of any kind. Keep calm "
         "negative space where copy will be overlaid later. Photographic, premium, on-brand.")
+    bg_prompt += _product_scene_guard(product_name, composited=composite_product_after)
     if picked:
         # «دي مفيهاش لعب» — the attachment is THE product, not a mood reference. Without saying so
         # the model treats a reference as inspiration and redraws the item, which is how a real
@@ -290,6 +325,8 @@ def _generate_background(
     log=_safe_log, fetch=None, edit_provider=None, t2i=None,
     product_images: Optional[list] = None,
     identity_ref: Optional[tuple] = None,
+    product_name: str = "",
+    composite_product_after: bool = False,
 ) -> tuple[str, str]:
     """ADAPTIVE brand-anchored background, safe cascade (never raises here).
 
@@ -302,13 +339,28 @@ def _generate_background(
     OUTPAINT a real scraped photo -> plain text-to-image.
     Returns (background_path, model_label). `edit_provider`/`t2i`/`fetch` are injectable for tests."""
     # Production path: nano-banana background. Tests inject `t2i` to stay offline -> skip this.
+    #
+    # ONE RETRY, THEN STOP — do not walk the dead cascade. MEASURED (Al Fouad 2026-07-26): nano
+    # answered the third attempt with "returned no image" (a transient refusal), the code fell
+    # into the legacy Imagen chain, and EVERY id in it 404s on this project — style, outpaint and
+    # text-to-image alike, retired days ago. The cascade could not rescue anything; it only spent
+    # minutes turning a recoverable hiccup into a total failure, and the owner got the free
+    # placeholder after the wait. A transient no-image deserves a second try, not a tour of
+    # models that no longer exist.
     if t2i is None:
-        try:
-            return _generate_nano_background(profile, brand_dna, prompt, log=log,
-                                             product_images=product_images,
-                                             identity_ref=identity_ref)
-        except Exception as e:  # noqa: BLE001 — fall through to the legacy cascade, never crash here
-            log(f"[bg] nano-banana background failed ({type(e).__name__}: {e}); -> legacy Imagen")
+        last_exc = None
+        for _try in (1, 2):
+            try:
+                return _generate_nano_background(profile, brand_dna, prompt, log=log,
+                                                 product_images=product_images,
+                                                 identity_ref=identity_ref,
+                                                 product_name=product_name,
+                                                 composite_product_after=composite_product_after)
+            except Exception as e:  # noqa: BLE001
+                last_exc = e
+                log(f"[bg] nano-banana background failed ({type(e).__name__}: {e})"
+                    + ("; retrying once" if _try == 1 else "; giving up on this attempt"))
+        raise RuntimeError(f"background generation failed: {last_exc}")
 
     t2i = t2i or _generate_imagen
     _prov = {"p": edit_provider}
@@ -1281,6 +1333,10 @@ def generate_poster(
     best: Optional[PosterGenResult] = None      # highest-scoring attempt seen
     for attempt in range(max_qa_retries + 1):
         run_var = variation if attempt == 0 else build_variation()
+        # A LATER ATTEMPT'S FAILURE MUST NOT DISCARD AN EARLIER POSTER (measured: attempts 0 and
+        # 1 rendered, attempt 2 hit a transient no-image, and the whole render collapsed to the
+        # free placeholder). `attempt_failed` breaks the loop and keeps the best we already have.
+        attempt_failed = False
         if no_image:
             from poster.imagen_provider import StubImageProvider
             bg_path, model_used, prompt = str(StubImageProvider().generate("")), "stub", "(stub)"
@@ -1291,13 +1347,35 @@ def generate_poster(
             )
             # ADAPTIVE brand-anchored background (outpaint real photo -> style on real ads ->
             # text-to-image). `use_edit=False` forces the legacy pure text-to-image path.
-            if use_edit:
-                bg_path, model_used = _generate_background(
-                    profile, brand_dna, prompt, log=log,
-                    product_images=([product_image] if product_image else None),
-                    identity_ref=identity_image)
-            else:
-                bg_path, model_used = _generate_imagen(prompt)
+            # THE PRODUCT IS PASTED, NOT PROMPTED (2026-07-26). With a real product asset in
+            # hand the scene is generated WITHOUT it and the real photo is composited on top, so
+            # its label is pixel-identical instead of being rewritten by the model.
+            _composite_after = bool(product_image)
+            try:
+                if use_edit:
+                    bg_path, model_used = _generate_background(
+                        profile, brand_dna, prompt, log=log,
+                        product_images=([product_image] if product_image else None),
+                        identity_ref=identity_image, product_name=product_name or "",
+                        composite_product_after=_composite_after)
+                else:
+                    bg_path, model_used = _generate_imagen(prompt)
+                if _composite_after:
+                    from poster.product_composite import composite_product
+                    pasted = composite_product(bg_path, product_image)
+                    if pasted:
+                        bg_path = pasted
+                        log("[product] real asset composited (label pixel-exact)")
+                    else:
+                        log("[product] could not composite the real asset — the scene ships "
+                            "without it rather than with an invented one")
+            except Exception as exc:  # noqa: BLE001
+                log(f"[bg] attempt {attempt} could not render ({type(exc).__name__}: {exc})")
+                attempt_failed = True
+                if best is not None:
+                    log("[bg] keeping the best attempt already rendered")
+                    break
+                raise
             # Deterministic letterbox safety net: crop any black bars so the background fills
             # the canvas edge-to-edge regardless of what the image model rendered.
             bg_path = _trim_letterbox(bg_path)

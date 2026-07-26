@@ -24,11 +24,14 @@ def _stops(css: str):
             re.findall(r"rgba\(\s*\d+,\s*\d+,\s*\d+,\s*([\d.]+)\s*\)\s+([\d.]+)%", css)]
 
 
-def _size_of(headline: str, treatment: str = "stacked_hero", column_px: int = 900) -> int:
+def _size_of(headline: str, treatment: str = "stacked_hero", column_px: int = 900,
+             rtl: bool = False) -> int:
+    """Latin by default: Arabic no longer stacks one word per line at all (see
+    tests/test_arabic_copy_is_typeset_not_stacked.py), so the HEIGHT fit is a Latin rule."""
     from poster.schemas import PosterBrief
     from poster.template import _headline_block
     brief = PosterBrief(business_name="Shop", headline=headline)
-    html = _headline_block(brief, True, treatment=treatment, column_px=column_px)
+    html = _headline_block(brief, rtl, treatment=treatment, column_px=column_px)
     m = re.search(r"font-size:(\d+)px", html)
     return int(m.group(1)) if m else 0
 
@@ -39,8 +42,8 @@ def test_a_long_headline_does_not_eat_the_canvas():
     The measured poster used `lockup` (the DNA's typography) with 6 words; `stacked_hero`
     caps at 5 and hands anything longer to the plain wrapping block, which is fine."""
     from poster.template import _CH
-    cases = [("اطمني على بشرتك من الشمس والبقع", "lockup"),
-             ("اطمني على بشرتك من الشمس", "stacked_hero")]
+    cases = [("PROTECT YOUR SKIN FROM SUN SPOTS", "lockup"),
+             ("PROTECT YOUR SKIN TODAY", "stacked_hero")]
     for text, treatment in cases:
         n = len(text.split())
         size = _size_of(text, treatment)
@@ -52,7 +55,7 @@ def test_a_long_headline_does_not_eat_the_canvas():
 
 def test_a_short_headline_still_gets_a_dramatic_size():
     """The fix must not flatten every poster into timid type."""
-    assert _size_of("عرض اليوم") >= 100, _size_of("عرض اليوم")
+    assert _size_of("BIG SALE") >= 100, _size_of("BIG SALE")
 
 
 def test_the_freeform_upper_scrim_never_fades_to_nothing_under_the_copy():

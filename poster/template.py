@@ -443,6 +443,14 @@ def _headline_block(
     words = text.split()
     longest = max((len(w) for w in words), default=0)
 
+    # ARABIC IS TYPESET, NOT STACKED (owner, 2026-07-26: «طريقة الكتابة مستحيلة صعبة، بتبوّظ
+    # المنتج تماماً»). One word per line reads as a designed lockup in Latin display type; in
+    # Arabic it breaks the connected word-shapes the script is actually read by, forces a huge
+    # size to fill the column, and lands the headline across the model and the product. RTL copy
+    # goes to the wrapping block — the treatment stays exactly as designed for Latin.
+    if rtl and treatment in ("lockup", "stacked_hero", "highlight"):
+        treatment = "block"
+
     # 'highlight' — one word sits inside a brand-colored block (kinetic editorial flair).
     if treatment == "highlight" and 1 <= len(words) <= 9:
         n = len(words)
