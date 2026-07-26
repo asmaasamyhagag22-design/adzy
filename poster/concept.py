@@ -111,11 +111,28 @@ def _dna_tone_lines(brand_dna: Any) -> str:
     return "; ".join(parts)
 
 
-def _concept_clean(c: CreativeConcept, *, arabic: bool, ledger: Any = None) -> CreativeConcept:
+def _concept_clean(c: CreativeConcept, *, arabic: bool, ledger: Any = None,
+                   _sense_caller: Any = None) -> CreativeConcept:
     """Drop any chip that violates the language lock (Latin in an Arabic brand) OR — when a
     grounding ledger is supplied — carries an UNSOURCED falsifiable claim (a final
     deterministic safety so a fabricated chip never ships even if the regenerate loop
     didn't clear it)."""
+    # DOES IT MEAN ANYTHING? (owner 2026-07-26: «هو إيه "وقّفي البقعة"؟ مش فاهمة أصلاً»). Six
+    # gates judged that headline — language, grounding, claims, contrast, stray text, art — and
+    # none asked the reader's own question. A native-speaker judge rewrites a meaningless line
+    # into the same message said properly; a failure with no rewrite leaves the line and is
+    # logged, never silently passed.
+    try:
+        from poster.copy_qa import sense_check
+        _sense = sense_check({"headline": c.headline, "subheadline": c.subheadline,
+                              "cta": c.cta},
+                             language=("ar" if arabic else "en"),
+                             caller=_sense_caller)   # None -> copy_qa resolves its own
+        for _f, _new in (_sense.rewrites or {}).items():
+            setattr(c, _f, _new)
+    except Exception:  # noqa: BLE001 — a judge that cannot run must not kill the concept
+        pass
+
     # CLAIM SAFETY BEFORE STYLE (reviewer 2026-07-26): a therapeutic verb about a cosmetic is
     # regulatory exposure, not copy flair — softened deterministically on every field, so a
     # model that ignores the prompt's ban still cannot ship «بيعالج».
