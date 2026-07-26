@@ -13,12 +13,14 @@ the caller just gets a silent reel (today's behavior), so it can't break a rende
 from __future__ import annotations
 
 import math
+import os
 import struct
 import wave
 from pathlib import Path
 from typing import Optional
 
 from reel.ffmpeg_tools import run_ffmpeg
+from reel.sfx import sfx_clip
 
 
 def _wave_impact_fallback(out_path: str | Path, total_s: float) -> Optional[Path]:
@@ -78,6 +80,7 @@ def synth_sound_bed(
     impact: bool = True,
     mood: str = "",
     sfx_beats: Optional[list[tuple[float, str]]] = None,
+    real_sfx: Optional[bool] = None,
 ) -> Optional[Path]:
     """Synthesize a sound bed (mood-tuned pad + whooshes at `cut_times` + opening impact + authored
     `sfx_beats`) into an .m4a. `mood` tunes the pad's tone; `sfx_beats` are (time_s, name) cues where
@@ -121,8 +124,15 @@ def synth_sound_bed(
         mix_labels.append(f"[w{idx}]")
         idx += 1
 
-    # 3..) AUTHORED SFX beats — the plan's per-scene sfx cues (whoosh on a hard motion, impact on a
-    # reveal, chime on the pay-off), placed at their scene start times. This is the sound arc's movement.
+    # 3..) AUTHORED SFX beats — the plan's per-scene sfx cues, placed at their scene start times.
+    #
+    # REAL SOUND FIRST (2026-07-26). Everything below this line used to be the ONLY option: a
+    # 62 Hz sine for an impact, pink noise for a whoosh, two sines for a chime. Signal generators,
+    # not sound design — and the reason a technically-correct reel still sounded cheap. `sfx_clip`
+    # renders the cue with a real sound model and CACHES it; when it cannot (no key, no network,
+    # an API error) the synthesis below still covers the beat. Fail DOWN, never to silence.
+    use_real = (os.environ.get("REEL_REAL_SFX", "1") not in ("0", "false", "no")
+                if real_sfx is None else bool(real_sfx))
     for t_beat, name in (sfx_beats or []):
         try:
             t = float(t_beat)
@@ -131,6 +141,22 @@ def synth_sound_bed(
         if not (0.0 <= t < total):
             continue
         nm = (name or "").strip().lower()
+
+        clip = None
+        if use_real and nm:
+            try:
+                clip = sfx_clip(name, seconds=min(3.0, max(1.0, total - t)))
+            except Exception:  # noqa: BLE001 — a paid layer must never break a free render
+                clip = None
+        if clip is not None:
+            ms = int(t * 1000)   # a recorded sound's attack IS its first sample — no pre-roll
+            inputs += ["-i", str(clip)]
+            filters.append(f"[{idx}:a]volume=0.7,afade=t=out:st=0.9:d=0.4,"
+                           f"aresample=44100,adelay={ms}|{ms}[s{idx}]")
+            mix_labels.append(f"[s{idx}]")
+            idx += 1
+            continue
+
         if "chime" in nm or "bell" in nm or "ding" in nm:
             ms = int(t * 1000)
             inputs += ["-f", "lavfi", "-i",

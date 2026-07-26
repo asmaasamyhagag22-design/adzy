@@ -15,6 +15,7 @@ the $228 Veo scare happened, and it is not repeating on a layer added at the end
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -46,14 +47,60 @@ _CUES = {
 
 
 def describe_cue(cue: str) -> str:
-    """A director cue -> a sound description. Unknown cues pass through with a neutral frame so
-    an unexpected token still produces something rather than nothing."""
-    key = str(cue or "").strip().lower()
-    if not key:
+    """A director cue -> a sound description.
+
+    THREE cases, and the middle one is the whole point of the owner's request:
+
+      * a known TOKEN (`whoosh`) expands to a usable description — a one-word prompt buys
+        one-word-quality sound;
+      * an ALREADY-WRITTEN description ("Crisp chocolate bar bite with crunchy nuts") passes
+        through UNTOUCHED. It used to be reframed as "<the whole sentence> sound effect, short,
+        clean, close mic, no music", which fights the sentence instead of using it. This is the
+        case that makes a sound product-specific rather than stock;
+      * an unknown single token still gets the neutral frame, so nothing renders silent.
+    """
+    text = str(cue or "").strip()
+    if not text:
         return ""
+    key = text.lower()
     if key in _CUES:
         return _CUES[key]
+    if len(text.split()) >= 3:
+        return text                      # already a description — do not fight it
     return f"{key} sound effect, short, clean, close mic, no music"
+
+
+def sfx_clip(cue: str, *, seconds: float = 2.0, cache_dir: "str | Path | None" = None,
+             api_key: str = "") -> Optional[Path]:
+    """One CACHED sound effect for a cue. Returns the mp3 path, or None when it cannot be made.
+
+    The cache is not an optimisation, it is a spend control: the owner re-renders a reel many
+    times while reviewing it, and paying for the same whoosh on every render is exactly the shape
+    of the $228 Veo bill. Key = the DESCRIPTION plus the duration, so an edited cue is a new sound
+    and an unchanged one is free.
+
+    A FAILURE IS NEVER CACHED. Writing a zero-byte placeholder would make the next render inherit
+    the silence with no way to tell it from a real result.
+    """
+    description = describe_cue(cue)
+    if not description:
+        return None
+    root = Path(cache_dir) if cache_dir else Path(
+        os.environ.get("REEL_SFX_CACHE", "outputs/_sfx_cache"))
+    digest = hashlib.sha1(
+        f"{description}|{float(seconds):.2f}".encode("utf-8")).hexdigest()[:16]
+    dst = root / f"{digest}.mp3"
+    if dst.is_file() and dst.stat().st_size > 0:
+        return dst
+    out = generate_sfx(description, dst, seconds=seconds, api_key=api_key)
+    if out is None:
+        try:
+            if dst.exists() and dst.stat().st_size == 0:
+                dst.unlink()
+        except OSError:
+            pass
+        return None
+    return out
 
 
 def _record_spend(*, seconds: float, detail: str = "") -> None:
