@@ -152,6 +152,35 @@ def render_reel(
                 # then fall back to the FAITHFUL real-photo KenBurns so a hallucination never
                 # ships. Service brands too: with no product reference, the scene's OWN
                 # real-photo seed is the reference.
+                # PRODUCT OVERLAY (overhaul Phase D), now BEFORE the judge. The composite
+                # guard deliberately leaves the product's place empty in the generated clip, so
+                # judging the raw plate could only ever refuse it — MEASURED: "the advertised
+                # product is completely absent from all clip frames". QA must see what ships.
+                def _paste_product(clip_path, tag=""):
+                    pa = getattr(scene, "product_asset_url", None)
+                    if not pa:
+                        return clip_path
+                    asset_path = None
+                    if str(pa).startswith(("http://", "https://")):
+                        try:
+                            from reel.video_provider import _load_reference_image
+                            loaded = _load_reference_image(str(pa))
+                            if loaded:
+                                asset_path = tmpd / f"asset{i}.jpg"
+                                asset_path.write_bytes(loaded[0])
+                        except Exception:  # noqa: BLE001
+                            asset_path = None
+                    elif Path(str(pa)).is_file():
+                        asset_path = Path(str(pa))
+                    if not asset_path:
+                        return clip_path
+                    from reel.product_overlay import composite_product_screen
+                    return composite_product_screen(
+                        clip_path, asset_path, tmpd / f"prod{i}{tag}.mp4",
+                        placement=getattr(scene, "product_placement", "") or "inset",
+                        fps=fps, width=W, height=H)
+
+                raw = _paste_product(raw)
                 if qa_caller is not None:
                     from .scene_qa import check_scene, seed_may_animate
                     _v_final = None
@@ -178,7 +207,9 @@ def render_reel(
                               file=sys.stderr)
                         good = False
                         try:
-                            raw = provider.generate(scene.visual_prompt + _NO_TEXT, **gen_kwargs)
+                            raw = _paste_product(
+                                provider.generate(scene.visual_prompt + _NO_TEXT, **gen_kwargs),
+                                tag="r")
                             v2 = check_scene(raw, product_hint=qa_product_hint,
                                              reference_image=qa_ref, caller=qa_caller)
                             _v_final = v2
@@ -193,32 +224,12 @@ def render_reel(
                             print(f"[reel] scene {i} still failed QA; faithful seed-frame KenBurns fallback",
                                   file=sys.stderr)
                             fallback_used = True
-                            raw = fb.generate(scene.visual_prompt + _NO_TEXT, **gen_kwargs)
+                            raw = _paste_product(
+                                fb.generate(scene.visual_prompt + _NO_TEXT, **gen_kwargs),
+                                tag="f")
                     if _v_final is not None:
                         scene_qa.append({"scene": i, **_v_final.model_dump()})
 
-            # PRODUCT OVERLAY (overhaul Phase D): composite the brand's REAL screen/photo onto this
-            # scene's generated (abstract) clip, so a software product is actually SHOWN. The text
-            # overlay then rides on top, unchanged. Best-effort: any failure keeps the plain clip.
-            pa = getattr(scene, "product_asset_url", None)
-            if pa:
-                asset_path = None
-                if str(pa).startswith(("http://", "https://")):
-                    try:
-                        from reel.video_provider import _load_reference_image
-                        loaded = _load_reference_image(str(pa))
-                        if loaded:
-                            asset_path = tmpd / f"asset{i}.jpg"
-                            asset_path.write_bytes(loaded[0])
-                    except Exception:  # noqa: BLE001
-                        asset_path = None
-                elif Path(str(pa)).is_file():
-                    asset_path = Path(str(pa))
-                if asset_path:
-                    from reel.product_overlay import composite_product_screen
-                    raw = composite_product_screen(raw, asset_path, tmpd / f"prod{i}.mp4",
-                                                   placement=getattr(scene, "product_placement", "")
-                                                   or "inset", fps=fps, width=W, height=H)
             norm = tmpd / f"norm{i}.mp4"
             d = scene.duration_s
             fout = max(0.0, d - fade)
