@@ -1221,6 +1221,19 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
         manifest.declared_languages = sorted(_declared)
     except Exception:  # noqa: BLE001 — a missing tag must never break a crawl
         manifest.declared_languages = []
+    try:
+        from .extractors.testimonials import extract_testimonials
+        _seen, _revs = set(), []
+        for _html in (all_html_by_page or {}).values():
+            for _t in extract_testimonials(_html):
+                _k = (_t["author"], _t["quote"][:60])
+                if _k in _seen:
+                    continue
+                _seen.add(_k)
+                _revs.append(_t)
+        manifest.testimonials = _revs
+    except Exception:  # noqa: BLE001 — an unreadable review section must never break a crawl
+        manifest.testimonials = []
 
     if not visual_built:
         # Should not happen since homepage build is required, but guard

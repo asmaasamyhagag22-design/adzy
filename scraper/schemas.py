@@ -477,6 +477,11 @@ class ScrapeManifest(BaseModel):
     # declares ar+en on all 41 pages, the crawler opened only /en/, and the analysis then
     # told the client their site was single-language.
     declared_languages: list[str] = Field(default_factory=list)
+    # Reviews printed on the brand's OWN site, with the name recovered from the portrait's
+    # alt text. Text extraction drops alt, so an attributed review reached the LLM stage
+    # looking anonymous and its "attribution required" rule correctly refused it — nine real
+    # customer reviews sat unread in a page we had already downloaded.
+    testimonials: list[dict] = Field(default_factory=list)
     pages: list[PageRecord] = Field(default_factory=list)
     site_metadata: SiteMetadata = Field(default_factory=SiteMetadata)
     visual: VisualIdentity = Field(default_factory=VisualIdentity)
