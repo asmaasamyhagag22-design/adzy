@@ -2002,6 +2002,12 @@
         <span id="dashboard-brand-name" style="font-size:0.85rem; color:var(--text3); font-weight:600;"></span>
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
+        <!-- TREND IS ITS OWN STAGE (owner's ruling). Its tab used to offer "Regenerate SWOT",
+             because the action row sits above the views and switchStratView never touched it. -->
+        <button class="strat-generate-btn" id="strat-gen-trends-btn" onclick="refreshTrends()"
+                style="display:none;">
+          <i class="ph ph-trend-up"></i> <span id="strat-gen-trends-label">Refresh market signals</span>
+        </button>
         <button class="strat-generate-btn" id="strat-gen-swot-btn" onclick="generateSwot()">
           <i class="ph ph-sparkle"></i> <span id="strat-gen-swot-label">Generate SWOT</span>
         </button>
@@ -2025,6 +2031,10 @@
     </div>
 
     <div class="strat-stats" id="strat-stats"></div>
+    <!-- Why a quadrant is 0. Filled from swot.notes; hidden when nothing is empty. -->
+    <div id="strat-swot-caveat" style="display:none; margin:0 0 16px; padding:12px 16px;
+         background:var(--surface2); border:1px solid var(--border);
+         border-radius:var(--radius-sm);"></div>
 
     <!-- Trend view -->
     <div class="strat-view active" id="strat-view-trend">
@@ -2034,12 +2044,6 @@
            name that says what they are. -->
       <!-- Trend is a STAGE OF ITS OWN (owner's ruling): fetched standalone, no SWOT needed,
            and the SWOT then builds on it instead of re-buying it. -->
-      <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
-        <button class="btn-secondary" id="trend-refresh-btn" onclick="refreshTrends()"
-                style="font-size:0.8rem; padding:7px 14px;">
-          <i class="ph ph-arrows-clockwise"></i> Fetch market signals
-        </button>
-      </div>
       <div class="info-section" id="trend-signals-section" style="display:none;">
         <div class="info-label">Market signals · what is being written about your terms</div>
         <div id="trend-signals"></div>
@@ -3601,11 +3605,34 @@ function switchTab(name) {
 
 // ── Strategy dashboard: SWOT / Strategy / Marketing Plan / Calendar ────────
 
+// Which action belongs to which tab. The row is shared, so without this every tab showed the
+// SWOT buttons — "Regenerate SWOT" on the Trend tab being the one the owner caught.
+const STRAT_TAB_ACTIONS = {
+  trend:    ['strat-gen-trends-btn'],
+  swot:     ['strat-gen-swot-btn', 'strat-adopt-swot-btn', 'strat-approve-swot-btn',
+             'strat-regen-swot-btn'],
+  strategy: ['strat-gen-strategy-btn'],
+  plan:     [],
+  calendar: [],
+  influencer: [],
+};
+
 function switchStratView(name) {
   document.querySelectorAll('.dot-nav-item').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.strat-view').forEach(v => v.classList.remove('active'));
   document.querySelector(`.dot-nav-item[data-view="${name}"]`)?.classList.add('active');
   document.getElementById('strat-view-' + name)?.classList.add('active');
+  state.stratView = name;
+
+  // Hide every action, then re-show the ones this tab owns — subject to the stage gate, which
+  // still decides WHICH of a tab's buttons make sense (generate vs approve vs regenerate).
+  const owned = STRAT_TAB_ACTIONS[name] || [];
+  Object.values(STRAT_TAB_ACTIONS).flat().forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  const b = activeBrand();
+  if (b) applyStratStageGate(b, owned);
 }
 
 function _stratChipRow(elId, items, ranked = false) {
@@ -3701,7 +3728,62 @@ function renderMediaPlanV2(b) {
   el.style.display = '';
 }
 
+
+// WHICH ACTION IS OFFERED, given the stage the brand is at AND the tab being looked at.
+// `owned` is the tab's own set (STRAT_TAB_ACTIONS); a button outside it is never shown, so the
+// Trend tab can no longer offer "Regenerate SWOT".
+function applyStratStageGate(b, owned) {
+  const swotExists = !!b.has_swot;
+  const swotApproved = !!b.swot_approved;
+  const strategyExists = !!b.has_strategy;
+  const want = {
+    'strat-gen-trends-btn': true,
+    'strat-gen-swot-btn': !swotExists,
+    // Offered only when there is nothing to show yet — importing a file must never look like an
+    // alternative to the owner's approved SWOT.
+    'strat-adopt-swot-btn': !swotExists,
+    'strat-approve-swot-btn': swotExists && !swotApproved,
+    'strat-gen-strategy-btn': swotApproved && !strategyExists,
+    'strat-regen-swot-btn': swotExists && swotApproved,
+  };
+  Object.entries(want).forEach(([id, ok]) => {
+    const elx = document.getElementById(id);
+    if (elx) elx.style.display = (ok && owned.includes(id)) ? '' : 'none';
+  });
+  const strategyLabel = document.getElementById('strat-gen-strategy-label');
+  if (strategyLabel) strategyLabel.textContent = strategyExists ? 'Regenerate Strategy' : 'Generate Strategy';
+}
+
+// WHY A QUADRANT IS EMPTY. The analysis already records it — measured on AlFouad:
+//   «نقاط الضعف: فاضية — نقاط الضعف محتاجة أبعاد مقارنة من موقعك أو من الأقران.
+//    المتاح في التشغيلة دي: 4 قرين، منهم 4 بموقع قابل للفحص.»
+// and nothing rendered it, so a large "0 WEAKNESSES" read as a clean bill of health when it
+// actually meant "we could not compare". The note is printed VERBATIM, in whatever language the
+// analysis wrote it — inventing an English sentence here would be a different claim.
+function renderSwotCaveat(b) {
+  const host = document.getElementById('strat-swot-caveat');
+  if (!host) return;
+  const swot = b.swot || {};
+  const notes = (swot.notes || []).filter(Boolean);
+  const emptyQuadrants = ['strengths', 'weaknesses', 'opportunities', 'threats']
+    .filter(k => !(swot[k] || []).length);
+  if (!notes.length || !emptyQuadrants.length) {
+    host.style.display = 'none';
+    return;
+  }
+  host.innerHTML =
+    `<div style="font-size:0.72rem; letter-spacing:.08em; text-transform:uppercase;` +
+    ` color:var(--text3); font-weight:700; margin-bottom:6px;">` +
+    `Why ${emptyQuadrants.join(' / ')} came back empty</div>` +
+    `<ul style="margin:0; padding-inline-start:18px; font-size:0.82rem; line-height:1.8;` +
+    ` unicode-bidi:plaintext;">` +
+    notes.map(n => `<li>${escHtml(n)}</li>`).join('') + `</ul>`;
+  host.style.display = '';
+}
+
 function renderStrategyDashboard(b) {
+  // What the screen is showing IS the active brand — see activeBrand().
+  state.dashboardBrand = b;
   renderMediaPlanV2(b);
   fillOwnerInputs(b);
   const swot     = b.swot || {};
@@ -3729,18 +3811,10 @@ function renderStrategyDashboard(b) {
     const swotApproved = !!b.swot_approved;
     const strategyExists = !!b.has_strategy;
 
-    document.getElementById('strat-gen-swot-btn').style.display = swotExists ? 'none' : '';
-    document.getElementById('strat-approve-swot-btn').style.display = (swotExists && !swotApproved) ? '' : 'none';
-    document.getElementById('strat-gen-strategy-btn').style.display = (swotApproved && !strategyExists) ? '' : 'none';
-    document.getElementById('strat-regen-swot-btn').style.display = (swotExists && swotApproved) ? '' : 'none';
-    // Offered only when there is nothing to show yet — importing a file must never look like an
-    // alternative to the owner's approved SWOT.
-    const adoptBtn = document.getElementById('strat-adopt-swot-btn');
-    if (adoptBtn) adoptBtn.style.display = swotExists ? 'none' : '';
-
-    const strategyLabel = document.getElementById('strat-gen-strategy-label');
-    if (strategyLabel) strategyLabel.textContent = strategyExists ? 'Regenerate Strategy' : 'Generate Strategy';
+    applyStratStageGate(b, STRAT_TAB_ACTIONS[state.stratView || 'trend'] || []);
   }
+
+  renderSwotCaveat(b);
 
   // ── Trend view - surfaced from swot.strategic_context (quality/benchmark
   // signals produced alongside the SWOT; there's no separate trend.json) ──
@@ -4211,30 +4285,10 @@ function influencerFormPayload() {
 }
 
 // Trend as its own stage: fetch market signals for the current brand, no SWOT involved.
-async function refreshTrends() {
-  const b = state.studioBrand || state.currentBrand;
-  if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
-  const btn = document.getElementById('trend-refresh-btn');
-  const prior = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = 'Fetching…';
-  try {
-    const r = await api('POST', '/api/brands/' + encodeURIComponent(b.domain_key) + '/trends');
-    toast(r.count ? (r.count + ' market signals found') : (r.note || 'No signals found'),
-          r.count ? 'success' : '');
-    const fresh = await api('GET', '/api/brands/' + b.domain_key);
-    state.studioBrand = fresh; state.currentBrand = fresh;
-    renderStrategyDashboard(fresh);
-  } catch (e) {
-    toast('Trend fetch failed: ' + (e.message || e), 'error');
-  } finally {
-    btn.disabled = false; btn.innerHTML = prior;
-  }
-}
-
 // The business-derived starting point for the influencer, editable. The backend always HAD this
 // sentence (persona_from_brand) but only as a silent fallback the user never saw.
 async function prefillInfluencerDefaults() {
-  const b = state.studioBrand || state.currentBrand;
+  const b = activeBrand();
   const box = document.getElementById('inf-persona');
   if (!b || !b.domain_key || !box || box.value.trim()) return;   // never overwrite her edits
   try {
@@ -4245,7 +4299,7 @@ async function prefillInfluencerDefaults() {
 }
 
 async function generateInfluencerPortrait(forceSeed) {
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
 
   const btn   = document.getElementById('inf-create-btn');
@@ -4288,7 +4342,7 @@ async function generateInfluencerPortrait(forceSeed) {
 }
 
 async function approveInfluencerPortrait() {
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (!b || !b.domain_key) return;
   try {
     await api('POST', '/api/influencer/validate', { domain_key: b.domain_key, approved: true });
@@ -4303,7 +4357,7 @@ async function approveInfluencerPortrait() {
 
 // Add a look WITHOUT destroying the current one. `/api/influencer/create` resets; this does not.
 async function anotherInfluencerLook() {
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
   const btn = document.getElementById('inf-another-btn');
   const prior = btn.innerHTML;
@@ -4339,7 +4393,7 @@ async function anotherInfluencerLook() {
 
 // Lock ONE look in as the brand's face.
 async function selectInfluencerLook(candidateId) {
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (!b || !b.domain_key) return;
   try {
     await api('POST', '/api/influencer/select',
@@ -4369,7 +4423,7 @@ function retryInfluencerPortrait() {
 }
 
 async function generateInfluencerPoster() {
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
   const inf = b.ai_influencer || {};
   if (!inf.has_portrait) { toast('Generate the influencer portrait first', 'error'); return; }
@@ -4419,7 +4473,7 @@ async function generateInfluencerPoster() {
 // figures — capacity_source flips to "human", the ceiling is recomputed, and the "Still needed
 // from you" list shrinks. Values out of range come back in `rejected`, named, never clamped.
 async function saveOwnerInputs() {
-  const b = state.studioBrand || state.currentBrand;
+  const b = activeBrand();
   if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
   const btn = document.getElementById('owner-inputs-save');
   const val = id => { const v = document.getElementById(id).value; return v === '' ? null : Number(v); };
@@ -4459,7 +4513,7 @@ function fillOwnerInputs(b) {
 // no spend. It is a no-op that SAYS SO when there is nothing on disk, rather than reporting a
 // success that changed nothing.
 async function adoptAnalysis() {
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
   const btn = document.getElementById('strat-adopt-swot-btn');
   const priorLabel = btn.innerHTML;
@@ -4484,8 +4538,37 @@ async function adoptAnalysis() {
   }
 }
 
+
+// MARKET SIGNALS, fetched on their own — no SWOT required and none re-bought by one.
+// Owner's ruling: «الترند ... دا في تاب لوحدها · وبعدين السوات بناءً عليها».
+async function refreshTrends() {
+  const b = activeBrand();
+  if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
+  const btn = document.getElementById('strat-gen-trends-btn');
+  const prior = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'Fetching…';
+  try {
+    const r = await api('POST', '/api/brands/' + encodeURIComponent(b.domain_key) + '/trends');
+    const fresh = await api('GET', '/api/brands/' + b.domain_key);
+    state.studioBrand = fresh; state.currentBrand = fresh;
+    renderStrategyDashboard(fresh);
+    switchStratView('trend');
+    // "none found" is a real answer and says so, rather than leaving an empty panel to be read
+    // as a failure.
+    toast(r.count ? `${r.count} market signal(s) found`
+                  : (r.note || 'No on-topic coverage found for this brand'),
+          r.count ? 'success' : 'error');
+  } catch (e) {
+    toast('Could not fetch market signals: ' + (e.message || e), 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = prior;
+  }
+}
+
 async function generateSwot() {
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
 
   const btn = b.has_swot ? document.getElementById('strat-regen-swot-btn') : document.getElementById('strat-gen-swot-btn');
@@ -4526,7 +4609,7 @@ async function generateSwot() {
 }
 
 async function approveSwot() {
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (!b || !b.domain_key) return;
   const btn = document.getElementById('strat-approve-swot-btn');
   btn.disabled = true;
@@ -4544,7 +4627,7 @@ async function approveSwot() {
 }
 
 async function generateStrategyChain() {
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
 
   const btn   = document.getElementById('strat-gen-strategy-btn');
@@ -4585,7 +4668,7 @@ async function generateStrategyChain() {
 }
 
 async function generateMarketingPlan() {
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
   if (!b.marketing_strategy || !b.marketing_strategy.strategic_posture) {
     toast('Generate Strategy first (SWOT needs to be approved before Strategy will run)', 'error');
@@ -4657,7 +4740,7 @@ function showStudioDashboard() {
     switchStratView('trend');
   }
 
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (b) {
     renderStrategyDashboard(b);
   } else {
@@ -4678,7 +4761,7 @@ function showStudioInfluencer() {
   document.querySelectorAll('.strat-view').forEach(v => v.classList.remove('active'));
   document.getElementById('strat-view-influencer').classList.add('active');
 
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (b) {
     renderInfluencerView(b);
   } else {
@@ -4729,6 +4812,20 @@ async function goStudio() {
   if (!state.studioBrand) { focusUrlInput(); return; }
   showPage("studio");
   showStudioCreate();
+}
+
+// THE BRAND THIS SCREEN IS SHOWING — one answer, for every action button.
+//
+// The SPA kept two slots. `openBrand()` (a card on Home) sets only `state.currentBrand` and then
+// draws the whole strategy dashboard from it — header, counts, calendar, buttons — while 44 call
+// sites read `state.studioBrand`, which on that path is null. The panel said "AlFouad Pharmacies"
+// and "Generate poster" answered "Pick a brand first", so the click looked like it did nothing.
+// The screen and the button disagreed about which brand was open.
+function activeBrand() {
+  return (state.studioBrand && state.studioBrand.domain_key) ? state.studioBrand
+       : (state.dashboardBrand && state.dashboardBrand.domain_key) ? state.dashboardBrand
+       : (state.currentBrand && state.currentBrand.domain_key) ? state.currentBrand
+       : null;
 }
 
 function setStudioBrand(brand) {
@@ -4830,7 +4927,7 @@ function closeBrandPicker() {
 }
 
 async function generateCalendarDayPoster(date, itemEl, seed) {
-  const b = state.studioBrand;
+  const b = activeBrand();
   if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
   if (!date) { toast('This entry has no resolved date yet', 'error'); return; }
 
