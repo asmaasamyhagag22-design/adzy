@@ -807,8 +807,29 @@ def synth_voiceover(
         elif chosen == "edge":
             ok = _edge_read(parts, list(deliveries or []), raw, voice=voice, tone=tone)
         elif chosen == "elevenlabs":
-            ok = _elevenlabs_segment(script, raw, voice=voice, model=model, api_key=el_key,
-                                     delivery=(deliveries[0] if deliveries else ""))
+            # WITH-TIMESTAMPS FIRST (owner's cheat-sheet, the last piece): same voice, same
+            # settings, same price — plus the word schedule that lets a caption word pop at the
+            # instant it is spoken. Writes `<raw>.words.json`; the caption layer picks it up.
+            # Any failure falls straight back to the plain endpoint: a reel must never lose its
+            # voice over a timestamp.
+            ok = False
+            try:
+                from reel.word_sync import tts_with_timestamps
+                _energy = _energy_of(deliveries[0] if deliveries else "")
+                _vs = {
+                    "high": {"stability": 0.34, "similarity_boost": 0.85, "style": 0.62},
+                    "warm": {"stability": 0.55, "similarity_boost": 0.80, "style": 0.35},
+                    "neutral": {"stability": 0.45, "similarity_boost": 0.82, "style": 0.48},
+                }[_energy]
+                _vs["use_speaker_boost"] = True
+                ok = tts_with_timestamps(script, raw, voice=voice,
+                                         model=model or _ELEVENLABS_MODEL, api_key=el_key,
+                                         voice_settings=_vs) is not None
+            except Exception:  # noqa: BLE001
+                ok = False
+            if not ok:
+                ok = _elevenlabs_segment(script, raw, voice=voice, model=model, api_key=el_key,
+                                         delivery=(deliveries[0] if deliveries else ""))
         elif chosen == "verbatik":
             ok = _verbatik_segment(script, raw,
                                    delivery=(deliveries[0] if deliveries else ""))

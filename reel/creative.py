@@ -398,6 +398,29 @@ def render_creative_reel(
                                   profile=profile)
         if vo_path:
             logger.info("voice-over track ready: %s", vo_path)
+            # ZERO-LATENCY CAPTIONS: map each scene's caption onto the narration's word schedule
+            # (written by tts_with_timestamps as a sidecar). Best-effort by design — a caption the
+            # voice never says, or a run with no sidecar, keeps the designed stagger.
+            try:
+                import json as _json
+                _wp = Path(str(vo_path) + ".words.json")
+                if not _wp.is_file():
+                    _wp = Path(str(vo_path)).with_suffix(".mp3.words.json")
+                if _wp.is_file():
+                    _words = _json.loads(_wp.read_text(encoding="utf-8"))
+                    from reel.word_sync import caption_delays
+                    _t, _cursor = 0.0, 0
+                    for _sc in storyboard.scenes:
+                        if (_sc.headline or "").strip():
+                            _got = caption_delays(_sc.headline, _words,
+                                                  scene_start_s=_t, search_from=_cursor)
+                            if _got:
+                                _sc.caption_word_delays, _cursor = list(_got[0]), _got[1]
+                        _t += float(_sc.duration_s or 0.0)
+                    _n = sum(1 for _sc in storyboard.scenes if _sc.caption_word_delays)
+                    logger.info("[reel] word-sync: %d scene caption(s) on the spoken schedule", _n)
+            except Exception:  # noqa: BLE001 — the schedule is a bonus, never a dependency
+                logger.exception("word-sync unavailable; captions keep the designed stagger")
 
     # SCENE QA — ALL creative reels (owner finding 2026-07-12: service-brand reels rendered
     # visually UNGATED and the NTI 'old school' hallucination shipped). A Gemini vision caller

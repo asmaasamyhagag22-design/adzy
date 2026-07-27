@@ -42,6 +42,10 @@ class ReelScene(BaseModel):
     # (so a software product is actually shown). None -> no composite.
     product_asset_url: Optional[str] = None
     product_placement: str = ""              # "" | "inset" (reserved for future placements)
+    # Cheat-sheet: per-word CSS delays for the hero lockup, measured off the narration's
+    # ElevenLabs word timestamps. None -> the designed 0.07s stagger (the schedule is a
+    # bonus, never a dependency).
+    caption_word_delays: Optional[list[float]] = None
 
 
 class Storyboard(BaseModel):

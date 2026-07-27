@@ -235,7 +235,7 @@ def hero_word_count(headline: str) -> int:
     return len(_split_hook(headline)[0])
 
 
-def _lockup_headline(headline: str) -> str:
+def _lockup_headline(headline: str, word_delays=None) -> str:
     """A MINIMAL hero lockup: the lead 1-3 words ONLY (a reel carries LITTLE text), stacked and
     clean WHITE — no wordy support line, no coloured accent word that can clash with the footage.
     Verbatim words (a subset), CSS-only (none reordered/reworded → zero-hallucination)."""
@@ -243,8 +243,13 @@ def _lockup_headline(headline: str) -> str:
     hero = [_esc(w) for w in hero if w]
     if not hero:
         return ""
+    # ZERO-LATENCY SYNC (cheat-sheet #2): when the narration's word timestamps are known, each
+    # word pops at the instant it is SPOKEN; the fixed stagger is only the no-schedule fallback.
+    delays = list(word_delays or [])
+    def _d(i: int) -> float:
+        return float(delays[i]) if i < len(delays) else i * _LW_STAGGER
     return "".join(
-        f'<span class="lw" {_anim_attrs(i * _LW_STAGGER, 0.34, 38, "expo")}>{w}</span>'
+        f'<span class="lw" {_anim_attrs(_d(i), 0.34, 38, "expo")}>{w}</span>'
         for i, w in enumerate(hero)
     )
 
@@ -316,7 +321,7 @@ def _scene_html(scene: ReelScene, storyboard: Storyboard, width: int, height: in
     inner: list[str] = []
     if scene.headline:
         if lockup:                                     # each WORD carries its own kinetic beat
-            inner.append(f'<div class="headline lockup">{_lockup_headline(scene.headline)}</div>')
+            inner.append(f'<div class="headline lockup">{_lockup_headline(scene.headline, getattr(scene, "caption_word_delays", None))}</div>')
         else:
             # Cheat-sheet #2: the accent goes on the word that CARRIES the line — the brand /
             # product token when the headline contains one — not blindly on the last word.
