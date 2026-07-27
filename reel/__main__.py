@@ -157,6 +157,10 @@ def main() -> int:
     ap.add_argument("--scale", type=float, default=1.0, help="resolution scale (0.5 = fast preview)")
     ap.add_argument("--max-seconds", type=float, default=28.0, help="cap total reel length")
     ap.add_argument("--no-logo", action="store_true", help="skip the logo overlay")
+    # OFF by default (brief rule 3): a 35mm border on a 9:16 ad eats the vertical space the
+    # product, the platform's safe zones and the kinetic captions all need.
+    ap.add_argument("--film-frame", action="store_true",
+                    help="overlay a 35mm film border (off by default — it costs canvas)")
     ap.add_argument("--static-scene", action="store_true",
                     help="skip the LLM art-director; use deterministic per-category scenes")
     ap.add_argument("--no-select", action="store_true",

@@ -42,7 +42,11 @@ _LOOKS = {
 }
 
 _CLINICAL = ("clinical", "clean", "sterile", "pharmac", "medical", "hygien", "lab", "white",
-             "trust", "professional")
+             "trust", "professional",
+             # A supplement/vitamin brand IS the cool case — the brief names Nano Care as the
+             # example, and none of the words above appear anywhere in its profile.
+             "supplement", "vitamin", "nutraceutical", "dermatolog", "derma", "capsule",
+             "liposom", "dose", "dosage", "مكمل", "فيتامين", "صيدل", "طبي", "عيادة")
 _LUXURY = ("luxury", "premium", "elegant", "refined", "sophisticat", "opulent", "heritage")
 _VIBRANT = ("vibrant", "playful", "bold", "energetic", "youth", "punchy", "sport")
 _WARM = ("warm", "golden", "cosy", "cozy", "appetis", "appetiz", "sunlit", "homely", "natural")
@@ -55,12 +59,33 @@ def _dna_blob(brand_dna: Any, profile: Optional[dict]) -> str:
         if v:
             parts.append(v if isinstance(v, str) else " ".join(map(str, v)))
     if profile:
-        t = (profile or {}).get("tone_of_voice")
-        if isinstance(t, dict):
-            t = t.get("value")
-        if t:
-            parts.append(str(t))
+        # WHAT THE BRAND IS, not only how it talks. MEASURED 2026-07-27: reading `tone_of_voice`
+        # alone made this resolver INERT on every real profile — Nano Care ("inspirational"),
+        # Abu Auf ("friendly") and Al Fouad (None) all fell through to the default, so a deep-blue
+        # pharmaceutical brand and a nut roaster got the identical golden look. A voice descriptor
+        # is not a visual one; the family keywords ("clinical", "pharmac", "lab", "luxury") describe
+        # the brand's WORLD, and the fields that carry that were never read.
+        for key in ("tone_of_voice", "website_type", "market_category", "description",
+                    "industry"):
+            v = (profile or {}).get(key)
+            if isinstance(v, dict):
+                v = v.get("value")
+            if v:
+                parts.append(str(v))
     return " ".join(parts).lower()
+
+
+def _hits(blob: str, keywords) -> bool:
+    """Does any keyword start a WORD in the blob?
+
+    MEASURED 2026-07-27: bare `in` made "lab" match inside "available", so Abu Auf — nuts, dried
+    fruit and coffee — resolved CLINICAL. Third time this class has bitten in one session («بشرة»
+    inside «بالبشرة», "men" inside "women"). The keywords are deliberate PREFIXES ("pharmac" must
+    still reach "pharmaceutical"), so the rule is word-START, not whole-word.
+    """
+    import re as _re
+    words = _re.findall(r"[^\W\d_]+", blob or "", _re.UNICODE)
+    return any(w.startswith(k) for w in words for k in keywords)
 
 
 def look_lock(*, brand_dna: Any = None, profile: Optional[dict] = None) -> str:
@@ -78,12 +103,12 @@ def look_lock(*, brand_dna: Any = None, profile: Optional[dict] = None) -> str:
         return DEFAULT_LOOK
     # Order matters: a brand described as "clean, premium clinic" is clinical first — the light
     # is what the camera obeys, and clinical light is the stronger constraint.
-    if any(w in blob for w in _CLINICAL):
+    if _hits(blob, _CLINICAL):
         return _LOOKS["clinical"]
-    if any(w in blob for w in _LUXURY):
+    if _hits(blob, _LUXURY):
         return _LOOKS["luxury"]
-    if any(w in blob for w in _VIBRANT):
+    if _hits(blob, _VIBRANT):
         return _LOOKS["vibrant"]
-    if any(w in blob for w in _WARM):
+    if _hits(blob, _WARM):
         return _LOOKS["warm"]
     return DEFAULT_LOOK
