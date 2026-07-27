@@ -294,6 +294,13 @@ def _customer_voice_themes(profile: dict) -> list:
 
     Never raises: a voice source that fails contributes nothing and the SWOT builds without it."""
     out = list(_social_themes_for(profile))
+    # Reviews printed on the brand's OWN site. Extracted by the scraper and, until this line,
+    # with nowhere to go — the exact shape of the two holes this collector was built to close.
+    try:
+        from competitor.social_themes import themes_from_testimonials
+        out += list(themes_from_testimonials((profile or {}).get("testimonials")) or [])
+    except Exception:  # noqa: BLE001 — customer voice must never break a grounded SWOT
+        logger.exception("on-site testimonials unavailable; continuing without them")
     try:
         from competitor.full_run import _own_voice_themes
         url = str((profile or {}).get("source_url") or "").strip()

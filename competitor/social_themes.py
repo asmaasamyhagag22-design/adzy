@@ -100,6 +100,48 @@ def _key(text: str) -> str:
     return " ".join(sorted(set(re.findall(r"[^\W\d_]{3,}", str(text or "").lower(), re.UNICODE))))
 
 
+def themes_from_testimonials(testimonials: Any) -> list:
+    """Reviews printed on the brand's OWN site -> own-brand review themes.
+
+    MEASURED on alfouadpharmacies.com: nine attributed Arabic reviews sit on the homepage, and
+    before this existed nothing could turn them into SWOT evidence — `grep is_own_brand=True`
+    found only the Instagram path. The reviews were extracted, carried, and then had nowhere to go.
+
+    Own-brand by construction: these are reviews of THIS business on ITS site, so praise is a
+    Strength and a complaint a Weakness — never a rival's advantage.
+
+    Two refusals, both deliberate:
+      * NO NAME, NO THEME. The reviewer's name is the citation; an unattributed quote is exactly
+        what the grounding gate exists to reject.
+      * NO POLARITY, NO THEME. «العرض ده متاح على الموقع بس؟» is a question, not praise, and a
+        Strength built on it would be a claim the customer never made.
+    """
+    out = []
+    seen = set()
+    for row in (testimonials or []):
+        if isinstance(row, dict):
+            quote = str(row.get("quote") or row.get("text") or "").strip()
+            author = str(row.get("author") or row.get("name") or "").strip()
+        else:
+            quote = str(getattr(row, "quote", "") or getattr(row, "text", "") or "").strip()
+            author = str(getattr(row, "author", "") or getattr(row, "name", "") or "").strip()
+        if not quote or not author:
+            continue
+        if len(_LETTERS.findall(quote)) < _MIN_LETTERS:
+            continue
+        polarity = _polarity(quote)
+        if polarity is None:
+            continue
+        key = (polarity, _key(quote))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ReviewTheme(polarity=polarity, text=quote,
+                               support=[f"{author} — review on the brand's own site"],
+                               is_unmet_need=False, is_own_brand=True))
+    return out
+
+
 def themes_from_signals(signals: Any, *, is_own_brand: Optional[bool] = None) -> list:
     """Convert collected social signals into review themes. Never raises; [] when nothing qualifies.
 

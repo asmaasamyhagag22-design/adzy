@@ -178,7 +178,10 @@ def profile_to_brand(profile: dict, *, source_url: str = "",
             _vlist(profile.get("audience_signals"))[:3]),
         "languages": list(profile.get("languages") or []),
         "nav_links": [],
-        "testimonials": [],
+        # Was hardcoded []. The reviews printed on the brand's own homepage — nine of them
+        # on the first client this was measured against — could not survive the projection
+        # no matter what the profile carried.
+        "testimonials": [t for t in (profile.get("testimonials") or []) if t],
         "images": images,
         "products": products,
         "services": products,
