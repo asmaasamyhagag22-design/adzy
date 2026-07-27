@@ -3078,7 +3078,10 @@ function focusUrlInput() {
   setTimeout(() => document.getElementById('url-input').focus(), 100);
 }
 
-const SCAN_STEP_ORDER = ['crawl','reviews','classify','extract','score','swot','strategy'];
+// The stages /api/scrape ACTUALLY runs. It used to name 'swot' and 'strategy' too, and those two
+// dots were removed with the fake stages they drove — leaving this list pointing at nothing, which
+// killed Analyze outright (see the reset loop below).
+const SCAN_STEP_ORDER = ['crawl','reviews','classify','extract','score'];
 
 async function startScrape() {
   const urlInput = document.getElementById('url-input');
@@ -3087,29 +3090,35 @@ async function startScrape() {
   if (!url.startsWith('http')) url = 'https://' + url;
   urlInput.value = url;
 
-  document.getElementById('scan-url-text').textContent = url;
-  document.getElementById('scan-pct').innerHTML = '0<span>%</span>';
-  document.getElementById('progress-fill').style.width = '0%';
-  document.getElementById('scan-step-text').textContent = 'Starting...';
-  state.scanDisplayedPct = 0;
-
-  // Reset step dots
-  SCAN_STEP_ORDER.forEach(s => {
-    const dot = document.getElementById('dot-' + s);
-    dot.className = 'step-dot pending';
-    dot.innerHTML = '';
-    const item = dot.closest('.scan-step-item');
-    item.classList.remove('done', 'active');
-  });
-
-  showPage('scan');
-
+  // EVERYTHING that can throw is inside the guard. The step reset used to sit above it: when
+  // SCAN_STEP_ORDER drifted from the markup, `dot.className` hit null and the whole click died
+  // BEFORE the fetch — no request, no toast, no console error (an async function called from an
+  // inline onclick discards its rejection). The owner clicked Analyze and the product did nothing.
   try {
+    document.getElementById('scan-url-text').textContent = url;
+    document.getElementById('scan-pct').innerHTML = '0<span>%</span>';
+    document.getElementById('progress-fill').style.width = '0%';
+    document.getElementById('scan-step-text').textContent = 'Starting...';
+    state.scanDisplayedPct = 0;
+
+    // Reset step dots. A missing dot is cosmetic and must never be fatal — the guard is what
+    // stops a markup edit from silently disabling the most important button in the app.
+    SCAN_STEP_ORDER.forEach(s => {
+      const dot = document.getElementById('dot-' + s);
+      if (!dot) return;
+      dot.className = 'step-dot pending';
+      dot.innerHTML = '';
+      const item = dot.closest('.scan-step-item');
+      if (item) item.classList.remove('done', 'active');
+    });
+
+    showPage('scan');
+
     const { job_id } = await api('POST', '/api/scrape', { url, max_pages: 20, max_depth: 3, delay: 1.0 });
     state.jobId = job_id;
     pollJob(job_id);
   } catch(e) {
-    toast('Failed to start scrape: ' + e.message, 'error');
+    toast('Failed to start scrape: ' + (e && e.message ? e.message : e), 'error');
     showPage('home');
   }
 }
