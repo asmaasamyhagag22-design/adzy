@@ -70,15 +70,34 @@ def _product_asset(profile: Optional[dict], scene, real: Optional[str]) -> Optio
     if not getattr(scene, "hero_product", False):
         return None
     ov = (getattr(scene, "product_overlay", "") or "").lower()
-    if ov not in ("real_screen", "real_photo"):
-        return None
     if ov == "real_photo" and real:
         return real
+    if ov not in ("real_screen", "real_photo"):
+        # THE DIRECTOR FORGETTING A FIELD MUST NOT COST THE CURE. MEASURED on Nano Care: the plan
+        # marked the scene `hero_product` but left `product_overlay` empty, so no real asset was
+        # composited, the packaging went through Kling, and QA refused it — "the brand name and
+        # other details replaced by garbled, illegible text" — twice, then fell back to Ken Burns.
+        # A real photograph of the product exists; when a scene is ABOUT the product, use it.
+        return real or None
     vis = (profile or {}).get("visual") if isinstance(profile, dict) else None
     shot = vis.get("homepage_screenshot_path") if isinstance(vis, dict) else None
     if isinstance(shot, dict):
         shot = shot.get("value")
     return (str(shot) if shot else None) or real
+
+
+def _composited_product_guard(composited: bool) -> str:
+    """Tell the video model to leave the product's place EMPTY when we paste the real one.
+
+    Without this the frame carries BOTH: a garbled invented box from the generator and the real
+    packshot composited on top. The poster learned this first (`_product_scene_guard`), and the
+    reel needs it for the same reason — a video model repaints a label every frame.
+    """
+    if not composited:
+        return ""
+    return ("\nDO NOT DRAW THE PRODUCT, its packaging, its label or any text on it. The real "
+            "product photograph is composited into this shot afterwards, so leave its place "
+            "EMPTY: a clean, well-lit surface with room for it and nothing standing there.")
 
 
 def build_creative_storyboard(reel: CreativeReel, brief: PosterBrief,
@@ -133,6 +152,10 @@ def build_creative_storyboard(reel: CreativeReel, brief: PosterBrief,
             kind, cta_text = "outro", cap
         elif cap:
             headline = cap
+        # Resolved BEFORE the prompt is built: when the real product is going to be pasted on top,
+        # the generator must be told to leave its place empty, or the shot carries a garbled
+        # invented box underneath a real one.
+        _asset = _product_asset(profile, s, real)
         scenes.append(ReelScene(
             kind=kind,
             duration_s=round(dur, 2),
@@ -140,10 +163,11 @@ def build_creative_storyboard(reel: CreativeReel, brief: PosterBrief,
             # appended to prompts the DIRECTOR just wrote (verbatim_prompts=False).
             visual_prompt=(str(s.veo_prompt or "") if verbatim_prompts
                            else str(s.veo_prompt or "").rstrip() + "\n"
-                                + _motion_directive(s, look=look)),
+                                + _motion_directive(s, look=look)
+                                + _composited_product_guard(bool(_asset))),
             seed_image_url=seed,
             place_ref_url=place_ref,
-            product_asset_url=_product_asset(profile, s, real),   # Phase D: real screen/photo to composite
+            product_asset_url=_asset,   # Phase D: real screen/photo to composite
             product_placement=(s.product_overlay or "").strip(),
             headline=headline,
             cta_text=cta_text,
