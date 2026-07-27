@@ -19,6 +19,7 @@ detail), which is what you show in the defense.
 
 from __future__ import annotations
 
+import re as _re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -188,6 +189,87 @@ _SCRAPED_CAPABILITY_KEYS = {
     "online_booking", "whatsapp", "shows_reviews", "cta_count",
     "offerings_count", "bilingual", "trust_count", "social_count",
 }
+
+
+_CLAIM_NOISE = {
+    # Pure connective/filler in both languages. Deliberately SHORT: anything that could carry
+    # meaning ("fast", "original", "سريع") must stay, or two different claims would collide.
+    "the", "a", "an", "of", "to", "for", "and", "or", "is", "are", "we", "our", "your", "you",
+    "with", "over", "more", "than", "in", "on", "at", "by", "all", "serves", "offers", "provides",
+    "من", "في", "على", "الى", "إلى", "مع", "عن", "ال", "و", "أو", "بـ", "كل", "لكل", "أكثر",
+}
+_CLAIM_TOKEN = _re.compile(r"[0-9٠-٩]+|[^\W\d_]+", _re.UNICODE)
+
+
+def _claim_tokens(text: str) -> set:
+    """The content words of a claim, normalised: case-folded, punctuation and thousands
+    separators removed, filler dropped."""
+    raw = _CLAIM_TOKEN.findall(str(text or "").lower())
+    # "7,000+" tokenises to ["7","000"]; rejoin pure-digit runs so it matches "7000".
+    merged, buf = [], []
+    for tok in raw:
+        if tok.isdigit():
+            buf.append(tok)
+            continue
+        if buf:
+            merged.append("".join(buf))
+            buf = []
+        merged.append(tok)
+    if buf:
+        merged.append("".join(buf))
+    return {t for t in merged if t and t not in _CLAIM_NOISE}
+
+
+def _same_claim(a: str, b: str) -> bool:
+    """Do these two lines state the SAME fact?
+
+    MEASURED on alfouadpharmacies.com: the Strengths quadrant carried both "7,000+ Customers
+    Daily" (trust_signals) and "Serves over 7,000 customers daily" (other_unique_insights). The
+    de-dup compared `text.strip().lower()` — EXACT match — so a restatement from a second source
+    was invisible, and ten strengths included one strength twice.
+
+    Containment of content words, not similarity: {7000, customers, daily} is a subset of
+    {7000, customers, daily} + filler, so they collide — while "Fast Delivery" and "Broad Delivery
+    Coverage" share only "delivery" and stay apart. At least TWO shared content words are required,
+    so a single common noun can never merge two real claims.
+    """
+    ta, tb = _claim_tokens(a), _claim_tokens(b)
+    if not ta or not tb:
+        return False
+    small, large = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    return len(small) >= 2 and small.issubset(large)
+
+
+def dedupe_claims(items: List["SWOTItem"]) -> List["SWOTItem"]:
+    """Keep the FIRST statement of each fact. First, not shortest: the earlier source is the one
+    whose citation the reader will check."""
+    out: List["SWOTItem"] = []
+    for it in (items or []):
+        text = getattr(it, "text", "") or ""
+        if any(_same_claim(text, getattr(k, "text", "") or "") for k in out):
+            continue
+        out.append(it)
+    return out
+
+
+def customer_voice_note(themes, collected: int) -> str:
+    """Say why a SWOT carries nothing a customer said — when it carries nothing.
+
+    «فين الريفيو سواء في الموقع او السوشيال ميديا». On this brand the collector ran correctly and
+    had almost nothing to read: 15 Instagram posts, 4 comments in total, Instagram itself reporting
+    commentsCount 0 on most of them, and 2 of those 4 being the pharmacy's own replies. That is a
+    different fact from "we never looked", and a silent quadrant cannot tell them apart — so the
+    client is left to assume their reviews were read and found wanting.
+
+    Returns "" when real customer voice IS present; there is nothing to explain then.
+    """
+    if themes:
+        return ""
+    if not collected:
+        return ("صوت العملاء: مفيش تعليقات أو مراجعات متجمّعة لهذا البراند — "
+                "التحليل مبني على الموقع والمنافسين فقط.")
+    return (f"صوت العملاء: اتجمّع {collected} تعليق، ومفيهمش مدح أو شكوى واضحة "
+            "تصلح كدليل — التحليل مبني على الموقع والمنافسين فقط.")
 
 
 def unique_insight_texts(profile) -> List[str]:
@@ -362,11 +444,11 @@ def synthesize_swot(
     # Unique competitive edges (profile.other_unique_insights) are STRENGTHS by nature —
     # append them grounded to the subject's own profile. Done AFTER the standalone degrade
     # so they don't suppress the 0-peer fallback (which keys on an otherwise-empty SWOT).
-    seen_strengths = {s.text.strip().lower() for s in swot.strengths}
+    # Claim-level, not string-level: "7,000+ Customers Daily" and "Serves over 7,000 customers
+    # daily" are the same fact from two sources and both used to ship.
     for ins in (unique_insights or []):
         text = (ins or "").strip()
-        if text and text.lower() not in seen_strengths:
-            seen_strengths.add(text.lower())
+        if text and not any(_same_claim(text, s.text) for s in swot.strengths):
             swot.strengths.append(SWOTItem(
                 text=text, citation=["your profile"],
                 evidence="unique competitive edge stated on the site"))
@@ -471,6 +553,20 @@ def synthesize_swot(
     except Exception:  # noqa: BLE001
         _scrapable = 0
     disclose_empty_quadrants(swot, n_peers=n_peers, scrapable_peers=_scrapable)
+
+    # ONE FACT, ONE LINE — applied last so it also catches restatements that different generators
+    # contributed to the same quadrant. Runs on the boxes the client will actually read.
+    swot.strengths = dedupe_claims(swot.strengths)
+    swot.weaknesses = dedupe_claims(swot.weaknesses)
+    swot.opportunities = dedupe_claims(swot.opportunities)
+    swot.threats = dedupe_claims(swot.threats)
+
+    # WHY THERE IS NO CUSTOMER VOICE, when there is none. Silence here reads as "the reviews were
+    # read and found nothing", which is a different claim from "there were almost none to read".
+    _own_voice = [t for t in (themes or []) if getattr(t, "is_own_brand", False)]
+    _note = customer_voice_note(_own_voice, collected=len(themes or []))
+    if _note:
+        swot.notes.append(_note)
     return swot
 
 
