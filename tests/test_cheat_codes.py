@@ -140,3 +140,23 @@ def test_the_compositor_uses_all_three():
     src = "\n".join(l.split("#")[0] for l in inspect.getsource(rc).splitlines())
     for name in ("handheld_shake_filter", "head_trim_for", "intra_scene_chain"):
         assert name in src, f"the compositor never calls {name}"
+
+
+def test_every_shot_declares_the_same_sample_aspect_ratio():
+    """MEASURED — this killed a live render (Nano Care, 2026-07-27):
+
+        Parsed_concat_14: Input link in0:v0 parameters (870x1548, SAR 1363131655:1363011146)
+        do not match the corresponding output link (870x1548, SAR 972763675:972366912)
+        Failed to configure output pad -> Conversion failed
+
+    `concat` demands identical SAR across every input. The punch-in branch runs
+    `scale=iw*1.06:ih*1.06` on odd shots only, and a fractional scale leaves a SAR a hair away
+    from the untouched shots'. Same pixel size, different SAR, refused. Every shot must state
+    its SAR explicitly rather than inherit whatever the filter chain computed.
+    """
+    from reel.cinematic import intra_scene_chain
+    chain = intra_scene_chain("bg", "bgc", duration_s=5.4, width=1080, height=1920)
+    shots = [seg for seg in chain.split(";") if seg.startswith("[bg") and "trim=" in seg]
+    assert shots, chain
+    for seg in shots:
+        assert "setsar=1" in seg, f"a shot does not pin its SAR: {seg}"

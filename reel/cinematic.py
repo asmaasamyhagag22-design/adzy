@@ -94,7 +94,11 @@ def intra_scene_chain(label_in: str, label_out: str, *, duration_s: float,
         seg = f"[{label_in}{i}]trim={t:.3f}:{t + s:.3f},setpts=PTS-STARTPTS"
         if i % 2 == 1:
             seg += f",scale=iw*1.06:ih*1.06,crop={width}:{height}"
-        seg += f"[shot{i}]"
+        # SAR PINNED ON EVERY SHOT, punched or not. `concat` refuses inputs whose sample aspect
+        # ratios differ, and a fractional `scale` leaves a SAR a hair off the untouched shots' —
+        # identical pixel sizes, mismatched SAR, render dead. MEASURED: it killed a live Nano Care
+        # render with "Failed to configure output pad on Parsed_concat_14".
+        seg += f",setsar=1[shot{i}]"
         parts.append(seg)
         labels.append(f"[shot{i}]")
         t += s

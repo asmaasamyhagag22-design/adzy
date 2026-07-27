@@ -822,9 +822,19 @@ def synth_voiceover(
                     "neutral": {"stability": 0.45, "similarity_boost": 0.82, "style": 0.48},
                 }[_energy]
                 _vs["use_speaker_boost"] = True
-                ok = tts_with_timestamps(script, raw, voice=voice,
-                                         model=model or _ELEVENLABS_MODEL, api_key=el_key,
-                                         voice_settings=_vs) is not None
+                _words = tts_with_timestamps(script, raw, voice=voice,
+                                             model=model or _ELEVENLABS_MODEL, api_key=el_key,
+                                             voice_settings=_vs)
+                ok = _words is not None
+                if ok:
+                    # NEXT TO THE FINAL TRACK, not next to `raw`. `raw` lives in a
+                    # TemporaryDirectory that is destroyed on the way out of this block, so the
+                    # first version of this wrote the schedule and then deleted it — the exact
+                    # "produced, never reaches" failure this session keeps finding. MEASURED on
+                    # the first live run: no .words.json existed anywhere on disk afterwards.
+                    import json as _json
+                    Path(str(out_path) + ".words.json").write_text(
+                        _json.dumps(_words, ensure_ascii=False), encoding="utf-8")
             except Exception:  # noqa: BLE001
                 ok = False
             if not ok:
