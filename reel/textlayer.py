@@ -179,6 +179,38 @@ def _highlight_last_word(headline: str) -> str:
     return f'<span class="hl">{words[0]}</span>' if words and words[0] else ""
 
 
+def _highlight_keyword(headline: str, *, keywords) -> str:
+    """Accent the word that CARRIES the line — the product / hook word — not blindly the last one.
+
+    Cheat-sheet #2: the whole line sits quiet and the one keyword pops in the brand colour. The
+    old rule accented whatever token happened to come last, so «قشرة الشعر مش قدر محتوم» put its
+    pop on «محتوم» while the subject of the ad sat unlit.
+
+    Matching is WORD-START, never substring — "lab" matched inside "available" earlier today, the
+    third hit of that class in one session — and prefix matching still reaches inflected forms
+    («قشرة» opens «بالقشرة» after its clitics). Falls back to the last word, so every headline
+    keeps exactly one accent.
+    """
+    import re as _re
+    toks = [str(k).strip().lower() for k in (keywords or []) if str(k).strip()]
+    words = (headline or "").split(" ")
+    hit = -1
+    for i, w in enumerate(words):
+        stem = _re.sub(r"^[\W]+|[\W]+$", "", w.lower(), flags=_re.UNICODE)
+        bare = _re.sub(r"^(?:ال|بال|لل|وال|فال|كال|و|ف|ب|ل)", "", stem)
+        for k in toks:
+            if stem.startswith(k) or bare.startswith(k) or k.startswith(stem) and len(stem) > 2:
+                hit = i
+                break
+        if hit >= 0:
+            break
+    if hit < 0:
+        return _highlight_last_word(headline)
+    esc = [_esc(w) for w in words]
+    esc[hit] = f'<span class="hl">{esc[hit]}</span>'
+    return " ".join(esc)
+
+
 def _split_hook(headline: str) -> tuple[list[str], str]:
     """Split a headline into a big HERO (the leading 1-3 words, up to ~18 chars) and a small
     SUPPORT line (the rest). A short headline (<=3 words) is ALL hero, no support. Verbatim
@@ -286,7 +318,11 @@ def _scene_html(scene: ReelScene, storyboard: Storyboard, width: int, height: in
         if lockup:                                     # each WORD carries its own kinetic beat
             inner.append(f'<div class="headline lockup">{_lockup_headline(scene.headline)}</div>')
         else:
-            inner.append(f'<div class="headline" {_HEAD_ANIM}>{_highlight_last_word(scene.headline)}</div>')
+            # Cheat-sheet #2: the accent goes on the word that CARRIES the line — the brand /
+            # product token when the headline contains one — not blindly on the last word.
+            _kw = [w for w in str(storyboard.business_name or "").split() if len(w) > 2]
+            inner.append(f'<div class="headline" {_HEAD_ANIM}>'
+                         f'{_highlight_keyword(scene.headline, keywords=_kw)}</div>')
     if scene.sublines:
         items = "".join(
             f'<div class="item" {_anim_attrs(_ITEM_BASE + i * _ITEM_STAGGER, 0.40, 26, "expo")}>'
@@ -320,7 +356,7 @@ def _scene_html(scene: ReelScene, storyboard: Storyboard, width: int, height: in
     /* READABILITY ARMOR (research): a real black outline BEHIND the fill (paint-order) so heavy
        display captions survive ANY footage — fixes 'unreadable' plain white text. */
     -webkit-text-stroke:2px rgba(0,0,0,.92);paint-order:stroke fill;}}
-  .headline .hl{{color:var(--accent);font-style:{head_style};}}
+  .headline .hl{{color:var(--accent);font-style:{head_style};font-size:1.2em;}}  /* cheat-sheet #2: the keyword is ~120% */
   /* designed LOCKUP (poster parity) for the hero scenes: stacked words, gradient fill +
      outline, the last word in the brand-accent gradient. */
   .headline.lockup{{display:flex;flex-direction:column;gap:2px;line-height:.98;

@@ -227,12 +227,32 @@ def render_reel(
             # the sequence via the image2 demuxer at `fps`, HOLD its last frame for the
             # rest of the scene (tpad clone), and keep the scene-end alpha fade-out for a
             # clean cut. The sequence starts at the scene's first frame (t=0).
+            # THE EDITOR'S CHEAT SHEET (owner, 2026-07-27), applied per scene:
+            #   * head trim — an AI clip warms up; cutting 0.5s opens the shot MID-action.
+            #     Guarded on the measured clip length, so a clip with no slack is never trimmed
+            #     into being shorter than its scene.
+            #   * handheld shake — generation artefacts read as flaws on a locked-off frame and
+            #     as camera motion on a moving one.
+            #   * intra-scene cuts — one clip re-cut into <=1.8s shots with alternating 6%
+            #     punch-ins. Same footage, so the pace costs nothing; the AUDIO track is built
+            #     on the scene's full duration, which the recut preserves exactly.
+            from reel.cinematic import handheld_shake_filter, head_trim_for, intra_scene_chain
+            try:
+                from reel.text_overlay import _probe_duration as _clip_len
+                _trim = head_trim_for(clip_s=float(_clip_len(raw) or 0.0), scene_s=float(d))
+            except Exception:  # noqa: BLE001 — unmeasured length means no trim, never a guess
+                _trim = 0.0
+            _head = (f"trim=start={_trim:.2f},setpts=PTS-STARTPTS," if _trim > 0 else "")
+            _shake = handheld_shake_filter(W, H)
+            _intra = intra_scene_chain("bg", "bgc", duration_s=float(d), width=W, height=H)
+            _bg_label = "bgc" if _intra else "bg"
             fc = (
-                f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
-                f"crop={W}:{H},settb=AVTB,fps={fps},format=yuv420p[bg];"
-                f"[1:v]format=rgba,fps={fps},tpad=stop_mode=clone:stop_duration={d:.2f},"
+                f"[0:v]{_head}scale={W}:{H}:force_original_aspect_ratio=increase,"
+                f"crop={W}:{H},{_shake},settb=AVTB,fps={fps},format=yuv420p[bg];"
+                + (_intra + ";" if _intra else "")
+                + f"[1:v]format=rgba,fps={fps},tpad=stop_mode=clone:stop_duration={d:.2f},"
                 f"settb=AVTB,fade=t=out:st={fout:.2f}:d={fade}:alpha=1[tx];"
-                f"[bg][tx]overlay=x=0:y=0:format=auto,format=yuv420p[v]"
+                f"[{_bg_label}][tx]overlay=x=0:y=0:format=auto,format=yuv420p[v]"
             )
             run_ffmpeg([
                 "-i", str(raw),

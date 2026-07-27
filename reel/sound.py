@@ -116,9 +116,11 @@ def synth_sound_bed(
     for c in cuts:
         inputs += ["-f", "lavfi", "-i", "anoisesrc=d=0.6:c=pink:a=0.7:r=44100"]
         ms = int(max(0.0, c - 0.3) * 1000)
+        # -20dB (owner cheat-sheet #1): the whoosh PREPARES the ear for the cut — it must
+        # be felt, not heard. At volume=0.5 it competed with the voice.
         filters.append(
             f"[{idx}:a]highpass=f=320,lowpass=f=5200,"
-            f"afade=t=in:d=0.3,afade=t=out:st=0.3:d=0.3,volume=0.5,"
+            f"afade=t=in:d=0.3,afade=t=out:st=0.3:d=0.3,volume=0.1,"
             f"adelay={ms}|{ms}[w{idx}]"
         )
         mix_labels.append(f"[w{idx}]")
