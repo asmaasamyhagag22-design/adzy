@@ -168,7 +168,9 @@ def _dims_from_business_profile(profile) -> Dict[str, Any]:
         "shows_reviews": _as_bool(shows_reviews) if shows_reviews is not None else None,
         "cta_count": len(ctas) if ctas else (0 if ctas == [] else None),
         "offerings_count": len(offerings) if offerings is not None else None,
-        "bilingual": _is_bilingual(languages) if languages else None,
+        # `declared_languages` is what the SITE publishes about itself (hreflang). It outranks the
+        # crawled list, which only records which pages we happened to open.
+        "bilingual": _is_bilingual(languages, _get(profile, "declared_languages", []) or []),
         "trust_count": len(trust) if trust is not None else None,
         "social_count": len(social) if social is not None else None,
     }
@@ -210,8 +212,24 @@ def _truthy_list(v):
     return bool(v)
 
 
-def _is_bilingual(langs) -> bool:
-    s = {str(l).lower()[:2] for l in langs}
+def _is_bilingual(langs, declared=None):
+    """Tri-state: True / False / None(=unknown).
+
+    `declared` is what the SITE says about itself via `hreflang`, and it OUTRANKS the crawled
+    languages. MEASURED on alfouadpharmacies.com: hreflang="ar" on all 41 pages, zero Arabic URLs
+    actually crawled, `languages: ['en']` recorded — and the client was told "Single-language site
+    (missing Arabic/English)". The crawled list answers "what did we open", not "what does the site
+    have"; only the second question is the one being asked here.
+
+    No evidence at all returns None, never False: "we did not find an Arabic version" and "there
+    is no Arabic version" are different claims, and only one of them is ours to make.
+    """
+    d = {str(x).lower().split("-")[0] for x in (declared or []) if x}
+    if "ar" in d and "en" in d:
+        return True
+    s = {str(x).lower()[:2] for x in (langs or []) if x}
+    if not s and not d:
+        return None
     return "ar" in s and "en" in s
 
 

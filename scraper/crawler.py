@@ -1212,6 +1212,15 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
         )
     manifest.links = build_inventory(all_links)
     manifest.languages = detect_languages(all_page_texts, html_lang_hints)
+    # The site's OWN answer, union over every page that published an alternate.
+    try:
+        from .extractors.language import declared_languages
+        _declared = set()
+        for _html in (all_html_by_page or {}).values():
+            _declared.update(declared_languages(_html))
+        manifest.declared_languages = sorted(_declared)
+    except Exception:  # noqa: BLE001 — a missing tag must never break a crawl
+        manifest.declared_languages = []
 
     if not visual_built:
         # Should not happen since homepage build is required, but guard

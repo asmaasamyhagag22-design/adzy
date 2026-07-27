@@ -472,6 +472,11 @@ class ScrapeManifest(BaseModel):
     robots: RobotsRecord
     readiness: ReadinessReport
     languages: list[LanguageEntry] = Field(default_factory=list)
+    # What the SITE declares about itself via <link rel="alternate" hreflang>. Distinct
+    # from `languages`, which is what the crawl happened to READ: alfouadpharmacies.com
+    # declares ar+en on all 41 pages, the crawler opened only /en/, and the analysis then
+    # told the client their site was single-language.
+    declared_languages: list[str] = Field(default_factory=list)
     pages: list[PageRecord] = Field(default_factory=list)
     site_metadata: SiteMetadata = Field(default_factory=SiteMetadata)
     visual: VisualIdentity = Field(default_factory=VisualIdentity)
