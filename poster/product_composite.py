@@ -28,7 +28,16 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # (x, y, height) of the product box as fractions of the canvas — x/y are the TOP-LEFT.
-DEFAULT_ZONE = (0.52, 0.34, 0.44)
+#
+# MEASURED (Nano Care, 2026-07-27): at (0.52, 0.34, 0.44) the product was 44% of the canvas — the
+# size of the park bench beside it — and its BASE landed at 34+44 = 78% of the frame, a fifth of
+# the way up from the bottom with nothing under it. The critic rejected the poster three times for
+# "product boxes floating illogically". The contact shadow could not save it: a shadow under a base
+# drawn in mid-air is a shadow in mid-air.
+#
+# Expressed so the FEET are the point: 0.50 + 0.34 = base at 84% of the frame, which is where a
+# generated scene puts its floor and where a person expects a product to stand.
+DEFAULT_ZONE = (0.54, 0.50, 0.34)
 
 
 def _fetch(url: str) -> Optional[bytes]:

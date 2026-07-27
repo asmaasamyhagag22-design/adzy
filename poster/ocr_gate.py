@@ -82,9 +82,51 @@ def _resembles_any(line: str, tokens: set, *, floor: float = 0.62) -> bool:
     return False
 
 
+_LABEL_SYSTEM = (
+    "You are a VERBATIM label reader. List every line of text printed ON THE PRODUCT PACKAGING in "
+    "this photograph, exactly as printed, one per line. Do not translate, correct, summarise or "
+    "add anything. Ignore the background and any surface the product sits on. If no packaging text "
+    "is legible, return nothing."
+)
+
+
+def product_label_lines(*, asset, caller) -> List[str]:
+    """What is actually PRINTED on the real product, read off the asset itself.
+
+    This is the evidence that makes the exemption below honest. The alternative — excusing a whole
+    script when assets are composited — would blind the gate to invented Arabic copy, which is the
+    only thing it exists to catch.
+
+    No caller or no asset returns [] : no evidence, no exemption. It never invents a list, because
+    a fabricated "label" would approve exactly the text it is supposed to refuse.
+    """
+    if not asset or caller is None:
+        return []
+    try:
+        from pydantic import BaseModel
+
+        class _Lines(BaseModel):
+            lines: List[str] = []
+
+        data = asset
+        if not isinstance(data, (bytes, bytearray)):
+            from pathlib import Path
+            p = Path(str(asset))
+            if not p.is_file():
+                return []
+            data = p.read_bytes()
+        resp, _u = caller(_LABEL_SYSTEM, "Read the packaging text.", _Lines,
+                          group_name="product_label_ocr", images=[(bytes(data), "image/jpeg")])
+        return [str(x).strip() for x in (getattr(resp, "lines", None) or []) if str(x).strip()]
+    except Exception as exc:  # noqa: BLE001 — unreadable asset = no exemption, never a crash
+        logger.warning("could not read the product label (%s)", type(exc).__name__)
+        return []
+
+
 def stray_text_verdict(*, seen_lines, approved, brand_name: str = "",
                        product_name: str = "",
-                       assets_composited: bool = False) -> StrayTextVerdict:
+                       assets_composited: bool = False,
+                       product_label_lines: Optional[List[str]] = None) -> StrayTextVerdict:
     """Which rendered lines were never authorized? Empty `seen_lines` -> could-not-verify.
 
     `assets_composited`: the logo AND the product were pasted from their real files. MEASURED on
@@ -104,10 +146,22 @@ def stray_text_verdict(*, seen_lines, approved, brand_name: str = "",
     for src in list(approved or []) + [brand_name, product_name]:
         allowed_tokens |= _tokens(src)
 
+    # WHAT THE REAL BOX SAYS. Read off the asset we pasted, so it is evidence rather than a guess.
+    # MEASURED on Nano Care: «حديد + حمض الفوليك + فيتامين ب٦» and «يقلل التعب والإرهاق» are printed
+    # on the packshot, and the gate rejected the poster three times for rendering them — burning
+    # three paid images per run. The Latin exemption below could not help: this label is Arabic,
+    # which is the script most of this system's brands print in.
+    label_tokens = set()
+    for src in (product_label_lines or []):
+        label_tokens |= _tokens(src)
+
     stray = []
     for line in lines:
         norm = _norm(line)
         if len(norm) < _MIN_LEN:
+            continue
+        # On the product's own label, in ANY script — approved because it is on the asset.
+        if label_tokens and _resembles_any(line, label_tokens):
             continue
         if assets_composited and _is_latin_line(line):
             # Latin on a composited render comes from pixel-exact files, so it is not judged

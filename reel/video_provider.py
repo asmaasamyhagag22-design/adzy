@@ -821,7 +821,16 @@ class KlingProvider:
         image = self._image_field(reference_image)
         # Kling bills in whole 5s/10s clips; ask for the tier that covers what was requested.
         seconds = 10 if float(duration_s or 5) > 5 else 5
-        body = {"model_name": self.model, "prompt": str(prompt or "")[:2000],
+        # THE MOTION CONTRACT (brief rule 1). Imported, not inlined: the provider is swappable and
+        # a contract written inside one class is a contract the next provider ships without.
+        # Before this the body carried no negative prompt and no adherence control at all, so an
+        # i2v render of a still had nothing forbidding it from staying a still.
+        from reel.motion_contract import (MOTION_CFG_SCALE, MOTION_NEGATIVE,
+                                          apply_motion_contract)
+        body = {"model_name": self.model,
+                "prompt": apply_motion_contract(str(prompt or ""))[:2000],
+                "negative_prompt": MOTION_NEGATIVE[:2000],
+                "cfg_scale": MOTION_CFG_SCALE,
                 "duration": str(seconds), "aspect_ratio": _kling_ratio(width, height)}
         if image:
             body["image"] = image

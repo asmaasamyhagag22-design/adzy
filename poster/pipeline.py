@@ -233,6 +233,12 @@ def _product_scene_guard(product_name: str, *, composited: bool = False) -> str:
             "scene afterwards, so leave its place EMPTY: clean, uncluttered surface with room "
             "for a bottle to be placed, correct surface and lighting for something to stand "
             "there. No invented packaging, no labels, no product text anywhere in frame."
+            # WHERE the floor has to be. Without this the model put the ground wherever it liked
+            # and the paste landed above it — measured as "product boxes floating illogically".
+            "\nPut a clear, flat, unobstructed HORIZONTAL SURFACE across the LOWER THIRD of the "
+            "frame — a table top, a counter, a stone ledge — lit from the same direction as the "
+            "rest of the scene, so an object standing on it would cast its shadow onto that "
+            "surface. Keep the right-of-centre part of that surface completely clear."
         )
     return block
 
@@ -1578,15 +1584,23 @@ def generate_poster(
         # approved copy list -> reject»). The vision verdict already lists what it read; the
         # judgement is code comparing strings, so nothing hallucinates a pass.
         try:
-            from poster.ocr_gate import stray_text_verdict
+            from poster.ocr_gate import product_label_lines, stray_text_verdict
             _seen = list(getattr(verdict, "text_lines", None) or [])
+            # Read the label ONCE per render, and only when a real asset was composited.
+            _label_lines = (product_label_lines(asset=_primary_product_img, caller=qa_caller)
+                            if _composite_after and _primary_product_img else [])
             _stray = stray_text_verdict(
                 seen_lines=_seen,
                 approved=[brief.headline or "", brief.subheadline or "", brief.cta_text or ""]
                          + list(brief.offerings or []),
                 brand_name=brief.business_name or "",
                 product_name=product_name or "",
-                assets_composited=bool(_composite_after))
+                assets_composited=bool(_composite_after),
+                # WHAT THE REAL BOX SAYS, read off the asset we pasted. Without this the gate
+                # rejected a correct poster three times for rendering the product's own Arabic
+                # label — the Latin exemption above could not cover it, and every failure cost
+                # another paid image.
+                product_label_lines=_label_lines)
             if _stray.checked and _stray.passed is False:
                 log(f"[ocr] {_stray.reason}")
                 verdict = verdict.model_copy(update={
