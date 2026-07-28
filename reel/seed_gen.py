@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 def build_seed_prompt(veo_prompt: str, *, brand_name: str = "", dna_lines: str = "",
-                      locale_line: str = "", n_refs: int = 0, look: str = "") -> str:
+                      locale_line: str = "", n_refs: int = 0, look: str = "",
+                      product_named: bool = False) -> str:
     """The conditioned still-frame prompt: the scene lives INSIDE the brand's real world.
 
     `look` is the run's LOOK LOCK (`brand.look.look_lock`) — the identical camera/lighting/grade
@@ -53,8 +54,27 @@ def build_seed_prompt(veo_prompt: str, *, brand_name: str = "", dna_lines: str =
         + (f"{locale_line}\n" if locale_line else "")
         + (f"The brand's visual world (themes and imagery, never colour tints): {dna_lines}\n"
            if dna_lines else "")
-        + "ABSOLUTE RULES: no text, letters, numbers, logos, watermarks or signage anywhere "
-        "in the frame; natural TRUE-TO-LIFE colours and warm realistic skin tones (no colour "
+        # THE BAN IS ON INVENTED TEXT, NOT ON THE PRODUCT'S OWN PRINTING.
+        #
+        # MEASURED A/B (Nano Care, 2026-07-27, same model / same reference / same scene): under the
+        # blanket ban the box flattened into a generic carton with a degraded sub-line; with the
+        # real label protected it matched the packshot's cube form and read cleanly. We were telling
+        # the model to erase the one thing that makes a product recognisable, it complied by
+        # inventing label-shaped marks, and scene QA then refused the clip for exactly that —
+        # "the brand name replaced by garbled, illegible text". We manufactured the defect we were
+        # rejecting.
+        #
+        # A scene with no product keeps the blanket ban: generated signage garbles, which is why
+        # every word in this product is composited afterwards.
+        + ("ABSOLUTE RULES: the attached product photograph is the REAL item — reproduce its "
+           "packaging and its own printed label exactly as photographed, sharp and legible, and "
+           "never redesign or translate it. No ADDED or INVENTED text, captions, signage, "
+           "watermarks or logos anywhere else in the frame; the only text in the picture is the "
+           "product's own label. "
+           if product_named else
+           "ABSOLUTE RULES: no text, letters, numbers, logos, watermarks or signage anywhere "
+           "in the frame; ")
+        + "natural TRUE-TO-LIFE colours and warm realistic skin tones (no colour "
         "cast); ONE clear focal point, clean composition with natural headroom for vertical "
         "video; believable, professionally lit, ad-grade."
         + (f"\nTHE LOOK (identical in every shot of this film): {look.strip()}"
@@ -201,16 +221,20 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
                     ref_cache[pu] = _ref_bytes(pu)
                 if ref_cache[pu]:
                     pool_refs.append(ref_cache[pu])
+        # Only a hero-product scene carries the real pack, so only it may show printed text —
+        # everything else keeps the blanket ban (generated signage garbles).
+        _is_product = bool(getattr(sc, "hero_product", False))
         prompt = build_seed_prompt(getattr(sc, "veo_prompt", ""), brand_name=name,
                                    dna_lines=dna_lines, locale_line=locale_line,
-                                   n_refs=(1 if ref else len(pool_refs)))
+                                   n_refs=(1 if ref else len(pool_refs)),
+                                   product_named=_is_product)
         seed_path: Optional[str] = None
         # calibration #2 (owner: the raw distant building photo read as "قطع خالص"): a third
         # attempt drops the photo conditioning entirely — a clean on-brief scene beats a
         # world-breaking raw photo — before the caller ever considers a fallback.
         prompt_plain = build_seed_prompt(getattr(sc, "veo_prompt", ""), brand_name=name,
                                          dna_lines=dna_lines, locale_line=locale_line,
-                                         n_refs=0)
+                                         n_refs=0, product_named=_is_product)
         # Attempt plan: 1-2 conditioned on the scene photo (or the pool when there is none);
         # 3 unconditioned ("clean on-brief beats world-breaking"); 4 pool-conditioned brand-world
         # — the last chance to keep REAL brand identity in frame before the scene is dropped.
