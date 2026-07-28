@@ -74,7 +74,7 @@ def test_the_pipeline_runs_the_contrast_gate():
 # =====================================================================
 
 def test_a_text_box_that_overlaps_the_product_is_moved_off_it():
-    from poster.product_composite import DEFAULT_ZONE
+    from poster.product_composite import UNMEASURED_ZONE as DEFAULT_ZONE
     from poster.template import avoid_product_zone
     # a box straddling the product's column
     box = avoid_product_zone([0.30, 0.36, 0.60], DEFAULT_ZONE)
@@ -86,7 +86,7 @@ def test_a_text_box_that_overlaps_the_product_is_moved_off_it():
 
 
 def test_a_text_box_already_clear_of_the_product_is_left_alone():
-    from poster.product_composite import DEFAULT_ZONE
+    from poster.product_composite import UNMEASURED_ZONE as DEFAULT_ZONE
     from poster.template import avoid_product_zone
     box = [0.06, 0.06, 0.40]
     assert avoid_product_zone(list(box), DEFAULT_ZONE) == box

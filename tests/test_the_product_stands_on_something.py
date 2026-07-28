@@ -16,24 +16,44 @@ TOP edge plus a height, so where the product's feet ended up was arithmetic nobo
 
 So the base is what gets specified, and it is pinned here: a hero product's feet belong in the
 lower band of the frame, where a generated scene puts its floor.
+
+UPDATE (2026-07-28). The constant this file used to read is gone. The owner's ruling — «مينفعش
+يكون مكان ثابت — لازم نفهم المنتج وعلى أساسه نقرر مساحته وحجمه» — moved the answer from a
+module-level tuple to a per-product DECISION, so both guarantees are now asserted where they
+actually live: on what `decide_placement` returns, for every product it can be handed.
 """
 from __future__ import annotations
 
 
-def test_the_default_zone_puts_the_base_in_the_lower_band():
-    from poster.product_composite import DEFAULT_ZONE
-    top, height = DEFAULT_ZONE[1], DEFAULT_ZONE[2]
-    base = top + height
-    assert 0.78 < base <= 0.95, (
+def _geo(**kw):
+    from poster.product_geometry import ProductGeometry
+    base = dict(camera_elevation="eye_level", has_flat_base=True, form_factor="carton",
+                real_scale_hint="two_hands", aspect=0.8, checked=True)
+    base.update(kw)
+    return ProductGeometry(**base)
+
+
+def test_a_standing_product_puts_its_base_in_the_lower_band():
+    from poster.product_placement import MODE_STANDING, decide_placement
+    d = decide_placement(_geo(), text_box=[0.06, 0.07, 0.88])   # copy up top, floor free below
+    assert d.mode == MODE_STANDING
+    base = d.zone[1] + d.zone[2]
+    assert 0.78 < base <= 0.99, (
         f"the product's base lands at {base:.0%} of the frame — a hero product's feet belong in "
         "the lower band, where the scene's floor is")
 
 
-def test_the_product_is_not_bench_sized():
-    from poster.product_composite import DEFAULT_ZONE
-    assert DEFAULT_ZONE[2] <= 0.38, (
-        f"the product takes {DEFAULT_ZONE[2]:.0%} of the canvas height; at 44% it read as the same "
-        "size as the furniture next to it")
+def test_no_product_is_ever_bench_sized():
+    """The 44% defect, pinned at the ceiling every decision passes through."""
+    from poster.product_placement import MAX_HEIGHT_FRAC, decide_placement
+    assert MAX_HEIGHT_FRAC <= 0.38, (
+        f"the ceiling allows {MAX_HEIGHT_FRAC:.0%} of the canvas height; at 44% the product read "
+        "as the same size as the furniture next to it")
+    for form in ("carton", "bottle", "apparel", "device", "other"):
+        for hint in ("palm", "two_hands", "large", "unknown"):
+            d = decide_placement(_geo(form_factor=form, real_scale_hint=hint),
+                                 text_box=[0.06, 0.07, 0.88])
+            assert d.height_frac <= MAX_HEIGHT_FRAC, f"{form}/{hint} -> {d.height_frac:.0%}"
 
 
 def test_the_background_is_told_to_provide_a_surface_low_in_frame():

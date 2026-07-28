@@ -37,11 +37,18 @@ def resolve_oneshot_model() -> str:
 
     OWNER RULING 2026-07-25: «نانو بنانا لايت كوالتي وحشة خليك برو». `IMAGE_LANE=pro` puts
     `gemini-3-pro-image-preview` ($0.12) first for poster backgrounds and any caller that does not
-    pin its own model; unset keeps the flash default ($0.04). PROBED LIVE the same day: pro
-    SERVES on this project now (it 404'd on 2026-07-21 — Google opened it since), and if it ever
-    404s again the `_MODEL_CHAIN` failover rescues the render while the ledger records the model
-    that actually served, at that model's price. An explicit `model=` argument always wins —
-    `reel/seed_gen.py`'s pro pin is unaffected."""
+    pin its own model; unset keeps the flash default ($0.04).
+
+    AVAILABILITY, RE-PROBED 2026-07-28 — and the answer changed. Both `gemini-3-pro-image-preview`
+    and `gemini-3-pro-image` return 404 NOT_FOUND on project radiant-octane-501919-v1 today. The
+    line this replaces said "pro SERVES on this project now", measured on 2026-07-25; that is no
+    longer true, and a docstring asserting a stale probe is worse than one asserting nothing. The
+    only image model measured to serve here is `gemini-2.5-flash-image`.
+
+    Setting IMAGE_LANE=pro is therefore currently a no-op with a wasted round-trip: `_MODEL_CHAIN`
+    rescues the render, the ledger records what actually served at that model's price, and
+    `generate_oneshot_poster` now PRINTS the substitution instead of making it silently. An
+    explicit `model=` argument still wins — `reel/seed_gen.py`'s pro pin is unaffected."""
     if (os.getenv("IMAGE_LANE") or "").strip().lower() == "pro":
         return "gemini-3-pro-image-preview"
     return DEFAULT_ONESHOT_MODEL
@@ -424,6 +431,16 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
                 if not _is_retryable(e) or i == len(delays_s) - 1:
                     raise
         if resp is not None:
+            if cand_model != tried[0]:
+                # SAY WHICH MODEL ACTUALLY RENDERED. The chain exists so a retired id cannot kill
+                # a client's poster, and it did that silently — "the pro lane is on" and "the pro
+                # lane 404s and flash served" looked identical from outside. On 2026-07-28 that
+                # cost a measured-looking conclusion: an A/B credited to pro had failed over to
+                # flash, and a whole argument was built on the difference between two renders by
+                # the same model. The ledger already recorded the truth; nobody was told.
+                import sys as _sys
+                print(f"[image] {tried[0]} unavailable -> {cand_model} rendered this image",
+                      file=_sys.stderr, flush=True)
             model = cand_model               # what actually rendered, for the spend record
             break
     if resp is None:

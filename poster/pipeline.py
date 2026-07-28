@@ -208,16 +208,23 @@ def _brand_style_refs(profile: dict, brand_dna: Any, *, limit: int = 2) -> list[
     return refs[:limit]
 
 
-def _product_scene_guard(product_name: str, *, composited: bool = False) -> str:
+def _product_scene_guard(product_name: str, *, composited: bool = False,
+                         placement=None, hybrid: bool = False) -> str:
     """The scene rule when ONE named product is the subject.
 
-    Two measured lessons in one block:
+    Three measured lessons in one block:
       * «شعر إيه مع صن سكرين؟» — the brand DNA, learned from real Al Fouad creatives, names
         Before/After HAIR panels as a signature move. True about the brand, wrong for a
         sunscreen: a learned motif never outranks the item the owner asked to advertise.
       * `composited=True` — the real product is PASTED IN afterwards
         (`poster.product_composite`), so the model must LEAVE ITS ROOM EMPTY. Asking it to draw
-        the product is what produced "LABORATONE DERHATOLOGIQUE" on a registered label."""
+        the product is what produced "LABORATONE DERHATOLOGIQUE" on a registered label.
+      * `placement` — the decision from `poster.product_placement`, taken BEFORE this prompt is
+        written. It replaces the generic "a horizontal surface across the lower third" with the
+        camera angle, the light direction and the exact empty area this particular packshot
+        needs. That sentence was true and useless for Nano Care: its packshot looks DOWN at the
+        product, so a lower-third floor shot at eye level could never receive it, and the critic
+        rejected "product boxes floating illogically" three times out of three."""
     name = str(product_name or "").strip()
     if not name:
         return ""
@@ -227,19 +234,52 @@ def _product_scene_guard(product_name: str, *, composited: bool = False) -> str:
         "imagery (no hair before/after panels, no split-screen comparisons of other items) even "
         "if the brand's usual style uses them. One subject, nothing else."
     )
+    if hybrid:
+        # THE HYBRID (owner's production rule, 2026-07-28). The model DRAWS the product, because
+        # its lighting, contact shadow and 3-D angle are what no deterministic paste can
+        # manufacture — three measured runs of pasting produced "floating illogically" and then
+        # "a flat graphic floating over the scene, not placed within it". The label it draws is
+        # then REPLACED with the brand's real artwork by `poster.label_reprojection`, so the
+        # thing it is famously bad at stops mattering.
+        block += (
+            "\nRENDER THE PRODUCT ITSELF, from the attached photograph, as a real object standing "
+            "in this scene. Match its shape, proportions, packaging structure and colours to the "
+            "attachment exactly. Show ONE unit only. Its printed label must be reproduced as "
+            "faithfully as you can, but the artwork on the front face is replaced afterwards, so "
+            "never invent extra packaging, extra units, or any other product."
+        )
+        try:
+            from poster.product_placement import scene_instruction
+            block += scene_instruction(placement, hybrid=True) if placement is not None else ""
+        except Exception:  # noqa: BLE001
+            pass
+        return block
     if composited:
         block += (
             "\nDO NOT DRAW THE PRODUCT ITSELF. The real product photo is composited into this "
             "scene afterwards, so leave its place EMPTY: clean, uncluttered surface with room "
             "for a bottle to be placed, correct surface and lighting for something to stand "
             "there. No invented packaging, no labels, no product text anywhere in frame."
-            # WHERE the floor has to be. Without this the model put the ground wherever it liked
-            # and the paste landed above it — measured as "product boxes floating illogically".
-            "\nPut a clear, flat, unobstructed HORIZONTAL SURFACE across the LOWER THIRD of the "
-            "frame — a table top, a counter, a stone ledge — lit from the same direction as the "
-            "rest of the scene, so an object standing on it would cast its shadow onto that "
-            "surface. Keep the right-of-centre part of that surface completely clear."
         )
+        derived = ""
+        if placement is not None:
+            try:
+                from poster.product_placement import scene_instruction
+                derived = scene_instruction(placement)
+            except Exception:  # noqa: BLE001
+                derived = ""
+        if derived:
+            block += derived
+        else:
+            # Nothing was measured about the asset, so the generic rule stands — it is a worse
+            # answer than a derived one and a much better answer than none.
+            block += (
+                "\nPut a clear, flat, unobstructed HORIZONTAL SURFACE across the LOWER THIRD of "
+                "the frame — a table top, a counter, a stone ledge — lit from the same direction "
+                "as the rest of the scene, so an object standing on it would cast its shadow "
+                "onto that surface. Keep the right-of-centre part of that surface completely "
+                "clear."
+            )
     return block
 
 
@@ -285,6 +325,8 @@ def _generate_nano_background(
     identity_ref: Optional[tuple] = None,
     product_name: str = "",
     composite_product_after: bool = False,
+    placement=None,
+    hybrid: bool = False,
 ) -> tuple[str, str]:
     """Text-free background via nano-banana (Gemini image), style-conditioned on the brand's REAL
     creatives. This is the classic overlay's image source now that every Vertex Imagen id 404s on
@@ -351,10 +393,25 @@ def _generate_nano_background(
         log(f"[bg] nano-banana STYLE ({len(refs)} real brand refs)")
     bg_prompt = (
         prompt.strip()
-        + "\n\nCRITICAL: produce a BACKGROUND IMAGE ONLY — scene, texture, lighting, composition. "
-        "Render NO text, letters, words, numbers, logos, captions or UI of any kind. Keep calm "
-        "negative space where copy will be overlaid later. Photographic, premium, on-brand.")
-    bg_prompt += _product_scene_guard(product_name, composited=composite_product_after)
+        # ONE RULE ABOUT TEXT, AND IT MUST NOT CONTRADICT THE ONE BELOW IT. In the hybrid lane the
+        # model is asked to render the product's own printed packaging, so a blanket "render NO
+        # text of any kind" is an instruction it cannot obey while obeying the next paragraph —
+        # and measured live, it split the difference by rendering text BOTH on the box and across
+        # the scene ("RAPETICS", "الحجاز الحصان الحصبيان" on a poster that asked for neither).
+        # The exemption is exactly one surface wide.
+        + ("\n\nCRITICAL: produce a BACKGROUND IMAGE ONLY — scene, texture, lighting, "
+           "composition. The ONLY text anywhere in this picture is the printing on the "
+           "product's own packaging, exactly as it appears in the attached photograph. NO other "
+           "text, letters, words, numbers, logos, captions, signage or UI — not on walls, "
+           "screens, labels, packaging of any other item, uniforms or props. Keep calm negative "
+           "space where copy will be overlaid later. Photographic, premium, on-brand."
+           if hybrid else
+           "\n\nCRITICAL: produce a BACKGROUND IMAGE ONLY — scene, texture, lighting, "
+           "composition. Render NO text, letters, words, numbers, logos, captions or UI of any "
+           "kind. Keep calm negative space where copy will be overlaid later. Photographic, "
+           "premium, on-brand."))
+    bg_prompt += _product_scene_guard(product_name, composited=composite_product_after,
+                                      placement=placement, hybrid=hybrid)
     bg_prompt += _cast_variation_rule()
     # ONE LOOK FOR THE BRAND (owner 2026-07-26: «ثبّت كلمات وصف الإضاءة والألوان في كل
     # البرومبتات»). The poster and the reel of one brand must come out of the same camera, so
@@ -375,12 +432,22 @@ def _generate_nano_background(
         _bn = str((_n.get("value") if isinstance(_n, dict) else _n) or "").strip()
     except Exception:  # noqa: BLE001
         _bn = ""
-    if _bn:
+    if _bn and not hybrid:
         bg_prompt += (
             f"\n\nBRAND MARK: do NOT draw, letter or imply the mark of \"{_bn}\" — or any other "
             "company's logo, wordmark, sign or badge — anywhere in this scene, at any size, "
             "including on walls, screens, packaging, uniforms, bags and signage. The real mark "
             "is composited onto this image afterwards.")
+    elif _bn:
+        # HYBRID: the product's OWN packaging is the one place the mark belongs — banning it
+        # everywhere would contradict the instruction to render the product, and the model would
+        # resolve that contradiction by drawing a blank box. Everything else stays forbidden.
+        bg_prompt += (
+            f"\n\nBRAND MARK: the ONLY place \"{_bn}\" may appear is on the product's own "
+            "packaging, as printed on the attached photograph. Do NOT letter it — or any other "
+            "company's logo, wordmark, sign or badge — anywhere else in the scene: not on walls, "
+            "screens, uniforms, bags or signage. The poster's own logo lockup is composited on "
+            "afterwards.")
     if picked:
         # «دي مفيهاش لعب» — the attachment is THE product, not a mood reference. Without saying so
         # the model treats a reference as inspiration and redraws the item, which is how a real
@@ -405,7 +472,18 @@ def _generate_nano_background(
     out_path = Path(out_dir) / f"bg_{uuid.uuid4().hex[:8]}.png"
     # Go straight to nano-banana (the model that serves) instead of the retired id .env pins; the
     # generator's model-chain still covers us if this id ever drifts.
-    nano = oneshot._MODEL_CHAIN[0]   # "gemini-2.5-flash-image"
+    # HONOUR THE OWNER'S LANE. `resolve_oneshot_model()` implements «نانو بنانا لايت كوالتي
+    # وحشة خليك برو» (IMAGE_LANE=pro); this function used to hardcode `_MODEL_CHAIN[0]` straight
+    # past it, so setting the lane changed nothing for the path that renders most posters.
+    #
+    # NO PRO PIN HERE, and the reason is measured rather than assumed. On 2026-07-28 both
+    # `gemini-3-pro-image-preview` and `gemini-3-pro-image` return 404 on this project — probed
+    # directly, not inferred — so pinning pro buys a wasted round-trip per attempt and the
+    # failover serves flash anyway. It also cost a wrong conclusion: an A/B whose good match
+    # (33/97 inliers) was credited to pro had in fact failed over to flash, and the real driver
+    # of that match was how LARGE the product sat in the frame. `resolve_oneshot_model()` still
+    # picks pro the moment the owner sets the lane and Google re-opens the id.
+    nano = oneshot.resolve_oneshot_model()
     oneshot.generate_oneshot_poster(bg_prompt, out_path, model=nano, logo_bytes=None,
                                     product_images=refs or None,
                                     identity_ref=identity_ref or None)
@@ -419,6 +497,8 @@ def _generate_background(
     identity_ref: Optional[tuple] = None,
     product_name: str = "",
     composite_product_after: bool = False,
+    placement=None,
+    hybrid: bool = False,
 ) -> tuple[str, str]:
     """ADAPTIVE brand-anchored background, safe cascade (never raises here).
 
@@ -447,7 +527,8 @@ def _generate_background(
                                                  product_images=product_images,
                                                  identity_ref=identity_ref,
                                                  product_name=product_name,
-                                                 composite_product_after=composite_product_after)
+                                                 composite_product_after=composite_product_after,
+                                                 placement=placement, hybrid=hybrid)
             except Exception as e:  # noqa: BLE001
                 last_exc = e
                 log(f"[bg] nano-banana background failed ({type(e).__name__}: {e})"
@@ -764,9 +845,26 @@ def _corner_placeholder_detected(poster_path, *, rtl: bool) -> bool:
 
 
 def _image_bytes_from_url(url: Optional[str]) -> tuple[Optional[bytes], str]:
-    """Fetch ONE remote image via the renderer's SSRF-guarded fetch -> (bytes, mime)."""
+    """Bytes for ONE product/style image -> (bytes, mime). Remote goes through the renderer's
+    SSRF-guarded fetch; a LOCAL PATH is read directly.
+
+    THE LOCAL BRANCH IS NOT A CONVENIENCE (measured live, 2026-07-28). Everything upstream
+    accepts a path or a URL — `product_composite._load` does, `product_geometry` does — but this
+    one function silently returned None for a path, so `picked` came back empty, the packshot was
+    never attached to the image call, and the model, asked to render "the attached product" with
+    nothing attached, invented a blue carton with an atom on it. The hybrid then projected the
+    real red artwork onto that invented box. One unhandled input type, and the whole technique
+    was working from nothing."""
     if not url:
         return None, "image/jpeg"
+    try:
+        p = Path(str(url))
+        if not str(url).startswith(("http://", "https://", "data:")) and p.is_file():
+            mime = {".png": "image/png", ".webp": "image/webp",
+                    ".gif": "image/gif"}.get(p.suffix.lower(), "image/jpeg")
+            return p.read_bytes(), mime
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from poster.template import _remote_image_data_uri
         uri = _remote_image_data_uri(url) or ""
@@ -1453,16 +1551,92 @@ def generate_poster(
         log("[concept] typography=lockup (DNA)")
 
     # 5) Generate image + render + VISION QA gate (regenerate the image on a fixable fail).
+    #
+    # THE PLACEMENT IS DECIDED FIRST, AND BOTH HALVES OBEY IT (owner, 2026-07-28: «مينفعش يكون
+    # مكان ثابت — لازم نفهم المنتج وعلى أساسه نقرر مساحته وحجمه»). Until now the scene was
+    # generated blind to the product and the product was pasted blind to the scene, which is why
+    # the same owner could say «اللزق بيبوّظ الباك جراوند اللي اتعمل ليها جينيريشن» — it landed
+    # wherever a module-level constant pointed, on a composition built for something else.
+    # Measuring the packshot once, here, lets the scene be photographed to RECEIVE it.
+    _prod_candidates = ([str(u) for u in product_image]
+                        if isinstance(product_image, (list, tuple))
+                        else ([str(product_image)] if product_image else []))
+    _geometry = None
+    if _prod_candidates:
+        try:
+            from poster.product_composite import rank_candidates
+            from poster.product_geometry import measure_product
+            _prod_candidates = rank_candidates(_prod_candidates,
+                                               product_url=str(product_url or ""),
+                                               caller=qa_caller)
+            _geometry = measure_product(_prod_candidates[0], caller=qa_caller)
+            if _geometry.checked:
+                log(f"[geometry] {_geometry.camera_elevation} · {_geometry.unit_count} unit(s) · "
+                    f"base={_geometry.has_flat_base} · {_geometry.form_factor}")
+            else:
+                log(f"[geometry] not measured ({_geometry.reason})")
+        except Exception as exc:  # noqa: BLE001 — a measurement failure must not kill a render
+            log(f"[geometry] skipped ({type(exc).__name__}: {exc})")
+            _geometry = None
+
+    # THE USE DETERMINES THE METHOD (owner's production rule, 2026-07-28). For a STATIC poster
+    # the viewer can zoom in and read the ingredients, so the lettering has to be the real file —
+    # but a cut-out pasted onto a generated scene never belongs, measured three runs running
+    # ("floating illogically", then "a flat graphic floating over the scene, not placed within
+    # it"). The hybrid takes both: the model draws the product so we inherit its lighting, contact
+    # shadow and 3-D angle, then the real artwork is projected onto the face it drew.
+    #
+    # DEGRADES, NEVER FAILS: if the drawn label's face cannot be cornered, the next attempt falls
+    # back to the paste — which is measured, shipped and never garbles a letter.
+    _product_mode = (os.environ.get("POSTER_PRODUCT_MODE") or "hybrid").strip().lower()
+    if _product_mode not in ("hybrid", "composite"):
+        _product_mode = "hybrid"
+    _hybrid_lane = bool(_prod_candidates) and _product_mode == "hybrid"
+
+    def _decide(current_spec):
+        """The placement for the layout as it stands now. Re-taken per attempt because the
+        contrast retry MOVES the copy, and a product placed against the old text box would be
+        deciding around a layout that no longer exists."""
+        if _geometry is None:
+            return None
+        try:
+            from poster.product_placement import decide_placement
+            return decide_placement(
+                _geometry, text_box=getattr(current_spec, "text_box", None),
+                canvas_aspect=0.8,                      # the template renders 1080x1350
+                has_person=bool(identity_image),
+                # A hero-sized product is what the hybrid needs to match against AND what a
+                # zoom-in reader needs to read; the two requirements point the same way.
+                hybrid=_hybrid_lane)
+        except Exception:  # noqa: BLE001
+            return None
+
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     result: Optional[PosterGenResult] = None
     best: Optional[PosterGenResult] = None      # highest-scoring attempt seen
+    # ONE STRIKE, THEN THE MEASURED PATH. If the drawn product cannot be located on an attempt,
+    # every later attempt uses the paste instead — repeating a technique that just failed to find
+    # its subject is how a render burns three attempts producing the same defect.
+    _hybrid_degraded = False
     for attempt in range(max_qa_retries + 1):
         run_var = variation if attempt == 0 else build_variation()
         # A LATER ATTEMPT'S FAILURE MUST NOT DISCARD AN EARLIER POSTER (measured: attempts 0 and
         # 1 rendered, attempt 2 hit a transient no-image, and the whole render collapsed to the
         # free placeholder). `attempt_failed` breaks the loop and keeps the best we already have.
         attempt_failed = False
+        # Bound BEFORE the branch: `no_image` skips the whole generation block, and both names are
+        # read further down (the contrast retry, the audit, the result). Without this the stub
+        # path raises NameError on the first attempt.
+        _composite_after = False
+        _primary_product_img = None
+        _paste_zone = None
+        _paste_width = None
+        _mode = "none"
+        # Only a CLEANLY COMPOSITED product occupies a rectangle the copy must avoid. "none"
+        # means nothing was pasted and "full_bleed" means the shot IS the scene — in both cases
+        # reserving a hole for a product that is not there is the same defect in reverse.
+        _mode_composited = False
         if no_image:
             from poster.imagen_provider import StubImageProvider
             bg_path, model_used, prompt = str(StubImageProvider().generate("")), "stub", "(stub)"
@@ -1478,9 +1652,18 @@ def generate_poster(
             # its label is pixel-identical instead of being rewritten by the model.
             # `product_image` may be a LIST of candidates (the page's gallery). The composite
             # picks among them; anything expecting one URL gets the first.
-            _composite_after = bool(product_image)
+            # THE HYBRID DRAWS, THE PASTE CUTS. In the hybrid lane the packshot is ATTACHED and
+            # the model renders the product — so `composite_product_after` must be False, which
+            # is exactly the switch that both attaches the reference and drops the "leave its
+            # place empty" instruction. The real artwork goes on afterwards, by homography.
+            _use_hybrid = _hybrid_lane and not _hybrid_degraded
+            _composite_after = bool(product_image) and not _use_hybrid
             _primary_product_img = (product_image[0] if isinstance(product_image, (list, tuple))
                                     and product_image else product_image)
+            _placement = _decide(spec)
+            if _placement is not None:
+                log(f"[placement] {_placement.mode} zone={_placement.zone} "
+                    f"({_placement.reason})")
             try:
                 if use_edit:
                     bg_path, model_used = _generate_background(
@@ -1488,19 +1671,70 @@ def generate_poster(
                         product_images=(list(product_image) if isinstance(product_image, (list, tuple))
                                         else ([product_image] if product_image else None)),
                         identity_ref=identity_image, product_name=product_name or "",
-                        composite_product_after=_composite_after)
+                        composite_product_after=_composite_after, placement=_placement,
+                        hybrid=_use_hybrid)
                 else:
                     bg_path, model_used = _generate_imagen(prompt)
+                if _use_hybrid:
+                    # THE OWNER'S PRODUCTION RULE, EXECUTED. The model drew the product, so this
+                    # frame already owns the lighting, the contact shadow and the 3-D angle that
+                    # no paste could manufacture. What it does not own is the lettering — so the
+                    # brand's real artwork is projected onto the box it drew, by a homography
+                    # measured between the two, and clipped to that box's own silhouette.
+                    from poster.label_reprojection import apply_real_label
+                    # The placement decision doubles as the search region: matching inside it
+                    # runs at full resolution instead of on a downscaled whole canvas.
+                    _roi = None
+                    if _placement is not None:
+                        from poster.product_placement import zone_rect
+                        _roi = zone_rect(_placement.zone,
+                                         aspect=float(getattr(_geometry, "aspect", 1.0) or 1.0),
+                                         canvas_aspect=0.8)
+                    _labelled, _note = apply_real_label(
+                        bg_path, _prod_candidates[0] if _prod_candidates else _primary_product_img,
+                        caller=qa_caller, product_name=product_name or "", roi=_roi)
+                    if _labelled != bg_path:
+                        bg_path = _labelled
+                        _mode_composited = True
+                        log(f"[hybrid] {_note}")
+                    else:
+                        # NOT LOCATED IS NOT A PASS. A drawn label nobody corrected is a garbled
+                        # label, so this attempt keeps whatever the model wrote and every later
+                        # attempt falls back to the measured cut-and-paste.
+                        _hybrid_degraded = True
+                        log(f"[hybrid] {_note} -> falling back to the paste from the next attempt")
                 if _composite_after:
                     # THE REFUSAL HAS SOMEWHERE TO GO (reviewer, measured: no keying tolerance
                     # separates a white bottle from a white studio ground). Clean cut-out ->
                     # composite; otherwise the shot becomes the SCENE full-bleed, where its own
                     # ground and reflection are the design instead of a pasted card.
                     from poster.product_composite import compose_or_background
+                    # THE SCENE GETS THE LAST WORD ON THE SURFACE. The decision told the model
+                    # where to leave room; the model puts it roughly, never exactly, there — and
+                    # for a standing product that gap IS "floating illogically".
+                    _paste_zone = _placement.zone if _placement is not None else None
+                    if _placement is not None:
+                        try:
+                            from poster.placement import confirm_product_zone
+                            _paste_zone = confirm_product_zone(
+                                bg_path, _placement,
+                                aspect=float(getattr(_geometry, "aspect", 1.0) or 1.0),
+                                canvas_aspect=0.8)
+                        except Exception:  # noqa: BLE001
+                            _paste_zone = _placement.zone
                     _pp, _mode = compose_or_background(
-                        bg_path, product_image,
-                        product_url=str(product_url or ""))
+                        bg_path, _prod_candidates or product_image,
+                        product_url=str(product_url or ""), zone=_paste_zone,
+                        mode=(_placement.mode if _placement is not None else ""),
+                        caller=qa_caller)
                     bg_path = _pp
+                    _mode_composited = (_mode == "composited")
+                    if _mode_composited and _paste_zone is not None:
+                        from poster.product_placement import zone_rect
+                        _paste_width = zone_rect(
+                            _paste_zone,
+                            aspect=float(getattr(_geometry, "aspect", 1.0) or 1.0),
+                            canvas_aspect=0.8)[2]
                     log({"composited": "[product] real asset composited (label pixel-exact)",
                          "full_bleed": "[product] no keyable cut-out -> the real shot IS the "
                                        "scene (full-bleed, no seam)",
@@ -1532,7 +1766,9 @@ def generate_poster(
         except Exception:  # noqa: BLE001
             pass
         poster_path = str(render_html_to_png(
-            render_poster_html(brief, bg_path, spec=spec, copy_ink=_ink), out / filename))
+            render_poster_html(brief, bg_path, spec=spec, copy_ink=_ink,
+                               product_zone=(_paste_zone if _mode_composited else None),
+                               product_width=_paste_width), out / filename))
         _refresh_canonical(poster_path)   # البند 1
         # A CONTRAST RATIO, MEASURED (reviewer 2026-07-26: «أقل من 4.5:1 = reject»). Every
         # legibility fix before this was an argument about gradient stops; this is the number
@@ -1554,15 +1790,35 @@ def generate_poster(
             # in the measured clearest band instead of retrying the same busy spot.
             try:
                 from poster.placement import clearest_copy_zone
-                from poster.product_composite import DEFAULT_ZONE as _PZ
-                _zone = clearest_copy_zone(bg_path,
-                                           product_zone=(_PZ if _composite_after else None))
+                # THE COPY FLEES THE PRODUCT'S ACTUAL PLACE, not a constant's. Passing the old
+                # module-level zone here told the copy to avoid a rectangle the product was no
+                # longer in — a true statement about the wrong picture.
+                from poster.product_composite import UNMEASURED_ZONE as _PZ
+                _avoid = (_paste_zone or _PZ) if _composite_after else None
+                _zone = clearest_copy_zone(bg_path, product_zone=_avoid)
                 if _zone:
                     spec = spec.model_copy(update={"text_box": list(_zone)})
             except Exception:  # noqa: BLE001
                 pass
 
-        verdict = poster_vision_qa(poster_path, caller=qa_caller, brand_dna=brand_dna, arabic=arabic)
+        # TELL THE CRITIC WHAT THIS PIPELINE ALREADY KNOWS (measured, Nano Care 2026-07-28). The
+        # ONESHOT path has passed both of these since the topshoes fix (see the call ~700 lines
+        # up); the CLASSIC path — the one that actually renders most posters — passed neither, so
+        # on every classic render the critic was asked two questions whose answers were sitting in
+        # local variables:
+        #   * "is this a fabricated product?" — asked about a photograph of the real product,
+        #     composited pixel-exact. It answered "the poster features a fabricated product", and
+        #     that is a HARD GATE, so a correct poster failed.
+        #   * "are the logo's letterforms clean?" — asked about the brand's OWN logo file, inlined
+        #     by the template. A model cannot garble what it never drew; a stylised wordmark
+        #     answering "distorted" is the brand's design, and it was another hard gate.
+        # Both are the session's recurring class: produced, then never delivered one step later.
+        _real_product_in_frame = _mode_composited or (_composite_after and _mode == "full_bleed")
+        verdict = poster_vision_qa(
+            poster_path, caller=qa_caller, brand_dna=brand_dna, arabic=arabic,
+            expect_real_products=(True if _real_product_in_frame else
+                                  (False if not _composite_after else None)),
+            logo_composited=bool(getattr(brief, "logo_url", "")))
         verdict = _excuse_expected_brand(verdict, product_name or "")
         # MALFORMED TEXT AND EXTRA PRODUCTS, judged on the pixels. Both were shipped repeatedly
         # today under a `overall_pass` the critic itself had granted, because neither question

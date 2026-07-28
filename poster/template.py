@@ -716,21 +716,25 @@ _SAFE_MARGIN = 42        # px every element must stay inside the frame by
 
 
 
-def avoid_product_zone(text_box, product_zone, *, cluster_h: float = 0.22):
+def avoid_product_zone(text_box, product_zone, *, cluster_h: float = 0.22,
+                       product_width: Optional[float] = None):
     """Move a free-form text cluster OFF the composited product.
 
     REVIEWER (2026-07-26): «النص غطّى المنتج… تغطية المنتج بالتايبوجرافي خطيئة أساسية» — the
-    headline sat across the bottle and covered its SPF claim. The product now lands at a KNOWN
-    zone (`poster.product_composite.DEFAULT_ZONE`), so the copy no longer has to guess: if the
-    cluster overlaps that rectangle, it is pushed to whichever side has more room, and only
-    narrowed if it has to be. Boxes already clear of the product are returned untouched — the
-    LLM's composition still decides everything this rule does not have to."""
+    headline sat across the bottle and covered its SPF claim. The product lands at a DECIDED zone
+    (`poster.product_placement`), so the copy no longer has to guess: if the cluster overlaps that
+    rectangle, it is pushed to whichever side has more room, and only narrowed if it has to be.
+    Boxes already clear of the product are returned untouched — the LLM's composition still
+    decides everything this rule does not have to.
+
+    `product_width` is the footprint the placement actually computed. Without it the old 0.40
+    guess stands, which over-reserves for a slim bottle and under-reserves for a wide carton."""
     box = list(text_box or [])
     if len(box) < 3 or not product_zone:
         return box
     x, y, w = float(box[0]), float(box[1]), float(box[2])
     px, py, ph = (list(product_zone) + [0.5, 0.3, 0.4])[:3]
-    pw = 0.40                                   # the composite caps the product at ~40% width
+    pw = float(product_width) if product_width else 0.40
     overlaps_x = (x < px + pw) and (x + w > px)
     overlaps_y = (y < py + ph) and (y + cluster_h > py)
     if not (overlaps_x and overlaps_y):
@@ -824,8 +828,15 @@ def render_poster_html(
     spec: Optional[PosterDesignSpec] = None,
     density: str = "minimal",
     copy_ink: str = "#f5f3ef",
+    product_zone: Optional[tuple] = None,
+    product_width: Optional[float] = None,
 ) -> str:
-    """`copy_ink` is MEASURED by the caller against this very background
+    """`product_zone` is where the product was ACTUALLY placed for this poster
+    (`poster.product_placement.decide_placement`, confirmed against the rendered scene). It used
+    to be read from a module-level constant, which meant the copy fled a rectangle the product
+    might not be in — true about some other poster, wrong about this one. None = no product.
+
+    `copy_ink` is MEASURED by the caller against this very background
     (`poster.contrast_gate.ink_for_background`). MEASURED (v9): three attempts on a bright
     pharmacy scene scored 2.72, 2.01 and 1.16:1 in white — the remedy for a bright ground is
     not moving white copy, it is dark ink."""
@@ -943,8 +954,9 @@ def render_poster_html(
         # a known zone, so the cluster is pushed off it before anything is laid out.
         _tb = spec.text_box
         try:
-            from poster.product_composite import DEFAULT_ZONE
-            _tb = avoid_product_zone(list(spec.text_box), DEFAULT_ZONE)
+            _tb = (avoid_product_zone(list(spec.text_box), product_zone,
+                                      product_width=product_width)
+                   if product_zone else list(spec.text_box))
         except Exception:  # noqa: BLE001 — a layout nicety must never break a render
             _tb = spec.text_box
         lower_layout_css = _freeform_lower_css(_tb, _scrim, align, arche)

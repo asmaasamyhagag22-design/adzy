@@ -70,3 +70,76 @@ def clearest_copy_zone(background: "str | Path", *, product_zone: Optional[tuple
                 best, {k: round(v, 1) for k, v in scores.items()})
     y = {"top": 0.07, "middle": 0.38, "bottom": 0.62}[best]
     return (0.06, y, 0.88)
+
+
+def _surface_row(gray, x0: int, x1: int, lo: int, hi: int) -> Optional[int]:
+    """The y of the strongest horizontal edge in the strip — a table lip, a counter front, the
+    line where a floor meets a wall. None when no row stands out from its neighbours.
+
+    Measured row-wise vertical gradient, not a model: a real surface edge runs the width of the
+    strip, so averaging across x amplifies it and suppresses everything vertical."""
+    try:
+        from PIL import ImageChops
+        strip = gray.crop((x0, max(0, lo), x1, min(gray.size[1], hi)))
+        w, h = strip.size
+        if w < 8 or h < 8:
+            return None
+        shifted = ImageChops.offset(strip, 0, -1)
+        diff = ImageChops.difference(strip, shifted)
+        px = diff.load()
+        rows = []
+        for yy in range(h - 1):
+            rows.append(sum(px[xx, yy] for xx in range(0, w, max(1, w // 64))) /
+                        max(1, len(range(0, w, max(1, w // 64)))))
+        if len(rows) < 4:
+            return None
+        peak = max(range(len(rows)), key=lambda i: rows[i])
+        mean = sum(rows) / len(rows)
+        if mean <= 0 or rows[peak] < mean * 2.2:      # no line, just texture
+            return None
+        return max(0, lo) + peak
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def confirm_product_zone(background: "str | Path", decision, *,
+                         aspect: float = 1.0, canvas_aspect: float = 0.8) -> tuple:
+    """The decided zone, adjusted to the scene that was ACTUALLY rendered.
+
+    The decision tells the image model where to leave room; the model puts the surface roughly —
+    never exactly — there. For a standing product that gap IS the "floating illogically" defect,
+    because a base two percent above the table lip is a base in mid-air.
+
+    Returns the decision's own zone unchanged when nothing measurable is found. Not finding a
+    surface is not the same as there being none, and it is certainly not a licence to move the
+    product somewhere unverified."""
+    from poster.product_placement import MODE_STANDING, zone_rect
+    zone = tuple(decision.zone)
+    try:
+        from PIL import Image
+        with Image.open(str(background)) as im:
+            gray = im.convert("L")
+            W, H = gray.size
+    except Exception:  # noqa: BLE001
+        return zone
+
+    x, y, h = zone_rect(zone, aspect=aspect, canvas_aspect=canvas_aspect)[0], zone[1], zone[2]
+    w = zone_rect(zone, aspect=aspect, canvas_aspect=canvas_aspect)[2]
+
+    if getattr(decision, "mode", "") != MODE_STANDING:
+        return zone
+
+    base = y + h
+    lo, hi = int(H * max(0.0, base - 0.15)), int(H * min(1.0, base + 0.15))
+    row = _surface_row(gray, int(W * x), max(int(W * x) + 8, int(W * (x + w))), lo, hi)
+    if row is None:
+        logger.info("[placement] no surface line found near the decided base %.2f — "
+                    "keeping the decision", base)
+        return zone
+
+    new_y = max(0.0, min(row / float(H) - h, 1.0 - h))
+    if abs(new_y - y) < 0.005:
+        return zone
+    logger.info("[placement] surface measured at %.3f — product base moved %.3f -> %.3f",
+                row / float(H), base, new_y + h)
+    return (zone[0], round(new_y, 4), zone[2])
