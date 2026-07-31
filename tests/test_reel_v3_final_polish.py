@@ -13,7 +13,7 @@ Measured roots this file pins (each test names its measurement):
      "best-effort" silently, 0-byte _with_endcard.mp4 left on disk, [ok] printed anyway.
   4. The VO joiner STRIPS terminal !/؟ (rstrip " ،.!؟?") and the whole reel is read in ONE
      flat prosody — the deliveries the director writes never reach the free voice.
-  5. Kling garbles label text it is asked to MOVE; the director never separates "static pack,
+  5. The video model garbles label text it is asked to MOVE; the director never separates "static pack,
      camera moves" scenes from "free motion, no text in frame" scenes.
   6. Nobody watches the assembled film: parts pass, the whole ships broken.
 

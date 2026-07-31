@@ -6,7 +6,7 @@ MEASURED on the live Nano Care render (2026-07-27). Scene 0's QA verdict, verbat
     "The product box is unfaithful, with the brand name and other details replaced by garbled,
      illegible text."
 
-Kling animated the seed and repainted the packaging as it moved, so a real box became gibberish.
+The video model animated the seed and repainted the packaging as it moved, so a real box became gibberish.
 The gate refused it — correctly — regenerated once, failed again, and dropped to the Ken Burns
 fallback: a slow zoom on a still. Which is the exact slideshow the whole cheat-sheet exists to kill.
 

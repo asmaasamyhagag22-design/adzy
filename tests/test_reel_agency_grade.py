@@ -14,8 +14,8 @@ MEASURED CAUSES (runs/reel_abuauf.log + exploration, all file:line-verified):
     (`creative_director.py`, AD SPINE hook→what→benefit→proof→CTA) and was simply not the default.
   * The photo gate rejected 1/1 images → `selected=[]` → the creative path returned None → silent
     fall to the template → no products, no story.
-  * `compositor.py:110` hands a reference image to intro/outro only → 3/5 scenes went to Kling
-    TEXT-to-video, silently — the owner's whole plan is stills animated by Kling.
+  * `compositor.py:110` hands a reference image to intro/outro only → 3/5 scenes went to
+    TEXT-to-video, silently — the owner's whole plan is stills animated by the video model.
   * `voiceover.py:341` logs only the exception CLASS of an ElevenLabs failure and the explicit
     `REEL_TTS_BACKEND=elevenlabs` has no fallback → a silent reel and no way to know why.
 
@@ -120,7 +120,7 @@ def test_the_brand_dna_is_actually_loaded():
 # 4) i2v is guaranteed; t2v is a refusal, not a silent downgrade
 # =====================================================================
 
-class _FakeKlingTransport:
+class _UnusedFakeTransport:
     def __init__(self):
         self.calls = []
 
@@ -138,49 +138,41 @@ class _FakeKlingTransport:
 
 
 @pytest.fixture
-def _kling(monkeypatch, tmp_path):
-    monkeypatch.setenv("KLING_API_KEY", "tok")
-    monkeypatch.delenv("KLING_ALLOW_T2V", raising=False)
-    monkeypatch.setenv("KLING_SPEND_LEDGER", str(tmp_path / "k.jsonl"))
-    from reel.video_provider import KlingProvider
-    return KlingProvider
+def _veo(monkeypatch):
+    """A VeoProvider whose submit is captured, so no network and no $0.40/second."""
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.setenv("VERTEX_MONTHLY_CAP_USD", "")
+    from reel.video_provider import VeoProvider
+    return VeoProvider
 
 
-def test_kling_refuses_t2v_by_default(_kling, tmp_path):
-    """«فين المنتجات» — a Kling scene with no still is the model inventing footage, which is the
-    opposite of the owner's stills-animated plan. The compositor already catches a provider error
-    and falls back to Ken Burns over the seed frame, so refusing costs nothing real."""
+def test_veo_refuses_text_to_video(_veo, tmp_path):
+    """OWNER 2026-07-28: «عايزه VEO ... بس مجرد إنه بيحرك الصور اللي نانو بانانا بيديهاله».
+
+    A clip with no seed frame is the model INVENTING footage, which is the opposite of the
+    stills-animated plan — and the compositor already catches a provider error and falls back to
+    Ken Burns over the real still, so refusing costs nothing real. Migrated from the provider
+    that was removed: the guarantee outlived the vendor."""
     with pytest.raises(Exception) as exc:
-        _kling(transport=_FakeKlingTransport()).generate(
-            "x", out_path=tmp_path / "c.mp4", duration_s=5, width=1080, height=1920,
-            reference_image=None)
-    assert "t2v" in str(exc.value).lower() or "seed" in str(exc.value).lower()
+        _veo().generate("x", out_path=tmp_path / "c.mp4", duration_s=5,
+                        width=1080, height=1920, reference_image=None)
+    msg = str(exc.value).lower()
+    assert "image-to-video" in msg or "seed" in msg, msg
 
 
-def test_kling_t2v_can_be_opted_back_in(monkeypatch, _kling, tmp_path):
-    monkeypatch.setenv("KLING_ALLOW_T2V", "1")
-    tr = _FakeKlingTransport()
-    _kling(transport=tr).generate("x", out_path=tmp_path / "c.mp4", duration_s=5,
-                                  width=1080, height=1920, reference_image=None)
-    assert any("text2video" in u for u in tr.calls)
+def test_veo_does_not_silently_downgrade_when_the_seed_is_unusable(_veo, tmp_path):
+    """The fallback that used to sit here re-submitted WITHOUT the image on any i2v rejection —
+    so a broken seed quietly became invented footage that still looked like a successful render."""
+    import inspect
 
-
-def test_kling_with_a_seed_still_hits_image2video(_kling, tmp_path):
-    still = tmp_path / "s.png"
-    still.write_bytes(_png_bytes())
-    tr = _FakeKlingTransport()
-    _kling(transport=tr).generate("x", out_path=tmp_path / "c.mp4", duration_s=5,
-                                  width=1080, height=1920, reference_image=str(still))
-    assert any("image2video" in u for u in tr.calls)
-
-
-def test_the_mode_is_printed_so_a_downgrade_is_never_silent(capsys, monkeypatch, _kling, tmp_path):
-    monkeypatch.setenv("KLING_ALLOW_T2V", "1")
-    _kling(transport=_FakeKlingTransport()).generate(
-        "x", out_path=tmp_path / "c.mp4", duration_s=5, width=1080, height=1920,
-        reference_image=None)
-    assert "mode=t2v" in capsys.readouterr().err, (
-        "the only trace of a t2v downgrade was a ledger row nobody reads mid-run")
+    import reel.video_provider as vp
+    src = inspect.getsource(vp.VeoProvider.generate)
+    assert "_submit(None)" not in src, (
+        "an i2v rejection still falls back to text-to-video behind the caller's back")
+    with pytest.raises(Exception) as exc:
+        _veo().generate("x", out_path=tmp_path / "c.mp4", duration_s=5, width=1080,
+                        height=1920, reference_image="https://nope.invalid/missing.jpg")
+    assert "image-to-video" in str(exc.value).lower()
 
 
 # =====================================================================
@@ -189,7 +181,7 @@ def test_the_mode_is_printed_so_a_downgrade_is_never_silent(capsys, monkeypatch,
 
 def test_the_directors_system_prompt_carries_the_measured_market():
     """«هنود معرفش ليه» — the seeds already receive brand_locale; the veo_prompts the director
-    writes did not, and Kling animates people INTO scenes from those prompts."""
+    writes did not, and the video model animates people INTO scenes from those prompts."""
     import reel.creative_director as cd
     sig = inspect.signature(cd._system_prompt)
     assert "locale_primer" in sig.parameters, "the director cannot be told the brand's market"

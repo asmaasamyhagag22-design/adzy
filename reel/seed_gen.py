@@ -238,7 +238,7 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
         # Attempt plan: 1-2 conditioned on the scene photo (or the pool when there is none);
         # 3 unconditioned ("clean on-brief beats world-breaking"); 4 pool-conditioned brand-world
         # — the last chance to keep REAL brand identity in frame before the scene is dropped.
-        # MOTION STRATEGY (owner v2 verdict: Kling garbles any label it is asked to MOVE):
+        # MOTION STRATEGY (owner v2 verdict: the video model garbles any label it is asked to MOVE):
         # only a hero_product scene carries the real pack — its motion pins the pack and moves
         # the camera. A free-motion scene must have NO readable text to garble in the first
         # place, so it gets neither the pack refs nor the pool.

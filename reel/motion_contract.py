@@ -4,16 +4,22 @@
 BRIEF (owner, 2026-07-27, rule 1): every clip prompt must demand continuous handheld movement and
 must forbid the still frame.
 
-MEASURED BEFORE THIS EXISTED: `grep -rn "negative_prompt|cfg_scale|motion_strength" reel/` returned
-NOTHING. The Kling request body was `{model_name, prompt, duration, aspect_ratio, image}` — no
-negative prompt, no adherence control. Every clip was generated at the provider's defaults with
-nothing anywhere forbidding a locked-off camera, which is exactly how an i2v render of a still
-becomes a slow push on a photograph: a slideshow.
+MEASURED BEFORE THIS EXISTED: `grep -rn "negative_prompt|motion_strength" reel/` returned NOTHING.
+Every clip was generated at the provider's defaults with nothing anywhere forbidding a locked-off
+camera, which is exactly how an i2v render of a still becomes a slow push on a photograph: a
+slideshow.
 
-WHY A MODULE AND NOT A STRING IN THE KLING CLASS. The provider is swappable by design
-(`default_video_provider` resolves Kling, Veo, AIML or a stub). A contract written inside one class
-is a contract the next provider ships without — the failure mode this project has hit repeatedly.
-Adding Runway or Luma means importing from here, or the tests fail.
+WHY A MODULE AND NOT A STRING IN A PROVIDER CLASS. The provider is swappable by design
+(`default_video_provider` resolves Veo, AIML or a stub). A contract written inside one class is a
+contract the next provider ships without — the failure mode this project has hit repeatedly.
+
+AND IT HAPPENED TO THIS FILE (found 2026-07-28). The paragraph above was written as a warning and
+was then ignored: the contract was applied in exactly ONE place, inside a provider since removed, and
+Veo received neither clause. Every Veo render was therefore generated with nothing forbidding the
+still frame — the defect this module exists to prevent, shipping under a module that says it
+prevents it. Both halves now reach Veo in `video_provider._videos_config` (negative) and
+`VeoProvider.generate` (positive), and `tests/test_reel_motion_and_pacing.py` asserts it on the
+request Veo actually receives rather than on the constants.
 """
 from __future__ import annotations
 
@@ -28,10 +34,11 @@ MOTION_NEGATIVE = (
     "mannequin, freeze frame"
 )
 
-# Kling exposes adherence as `cfg_scale` (0..1) rather than a "motion_strength" scalar; the brief's
-# 0.75-0.8 band maps onto it directly. Higher = the prompt (and therefore the motion clause) is
-# obeyed harder. Above ~0.85 Kling starts over-cooking faces, so the band is capped deliberately.
-MOTION_CFG_SCALE = 0.78
+# NO ADHERENCE SCALAR. The brief's 0.75-0.8 "motion strength" band was implemented as the old
+# provider's
+# `cfg_scale`; Veo's `GenerateVideosConfig` has no equivalent field (checked against the SDK, not
+# assumed) — its knobs are the prompt and the negative prompt, which is what this module now
+# carries. A constant nothing reads is worse than no constant: it reads as a control that exists.
 
 # A single marker, so applying the contract twice is a no-op. Two copies of the modifier list start
 # competing with the scene description instead of qualifying it.

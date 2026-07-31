@@ -44,7 +44,7 @@ def _brand_tone(profile: Any) -> str:
 
 
 def _motion_directive(scene, *, look: str = "") -> str:
-    """The per-scene MOTION CONTRACT appended to the i2v prompt (owner v2 verdict: Kling
+    """The per-scene MOTION CONTRACT appended to the i2v prompt (owner v2 verdict: the video model
     garbled the pack label in 4/8 scenes and they all fell to Ken Burns). A hero scene pins
     the pack and moves the CAMERA; a free scene must have no text to garble at all.
 
@@ -75,7 +75,7 @@ def _product_asset(profile: Optional[dict], scene, real: Optional[str]) -> Optio
     if ov not in ("real_screen", "real_photo"):
         # THE DIRECTOR FORGETTING A FIELD MUST NOT COST THE CURE. MEASURED on Nano Care: the plan
         # marked the scene `hero_product` but left `product_overlay` empty, so no real asset was
-        # composited, the packaging went through Kling, and QA refused it — "the brand name and
+        # composited, the packaging went through the video model, and QA refused it — "the brand name and
         # other details replaced by garbled, illegible text" — twice, then fell back to Ken Burns.
         # A real photograph of the product exists; when a scene is ABOUT the product, use it.
         return real or None

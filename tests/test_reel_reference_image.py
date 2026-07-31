@@ -474,11 +474,7 @@ def _clear_video_env(monkeypatch):
 
 
 def test_stale_runway_key_is_fully_ignored_veo_wins(monkeypatch):
-    # The real .env now carries a Kling key (the owner added it), and Kling is the default
-    # video backend by her ruling — so a test asserting "Veo wins" has to clear EVERY Kling
-    # variable, not just the pair. Otherwise it measures the developer's .env, not the code.
-    for _k in ("KLING_API_KEY", "KLING_ACCESS_KEY", "KLING_SECRET_KEY"):
-        monkeypatch.delenv(_k, raising=False)
+    # Veo is the only provider now, so nothing has to be cleared for it to win.
     # Runway was REMOVED 2026-07-05 (owner directive) after a len-132 RUNWAY_API_KEY in .env
     # silently overrode Veo 3.1 and returned HTTP 400 on every scene -> Ken Burns stills. A
     # leftover RUNWAY_API_KEY must now be COMPLETELY inert: with a Vertex project present, Veo wins.
@@ -490,11 +486,7 @@ def test_stale_runway_key_is_fully_ignored_veo_wins(monkeypatch):
 
 
 def test_runway_backend_is_gone_and_falls_through_to_veo(monkeypatch):
-    # The real .env now carries a Kling key (the owner added it), and Kling is the default
-    # video backend by her ruling — so a test asserting "Veo wins" has to clear EVERY Kling
-    # variable, not just the pair. Otherwise it measures the developer's .env, not the code.
-    for _k in ("KLING_API_KEY", "KLING_ACCESS_KEY", "KLING_SECRET_KEY"):
-        monkeypatch.delenv(_k, raising=False)
+    # Veo is the only provider now, so nothing has to be cleared for it to win.
     # REEL_VIDEO_BACKEND=runway is no longer a selectable backend; it falls through to AUTO,
     # which picks our Vertex Veo. (No RunwayProvider exists to construct.)
     import reel.video_provider as vp
@@ -506,11 +498,7 @@ def test_runway_backend_is_gone_and_falls_through_to_veo(monkeypatch):
 
 
 def test_only_a_runway_key_and_no_vertex_is_stub_not_runway(monkeypatch):
-    # The real .env now carries a Kling key (the owner added it), and Kling is the default
-    # video backend by her ruling — so a test asserting "Veo wins" has to clear EVERY Kling
-    # variable, not just the pair. Otherwise it measures the developer's .env, not the code.
-    for _k in ("KLING_API_KEY", "KLING_ACCESS_KEY", "KLING_SECRET_KEY"):
-        monkeypatch.delenv(_k, raising=False)
+    # Veo is the only provider now, so nothing has to be cleared for it to win.
     # With NO Vertex/Gemini/AIML credential, a lone RUNWAY_API_KEY is NOT a fallback anymore
     # (Runway removed) — the pipeline degrades to the offline stub, never to Runway.
     from reel.video_provider import default_video_provider

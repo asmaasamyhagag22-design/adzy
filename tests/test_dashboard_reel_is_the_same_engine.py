@@ -4,9 +4,9 @@
 MEASURED 2026-07-26, while running the owner's full Al Fouad job:
   * `POST /api/reel/from-profile` called `reel.generate.build_brand_generated_reel`, whose own
     imports are `VeoProvider` + `VertexImagenProvider` + `reel.art_director`. The CLI's default
-    path is `reel.creative.render_creative_reel` (director -> gated seeds -> Kling i2v ->
+    path is `reel.creative.render_creative_reel` (director -> gated seeds -> Veo i2v ->
     vocalized VO -> motion contract -> final screening). TWO engines, and the dashboard held the
-    one the owner retired: Veo at $0.40/sec, which she replaced with Kling for cost, plus none of
+    one the owner retired, plus none of
     the v3 fixes she paid for.
   * The Studio's own tab strip labels Video/Campaign "Soon" and neither button has a handler —
     so the working endpoint was unreachable from the product at all («فين الريل؟»).
@@ -54,8 +54,8 @@ def test_the_route_calls_the_creative_director_engine():
 
 
 def test_the_route_does_not_reach_for_veo():
-    """Veo is $0.40/sec and was replaced by Kling (owner, 2026-07-25). The dashboard must pick
-    its provider the same way the CLI does — `default_video_provider`, which prefers Kling."""
+    """The dashboard must pick its provider the same way the CLI does —
+    `default_video_provider`, which resolves Veo (owner, 2026-07-28)."""
     import api.routes.reel as rr
     src = "\n".join(l.split("#")[0] for l in inspect.getsource(rr).splitlines())
     assert "VeoProvider" not in src, "the dashboard route can still instantiate Veo directly"
@@ -73,7 +73,7 @@ def test_the_route_renders_through_the_shared_entry(monkeypatch, tmp_path):
         def __init__(self, p):
             self.reel_path = str(p)
             self.width, self.height, self.duration_s = 1080, 1920, 12.0
-            self.has_audio, self.provider = True, "kling"
+            self.has_audio, self.provider = True, "veo"
 
     class _Creative:
         concept = "one story"
@@ -123,7 +123,7 @@ def test_the_studio_can_actually_reach_the_reel():
 
 def test_the_studio_does_not_advertise_a_model_it_does_not_use():
     """«كلام مش بستخدمه شيله» — the model card said "Local z-image Turbo"; nothing in this
-    project runs z-image (the stack is Gemini/nano-banana + Kling)."""
+    project runs z-image (the stack is Gemini/nano-banana + Veo)."""
     html = (Path(__file__).resolve().parents[1] / "frontend" / "index.html").read_text(
         encoding="utf-8")
     body = "\n".join(l.split("<!--")[0] for l in html.splitlines())

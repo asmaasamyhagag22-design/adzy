@@ -6,10 +6,10 @@ ONE ENGINE (2026-07-26). This route used to call `reel.generate.build_brand_gene
 conditioned on the brand's REAL product photos, ONE protagonist across scenes, the per-scene
 motion contract, a vocalized voice-over, the branded end-card, and a final screening of the
 assembled film. Every one of those fixes was paid for and none of them reached the dashboard —
-which still held Veo, the $0.40/sec engine the owner replaced with Kling for cost.
+which still held a stale engine pin.
 
 So the route no longer has an engine of its own. It resolves the same provider the CLI resolves
-(`default_video_provider`, Kling-first), calls the same entry, and adds only what a WEB caller
+(`default_video_provider`, Veo-only), calls the same entry, and adds only what a WEB caller
 needs: the mp4 as base64, the post-ready caption, and the screening verdict. The real-photo
 Motion engine stays as the honest fallback when the director cannot run at all.
 

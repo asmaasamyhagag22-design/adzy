@@ -469,8 +469,7 @@
   /* ── STUDIO SCREEN                         ── */
   /* ── ══════════════════════════════════════ ── */
 
-  /* Kling workspace replica - full element blueprint measured from
-     kling.ai/app/image/new: rail+panel #111214, canvas #0A0A0A,
+  /* Workspace blueprint — rail+panel #111214, canvas #0A0A0A,
      cards rgba(0,0,0,0.2) r12, tiles 92x92 #1A1C1F, green #E8E8E8 */
   .studio-page { padding: 0; background: #0A0A0A; }
   .studio-main-area { min-width: 0; }
@@ -536,7 +535,7 @@
     vertical-align: super;
   }
 
-  /* Soft dark section cards - Kling: bg rgba(0,0,0,0.2), radius 12, pad 13 */
+  /* Soft dark section cards - bg rgba(0,0,0,0.2), radius 12, pad 13 */
   .k-card {
     background: rgba(0,0,0,0.2); border-radius: 12px;
     padding: 13px; margin-bottom: 16px;
@@ -548,7 +547,7 @@
   .k-card-head .opt { font-size: 14px; font-weight: 400; color: rgb(119,126,133); }
   .k-card-head .count { margin-left: auto; font-size: 14px; color: rgb(119,126,133); }
 
-  /* Reference tiles - Kling: 92x92, bg #1A1C1F, radius 8 */
+  /* Reference tiles - 92x92, bg #1A1C1F, radius 8 */
   .k-tiles { display: flex; gap: 10px; }
   .k-tile {
     width: 92px; height: 92px; border-radius: 8px;
@@ -570,7 +569,7 @@
   }
   .k-tile.filled .k-tile-name { display: block; }
 
-  /* Model selector row - Kling: 440x56, radius 12, border #3A3C3D, single line */
+  /* Model selector row - 440x56, radius 12, border #3A3C3D, single line */
   .model-card {
     height: 56px; border-radius: 12px;
     border: 1px solid rgb(58,60,61); background: transparent;
@@ -596,7 +595,7 @@
   }
   .model-card .caret { color: rgb(119,126,133); font-size: 0.85rem; margin-left: auto; flex-shrink: 0; }
 
-  /* Prompt card - Kling: 440x328, bg rgba(0,0,0,0.2), radius 12,
+  /* Prompt card - 440x328, bg rgba(0,0,0,0.2), radius 12,
      placeholder 13px #777E85, Styles chip inside bottom-right */
   .prompt-card {
     background: rgba(0,0,0,0.2); border-radius: 12px;
@@ -708,7 +707,7 @@
     font-size: 0.82rem;
   }
 
-  /* Footer - Kling: settings chip 140x36 #1F2124 left · Generate 160x36 right */
+  /* Footer - settings chip 140x36 #1F2124 left · Generate 160x36 right */
   .studio-footer {
     margin-top: auto; padding-top: 14px;
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -1775,7 +1774,7 @@
     <!-- Left controls panel -->
     <div class="studio-controls">
 
-      <!-- Workspace tabs (Kling: Image / Video / Motion / Avatar) -->
+      <!-- Workspace tabs ( Image / Video / Motion / Avatar) -->
       <div class="studio-tabs">
         <button class="studio-tab active" id="mode-tab-image"
                 onclick="setStudioMode('image')">Image</button>
@@ -1785,14 +1784,14 @@
                 onclick="setStudioMode('text')">Caption only</button>
       </div>
 
-      <!-- Model selector row (Kling: IMAGE 3.0 bordered row) -->
+      <!-- Model selector row ( IMAGE 3.0 bordered row) -->
       <div class="model-card">
         <div class="model-thumb">✦</div>
         <div class="model-name">ADARCHITECT 1.0</div>
         <div class="model-desc" id="model-desc">Grounded in your brand's real evidence — every claim sourced</div>
       </div>
 
-      <!-- Brand Reference card (Kling: Image Reference card with 92px tiles) -->
+      <!-- Brand Reference card ( Image Reference card with 92px tiles) -->
       <div class="k-card">
         <div class="k-card-head">
           <span class="lbl">Brand Reference</span>
@@ -1850,7 +1849,7 @@
         </div>
       </div>
 
-      <!-- Prompt card (Kling: big soft card, Styles chip inside) -->
+      <!-- Prompt card ( big soft card, Styles chip inside) -->
       <div class="prompt-card">
         <textarea id="studio-user-context"
           placeholder="You can directly describe the image you want to generate, or leave it blank and AdArchitect will reverse-generate a creative direction from your brand profile. Check your brand's colors, tone and audience to improve outputs."></textarea>
@@ -5284,7 +5283,7 @@ function renderHistory(items) {
   });
 }
 
-// ── Popovers (Styles / Settings - Kling-style) ─────────────────────────────
+// ── Popovers (Styles / Settings) ───────────────────────────────────────────
 function togglePopover(id) {
   document.querySelectorAll('.k-popover').forEach(p => {
     if (p.id === id) p.classList.toggle('open');

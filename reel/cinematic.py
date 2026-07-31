@@ -8,7 +8,7 @@ whoosh) already lived in `reel/sound.py` and only needed its level fixed.
     on a locked-off frame and as CAMERA MOTION on a moving one. The shake buries the tell.
   * HEAD TRIM — an AI clip warms up: the first half-second is the subject settling into the
     motion the prompt asked for. Cutting it opens every shot mid-action.
-  * INTRA-SCENE CUTS — the pacing decision from the brief, applied the zero-cost way: ONE Kling
+  * INTRA-SCENE CUTS — the pacing decision from the brief, applied the zero-cost way: ONE video-model
     clip re-cut into ≤1.8s shots with alternating punch-ins, instead of billing a clip per shot.
 
 Everything here returns ffmpeg filter STRINGS — deterministic, testable without rendering, and

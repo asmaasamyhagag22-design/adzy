@@ -15,7 +15,7 @@ OWNER'S BRIEF (2026-07-27), four secrets, checked against the code before writin
   4. IN MEDIA RES — cut the first 0.5s of every AI clip so the film opens mid-action.
      MEASURED: the compositor consumed every clip from t=0.
 
-Plus the pending half of brief rule 2: intra-scene cuts. One Kling clip re-cut into ≤1.8s shots
+Plus the pending half of brief rule 2: intra-scene cuts. One generated clip re-cut into ≤1.8s shots
 with alternating punch-ins — the zero-cost route (the alternative bills a clip per shot).
 """
 from __future__ import annotations

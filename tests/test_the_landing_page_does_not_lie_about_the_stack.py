@@ -7,7 +7,7 @@ MEASURED 2026-07-26, on `/` — the first screen anyone sees:
     landing.html:605  "Made with local AI - Ollama · z-image turbo"
     landing.html:684  "Campaign posters rendered by z-image turbo on local GPU."
 
-None of it is true. Text runs on Gemini, images on the Vertex image models, video on Kling
+None of it is true. Text runs on Gemini, images on the Vertex image models, video on Veo
 (`reel/video_provider.py:750`), voice on ElevenLabs. There is no Ollama, no z-image turbo and no
 local GPU anywhere in the repo — `grep -ri "ollama\|z-image" --include=*.py` returns nothing.
 

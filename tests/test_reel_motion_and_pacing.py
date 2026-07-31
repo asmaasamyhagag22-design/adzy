@@ -8,7 +8,7 @@ BRIEF (owner, 2026-07-27), rules 1 and 2 of four:
      laid end to end.
 
 MEASURED BEFORE WRITING THIS. `grep -rn "negative_prompt|cfg_scale|motion_strength" reel/` returned
-NOTHING: the Kling request body was `{model_name, prompt, duration, aspect_ratio, image}` — no
+NOTHING: the request body was `{model_name, prompt, duration, aspect_ratio, image}` — no
 negative prompt and no motion control at all, so every clip was generated at the provider's default
 adherence with nothing forbidding a static frame. And `reel/compositor.py:15` states its own
 approach: "Hard cuts + per-scene text fades ... rather than xfade crossfades", with no cap anywhere
@@ -51,39 +51,40 @@ def test_the_scene_description_still_leads():
         "the modifiers must trail the scene, not replace it")
 
 
-def test_the_kling_request_carries_the_negative_prompt_and_motion():
-    """The contract is worthless if it never reaches the wire."""
-    from reel.video_provider import KlingProvider
+def test_the_veo_request_carries_the_negative_prompt_and_the_motion_clause():
+    """The contract is worthless if it never reaches the wire — and for Veo it never did.
 
-    sent = {}
+    FOUND 2026-07-28: `apply_motion_contract` and MOTION_NEGATIVE were applied in exactly one
+    place, inside the provider that has since been removed. Veo — the fallback then, the only provider now — received
+    neither, so every Veo clip was generated with nothing forbidding a locked-off camera. This
+    asserts on the request object Veo is actually handed, not on the constants, because the
+    constants were always fine; the wiring was not."""
+    from google.genai import types
 
-    class _T:
-        """Matches the real transport's shape (keyword-only headers/json_body), so the test
-        exercises the same call the network class would receive."""
+    from reel.video_provider import _videos_config
+    cfg = _videos_config(types, 6)
+    neg = str(getattr(cfg, "negative_prompt", "") or "").lower()
+    assert "slideshow" in neg, "no negative prompt reaches Veo"
+    assert "static camera" in neg
 
-        def post(self, url, *, headers=None, json_body=None):
-            sent.update(json_body or {})
-            return {"data": {"task_id": "t1"}}
+    from reel.motion_contract import apply_motion_contract
+    assert "handheld" in apply_motion_contract("a pharmacist reaching for a shelf").lower()
 
-        def get(self, url, *, headers=None):
-            return {"data": {"task_status": "succeed",
-                             "task_result": {"videos": [{"url": "https://x.test/v.mp4"}]}}}
+    import inspect
 
-        def download(self, url, dest):
-            return dest
+    import reel.video_provider as vp
+    src = inspect.getsource(vp.VeoProvider.generate)
+    assert "apply_motion_contract" in src, (
+        "the positive clause is never applied to the prompt Veo is sent")
+    assert "prompt=moving_prompt" in src, (
+        "the contract is computed and then the RAW prompt is submitted anyway")
 
-    p = KlingProvider(access_key="a", secret_key="b", transport=_T())
-    # A seed frame is required: Kling t2v is refused by design (an unseeded clip is invented
-    # footage), so a test without one would never reach the request body at all.
-    p.generate("a pharmacist reaching for a shelf", out_path="/tmp/x.mp4",
-               duration_s=5, width=1080, height=1920,
-               reference_image="https://x.test/seed.jpg")
 
-    assert "negative_prompt" in sent, "no negative prompt reaches Kling"
-    assert "slideshow" in str(sent["negative_prompt"]).lower()
-    assert "cfg_scale" in sent, "no motion/adherence parameter reaches Kling"
-    assert 0.7 <= float(sent["cfg_scale"]) <= 0.85, sent["cfg_scale"]
-    assert "handheld" in str(sent.get("prompt", "")).lower()
+def test_no_adherence_scalar_is_advertised_that_nothing_reads():
+    """`MOTION_CFG_SCALE` was the old provider's `cfg_scale`; Veo has no equivalent field. A constant nothing
+    reads is worse than no constant — it reads as a control that exists."""
+    import reel.motion_contract as mc
+    assert not hasattr(mc, "MOTION_CFG_SCALE")
 
 
 # ---------------------------------------------------------------------
