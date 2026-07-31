@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import random
 from typing import Any, Literal, Optional
 from urllib.parse import urlparse
@@ -7,6 +8,8 @@ from urllib.parse import urlparse
 from pydantic import BaseModel
 
 from poster.schemas import PosterArtDirection, PosterBrief, PosterDesignSpec
+
+logger = logging.getLogger(__name__)
 
 
 # Which on-poster elements the LLM may choose to show (validated against this set).
@@ -700,7 +703,25 @@ def _brand_dna_lines(brand_dna: Any) -> str:
         block += "\nDO: " + "; ".join(do)
     if dont:
         block += "\nDO NOT: " + "; ".join(dont)
-    return block
+
+    # THE DNA HAS TWO AUDIENCES AND THIS ONE IS THE SCENE. Learned from the brand's real
+    # creatives — which include its PACKS — the block arrives full of packaging-design
+    # instructions, and this function used to paste all of it into a prompt whose next paragraph
+    # says "DO NOT DRAW THE PRODUCT" and "NO logos anywhere". MEASURED on one real assembled
+    # prompt: 39 rule clauses, one every 26 words, with logo/product/text each simultaneously
+    # demanded and forbidden. The model resolved that the only way it can — it drew a pack.
+    # `brand.dna_scope` keeps what a photograph can obey and drops what only a pack designer can.
+    try:
+        from brand.dna_scope import dropped_clauses, scene_safe
+        trimmed = scene_safe(block)
+        dropped = dropped_clauses(block)
+        if dropped:
+            # Never a silent filter: a brand whose DNA is ALL packaging should be visible as such.
+            logger.info("[dna] %s packaging/layout clause(s) withheld from the scene prompt "
+                        "(e.g. %s)", len(dropped), (dropped[0] or "")[:70])
+        return trimmed
+    except Exception:  # noqa: BLE001 — a filter failure must not cost the brand its whole DNA
+        return block
 
 
 def build_llm_concept_prompt(

@@ -3145,6 +3145,62 @@ loses to pixels» هو الدرس المقاس في الريبو ده أربع �
 
 **السويت: 3022 ⟶ 3046 خضراء.**
 
+## 8.20 — 2026-07-28: الـDNA ليه جمهورين واتكتب لواحد
+
+**الطلب:** مراجعة ذاتية لكل البرومبتات.
+
+### اتقاس على برومبت حقيقي متلقّط (مش قالب)
+
+`outputs/_nano_handoff/calls.json` — برومبت بوستر واحد، **٦٤٩٨ حرف / ١٠٢٩ كلمة**:
+
+- **٣٩ جملة قاعدة** ⟵ قاعدة كل **٢٦ كلمة**
+- تلات أسماء **مطلوبة وممنوعة في نفس البرومبت**:
+
+| بيقوله | وبعدين بيقوله |
+|---|---|
+| «Place the 'NanoCare' logo top-center» | «Do NOT draw, letter or imply the mark» |
+| «Assign one bold accent color to each product» | «**DO NOT DRAW THE PRODUCT ITSELF**» |
+| «a large circular graphic icon for the pack» | «leave its place EMPTY» |
+| «the 'nano' dot pattern on the packaging» | «ABSOLUTELY NO logos anywhere» |
+
+### السبب الجذري
+
+البلوك اللي جايب العمود الشمال عنوانه `BRAND DESIGN LANGUAGE (**follow it faithfully**)`. ده **بريف
+تصميم عبوة** — متعلّم صح من إبداعات البراند اللي فيها العبوات — و`_brand_dna_lines` كان بيلزقه
+**حرفياً** في برومبت شغلته خلفية بلا نص والمنتج **غايب عمداً**.
+
+الموديل اتداله شغلتين واتقاله الاتنين «faithful»، فحلّها بالطريقة الوحيدة اللي يقدر عليها: **رسم
+عبوة**. وده نفس سلسلة الأعطال اللي شفناها طول اليوم — علبة زرقاء بأيقونة ذرّة مخترعة («create a
+large, stylized, circular graphic icon for the center of the pack»)، ولافتات مشوّهة («place the logo
+top-center»)، وانحراف لون («assign one single, bold accent color»).
+
+### `brand/dna_scope.py` (جديد)
+
+**الفصل بالجملة مش بالحقل**، لأن حقل واحد بيخلط الجمهورين:
+
+> *"Composition: **Packaging follows a strict, symmetrical, grid-based composition. The focal point
+> is the large, central circular icon.** Lifestyle product shots use a simple tabletop setup with
+> the product in sharp focus."*
+
+الجملتين الأولانيين لمصمم عبوة. التالتة بالظبط اللي مولّد المشهد محتاجه. رمي الحقل بيضيّع التالتة،
+وإبقاؤه بيشحن الأولانيتين.
+
+**على الـDNA الحقيقي: ١٤ جملة عبوة اتحجزت، والعالم المصوَّر فضل.**
+
+**تشديدتان اتعلمتهم بالقياس:**
+1. قائمة الإنقاذ الأولى كان فيها colour/tone/mood ⟵ أنقذت **٧ جمل تخطيط عبوة**. نسخ التصميم مشبعة
+   بكلمات اللون؛ الكاميرا أو الشخص المصوَّر بس هما اللي بيعنوا صورة.
+2. الجملة اللي **موضوعها** سطح تصميم بتسقط مهما قالت — «Packaging... uses no photography» كانت
+   بتنجو بالكلمة اللي بتستثني بيها نفسها.
+
+**D-8:** المفردات عن **أسطح التصميم والتخطيط**، مش عن سوق أو لغة أو فئة. أي براند اتعلّم DNA من
+عبواته عنده المشكلة دي. نانوكير مكان الاكتشاف مش مكان السكن.
+
+**مراجعة ذاتية للبرومبتات اللي كتبتها النهاردة:** `product_geometry` (قاعدة كل ٧٣ كلمة) ·
+`label_reprojection` (كل ٤٠) · `scene_instruction` (كل ٤٨) — صفر أسماء متنازع عليها، صفر لوكيل مشفّر.
+
+**السويت: 3046 ⟶ 3061 خضراء.**
+
 ## 9. Where things live (quick map)
 
 | Concern | Files |
@@ -3154,6 +3210,7 @@ loses to pixels» هو الدرس المقاس في الريبو ده أربع �
 | Profile extraction | `business_profile/llm/{prompts,extractor,validator,rag,embeddings}.py`, `business_profile/rules/*` |
 | Ledger + compliance | `grounding/{ledger,audit,compliance}.py`, `poster/audit.py`, `strategy/audit.py`, `reel/grounding.py` |
 | Discovery + SWOT + TOWS | `competitor/{router,discovery,web_discovery,lite_scrape,matrix,swot,tows,themes}.py` |
+| نطاق الـDNA حسب المستهلك | `brand/dna_scope.py` — الفصل بالجملة: العالم المصوَّر يعدّي، تخطيط العبوة يتحجز (قسم 8.20) |
 | Brand identity (vision) | `brand/{creative_dna,brand_book}.py` |
 | Poster | `poster/{pipeline,concept,oneshot,art_director,variation,from_profile,template,vision_qa,brand_research}.py` |
 | وضع المنتج في المشهد | `poster/{product_geometry,product_placement,product_composite,placement}.py` — قياس الأصل ⟵ القرار ⟵ برومبت المشهد + اللزق (قسم 8.15) |
