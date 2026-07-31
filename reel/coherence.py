@@ -88,6 +88,95 @@ def _overlap(a: str, b: str) -> int:
     return len(_tokens(a) & _tokens(b))
 
 
+# A scene the director describes as motionless. The MOTION CONTRACT already forbids this at
+# render time, so a plan that asks for it puts the brief and the renderer in a fight the viewer
+# pays for: MEASURED on a real plan, scene 6 read "a clean, static hero shot".
+#
+# The adjective and the noun are separated by up to two words on purpose — the phrase measured in
+# production was NOT "static shot", and a pattern requiring them adjacent would have sailed past
+# the exact brief it was written for.
+_STATIC_RE = re.compile(
+    r"\b(?:static|locked[- ]off|motionless|frozen|tripod)\b(?:\s+\w+){0,2}\s+"
+    r"\b(?:shot|camera|frame|angle|composition)\b"
+    r"|\blocked[- ]off\b|\bmotionless\b|\bstill\s+(?:shot|frame)\b"
+    r"|\bno\s+camera\s+move(?:ment)?\b", re.I)
+
+# Beat-one words that name a PROBLEM rather than a product. A story is desire plus obstacle; a
+# reel whose first beat is already the solution has no second act to earn.
+#
+# BILINGUAL BY NECESSITY, not by courtesy (D-8). The arc is authored in the brand's own language,
+# so an English-only list would flag every Arabic plan as "opening on the solution" — and a check
+# that fires on everything is a check nobody can act on.
+_TENSION_RE = re.compile(
+    r"\b(problem|struggle|struggling|tired|exhaust\w*|pain\w*|frustrat\w*|doubt|worry|worried|"
+    r"fear|missing|lose|losing|lost|hard|difficult|stuck|slow|fails?|failing|before|question|"
+    r"why|wish|need|without|never|hurts?|heavy|drain\w*|crash)\b"
+    r"|(?:مشكل|تعب|إرهاق|ارهاق|مرهق|وجع|ألم|الم|توجع|صعب|بطيء|قلق|خوف|ناقص|"
+    r"من غير|بدون|مش قادر|ليه|قبل|زهق|ملل|تقل|حرقان|إمساك|امساك)", re.I)
+
+# How uniform the scene lengths may be before the reel reads as a metronome. MEASURED on two real
+# plans: 2.5/3.5/3.0/3.0/2.5/3.0 and 2.0/3.0/3.0/3.0/3.0/3.0 — every shot within a half-second of
+# every other. Micro-cuts inside a scene cannot rescue a flat macro rhythm.
+_MIN_DURATION_SPREAD = 0.60      # shortest scene must be <= 60% of the longest
+
+
+def _craft_checks(scenes, caps, vos, veos, roles, arc_beats, fail) -> None:
+    """Four things a human editor fixes without being asked, and no gate was asking.
+
+    None of these are taste. Each one is a structural property that can be read off the plan, and
+    each was found on a real plan that passed every existing check.
+    """
+    n = len(scenes)
+
+    # A) ONE MESSAGE PER MOMENT. A caption that repeats the voice burns the one channel that could
+    #    have carried something the voice cannot. MEASURED: a real plan's final scene had caption
+    #    and voiceover as the identical string.
+    #    THE CTA IS THE EXCEPTION, and it is not a loophole. On the closing beat you WANT the
+    #    words reinforced — the viewer hears "order today" and reads it in the same instant, which
+    #    is the one moment repetition earns its place. That rule predates this check —
+    #    `test_cta_scene_caption_may_match_its_voiceover` — and this check was wrong to ignore it.
+    same = [i + 1 for i in range(n)
+            if caps[i] and vos[i] and _norm(caps[i]) == _norm(vos[i])
+            and roles[i] != "cta" and i != n - 1]
+    if same:
+        fail(f"scene(s) {same}: the caption repeats the voiceover word for word — a burnt channel. "
+             "Say it once, and give the caption what the voice cannot carry", 10)
+
+    # B) ROOM TO BREATHE. Every scene captioned means the image never gets to speak. A viewer
+    #    reading for the whole reel never looks at the product.
+    captioned = sum(1 for c in caps if c)
+    if n >= 4 and captioned == n:
+        fail("every scene is captioned — nothing is left for the image alone. Leave at least one "
+             "beat silent so the picture carries it", 8)
+
+    # C) THE FIRST BEAT IS THE PROBLEM, not the product. Story is desire plus obstacle; a reel
+    #    whose opening beat is already the solution has no second act to earn, which is why a plan
+    #    can satisfy every other check and still read as six pleasant statements in a row.
+    #    Checked only when an arc exists — its absence is already a harder failure above.
+    if arc_beats:
+        first = arc_beats[0]
+        if not _TENSION_RE.search(first):
+            fail(f"the first beat \"{first}\" opens on the solution — a story needs an obstacle "
+                 "before it can resolve one. Open on what is WRONG for the viewer, not on what "
+                 "the product does", 12)
+
+    # D) RHYTHM. A flat duration profile is a metronome no amount of intra-scene cutting fixes.
+    durs = [float(getattr(s, "duration_s", 0) or 0) for s in scenes]
+    durs = [d for d in durs if d > 0]
+    if len(durs) >= 4:
+        lo, hi = min(durs), max(durs)
+        if hi > 0 and lo / hi > _MIN_DURATION_SPREAD:
+            fail(f"the scene lengths are near-uniform ({lo:g}s-{hi:g}s) — the reel keeps time like "
+                 "a metronome. Vary the beats: establish long, compress, then hold the last one", 8)
+
+    # E) NO STATIC SHOT IN THE BRIEF. The motion contract bans it at render; asking for it in the
+    #    plan sets the brief against the renderer.
+    stat = [i + 1 for i, v in enumerate(veos) if _STATIC_RE.search(v or "")]
+    if stat:
+        fail(f"scene(s) {stat} are written as static/locked-off shots — the motion contract "
+             "forbids that at render time, so the plan is fighting the renderer", 10)
+
+
 def coherence_lint(reel: Any, *, profile: Optional[dict] = None, featured: bool = False,
                    require_strategy: bool = False) -> CoherenceReport:
     """Deterministic re-check of the creative contracts on a CreativeReel. Worst-first.
@@ -112,6 +201,13 @@ def coherence_lint(reel: Any, *, profile: Optional[dict] = None, featured: bool 
     vos = [(getattr(s, "voiceover", "") or "").strip() for s in scenes]
     roles = [(getattr(s, "caption_role", "") or "").strip().lower() for s in scenes]
     veos = [(getattr(s, "veo_prompt", "") or "") for s in scenes]
+
+    # 0) THE FOUR CRAFT CHECKS (2026-07-28). Added after a director's critique of two real plans
+    #    found that everything the gate DOES check was satisfied and the reels still read as
+    #    automated sequences. These are the things a human editor fixes without being asked.
+    _craft_checks(scenes, caps, vos, veos, roles,
+                  [str(b).strip() for b in (getattr(reel, "narrative_arc", None) or [])
+                   if str(b).strip()], fail)
 
     # 1) PRODUCT VISIBLE — at least one concrete hero-product moment.
     if not any(bool(getattr(s, "hero_product", False)) for s in scenes):
