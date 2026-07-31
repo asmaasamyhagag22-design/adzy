@@ -206,7 +206,10 @@ def test_the_endcard_is_rendered_at_the_reels_own_dimensions(monkeypatch, tmp_pa
 
     seen = {}
 
-    def fake_render(profile, out_png, *, width, height):
+    def fake_render(profile, out_png, *, width, height, **_kw):
+        # **_kw so this stub tracks the production signature rather than pinning it: the card
+        # gained `ground_frame` on 2026-07-28 and a stub that refuses new keywords turns an
+        # additive change into a failure about dimensions.
         seen["dims"] = (width, height)
         return None                      # stop the flow right after the probe we care about
 
@@ -573,7 +576,7 @@ def test_odd_reel_dimensions_are_evened_before_the_card_encode(monkeypatch, tmp_
     seen = {}
     monkeypatch.setattr(ec, "_video_dims", lambda p: (773, 1371))
     monkeypatch.setattr(ec, "render_endcard",
-                        lambda profile, out_png, *, width, height: seen.update(
+                        lambda profile, out_png, *, width, height, **_kw: seen.update(
                             dims=(width, height)) or None)
     vid = tmp_path / "reel.mp4"
     vid.write_bytes(b"fake")

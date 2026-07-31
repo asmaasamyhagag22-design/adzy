@@ -9,12 +9,20 @@ any failure. Never raises.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Optional
 
 from reel.ffmpeg_tools import run_ffmpeg
 from reel.schemas import REEL_H, REEL_W
 from reel.textlayer import _FONTS_LINK
+
+
+# THE ERROR HANDLER USED TO BE THE ERROR. `logger` was referenced twice in this module — once
+# when the reel's dimensions cannot be probed, once in the catch-all that reports a failed
+# append — and never defined. So both paths raised NameError from INSIDE the handler: the code
+# written to explain a lost end-card was the code that hid the reason for it.
+logger = logging.getLogger(__name__)
 
 
 # ----- small colour helpers (contrast-aware background) -----
@@ -70,9 +78,25 @@ def _logo_mean_luma(logo_url: Optional[str]) -> float:
 
 def _endcard_html(logo_uri: Optional[str], name: str, cta: str, url_label: str,
                   accent: str, accent2: str, rtl: bool, width: int, height: int,
-                  *, elegant: bool, dark: bool) -> str:
+                  *, elegant: bool, dark: bool, ground_uri: str = "") -> str:
     ac = _hex_to_rgb(accent)
-    if dark:
+    if ground_uri:
+        # THE END CARD BELONGS TO THE FILM (owner, 2026-07-28: «الخاتمة تبقى مميزة بالجو بردو
+        # بالألوان الطبيعية… متخليهوش أبيض لأنها خلصت كتير قبل كده»).
+        #
+        # Both synthetic branches below are cards: a gradient the reel has never seen, arriving
+        # after eighteen seconds of a real place. The ivory one in particular ended reel after
+        # reel on the same white, which is the specific thing being ruled out. Grounding the card
+        # on the film's OWN last frame — blurred past recognition, darkened, tinted toward the
+        # brand accent — keeps the natural colours of the world the viewer was just in and gives
+        # the logo a clean dark field to sit on. The frame is already extracted for continuity.
+        bg = (f"linear-gradient(0deg, rgba(6,6,8,.82), rgba(6,6,8,.82)), "
+              f"radial-gradient(120% 96% at 50% 42%, {_rgb_to_hex(_mix(ac, (12, 11, 16), 0.55))}66 0%, "
+              f"transparent 62%), url('{ground_uri}') center/cover no-repeat")
+        ink, sub = "#F7F2EC", "rgba(247,242,236,0.80)"
+        rule = _rgb_to_hex(_mix(ac, (255, 255, 255), 0.28))
+        cta_border = "rgba(247,242,236,0.50)"
+    elif dark:
         # deep brand-tinted charcoal (keeps the brand hue but dark, so a light/gold logo pops)
         center = _rgb_to_hex(_mix(ac, (12, 11, 16), 0.72))
         mid = _rgb_to_hex(_mix(ac, (8, 8, 11), 0.87))
@@ -155,7 +179,8 @@ def _url_label(profile: dict) -> str:
     return ""
 
 
-def render_endcard(profile: dict, out_png: Path, *, width: int = REEL_W, height: int = REEL_H) -> Optional[Path]:
+def render_endcard(profile: dict, out_png: Path, *, width: int = REEL_W, height: int = REEL_H,
+                   ground_frame: "str | Path | None" = None) -> Optional[Path]:
     """Render the brand end-card to a PNG via Chromium (Arabic shapes correctly). None on failure."""
     try:
         from playwright.sync_api import sync_playwright
@@ -177,8 +202,11 @@ def render_endcard(profile: dict, out_png: Path, *, width: int = REEL_W, height:
         # end-card the owner flagged). A light/gold/white logo -> dark card; a dark logo -> light.
         elegant = _reel_theme(profile) == "elegant"
         dark = _logo_mean_luma(brief.logo_url) >= 130.0
+        # The film's own last frame, blurred and darkened, as the card's ground.
+        ground_uri = _ground_data_uri(ground_frame, width, height)
         html = _endcard_html(logo_uri, name, cta, _url_label(profile), accent, accent2,
-                             is_rtl(name), width, height, elegant=elegant, dark=dark)
+                             is_rtl(name), width, height, elegant=elegant, dark=dark,
+                             ground_uri=ground_uri)
 
         out_png = Path(out_png)
         out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -248,7 +276,17 @@ def append_endcard_to_reel(profile: dict, video_path: str | Path, *, seconds: fl
             logger.warning("endcard: could not probe the reel's dimensions — not appending")
             return False
         work = video_path.parent
-        png = render_endcard(profile, work / "_endcard.png", width=width, height=height)
+        # THE CARD ENDS THE FILM IT IS ATTACHED TO. This function already holds the finished reel,
+        # so the frame the viewer is looking at one instant before the card appears is free to
+        # take — the same extractor the continuity chain uses. `None` on any failure, and the card
+        # falls back to its synthetic gradient: a decoration must never cost the card itself.
+        try:
+            from reel.continuity import tail_frame
+            ground = tail_frame(video_path, work / "_endcard_ground.png")
+        except Exception:  # noqa: BLE001
+            ground = None
+        png = render_endcard(profile, work / "_endcard.png", width=width, height=height,
+                             ground_frame=ground)
         if png is None:
             return False
 
@@ -297,3 +335,39 @@ def append_endcard_to_reel(profile: dict, video_path: str | Path, *, seconds: fl
         logger.warning("endcard append FAILED (%s: %s) — the reel ships without its card",
                        type(exc).__name__, str(exc)[:200])
         return False
+
+
+def _ground_data_uri(frame: "str | Path | None", width: int, height: int) -> str:
+    """The reel's last frame as a blurred, darkened data URI for the end card's ground.
+
+    Blurred PAST RECOGNITION on purpose. The point is not to show the scene again — the viewer
+    just watched it — but to end on the film's own COLOUR and light instead of on a generated
+    card. Anything still legible would read as a freeze-frame the edit forgot to cut.
+
+    Returns "" for anything unusable, and the caller falls back to the synthetic gradient. An end
+    card must never fail to exist because a decoration could not be made."""
+    import base64
+    import io
+    if not frame:
+        return ""
+    try:
+        from PIL import Image, ImageEnhance, ImageFilter
+        p = Path(str(frame))
+        if not p.is_file():
+            return ""
+        im = Image.open(p).convert("RGB")
+        # Cover-fit to the card, then blur relative to the SHORT side so the effect is the same
+        # whatever resolution the reel rendered at.
+        scale = max(width / im.width, height / im.height)
+        im = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))),
+                       Image.LANCZOS)
+        left, top = (im.width - width) // 2, (im.height - height) // 2
+        im = im.crop((left, top, left + width, top + height))
+        im = im.filter(ImageFilter.GaussianBlur(radius=max(18, min(width, height) * 0.055)))
+        im = ImageEnhance.Brightness(im).enhance(0.55)
+        im = ImageEnhance.Color(im).enhance(0.85)
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=82)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:  # noqa: BLE001
+        return ""

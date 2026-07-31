@@ -313,10 +313,23 @@ def _scene_html(scene: ReelScene, storyboard: Storyboard, width: int, height: in
     acc_stroke = "0.4px rgba(6,9,14,.22)" if elegant else "1.2px rgba(6,9,14,.42)"
     acc_style = "italic" if elegant else "normal"
 
-    show_logo = bool(logo_uri) and scene.kind in ("intro", "outro", "contact")
+    # THE MARK STAYS ON SCREEN (owner, 2026-07-28: «عايزة لوجو البراند يبقى موجود طول الفيديو»).
+    # It used to appear only on intro/outro/contact, so the middle of every reel — the part people
+    # actually watch, and the part that gets clipped and reshared — carried no brand at all. A
+    # persistent corner mark is ordinary broadcast practice; what changes between a bookend and a
+    # body scene is PROMINENCE, not presence, so the body wears it quietly instead of shouting.
+    show_logo = bool(logo_uri)
+    logo_bug = show_logo and scene.kind not in ("intro", "outro", "contact")
     logo_pos = "right:64px" if rtl else "left:64px"
-    logo_html = (f'<div class="logo" {_LOGO_ANIM} style="{logo_pos}"><img src="{logo_uri}"></div>'
-                 if show_logo else "")
+    if logo_bug:
+        # The quiet form: smaller, softer, and NOT re-animated on every cut — a mark that pops in
+        # six times reads as six logos, not one brand. It rides the corner and stays put.
+        logo_pos += ";opacity:.72;transform:scale(.62);transform-origin:" \
+                    + ("right top" if rtl else "left top")
+        logo_html = f'<div class="logo" style="{logo_pos}"><img src="{logo_uri}"></div>'
+    else:
+        logo_html = (f'<div class="logo" {_LOGO_ANIM} style="{logo_pos}"><img src="{logo_uri}"></div>'
+                     if show_logo else "")
 
     inner: list[str] = []
     if scene.headline:

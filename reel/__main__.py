@@ -12,6 +12,13 @@ optional music with ffmpeg.
 from __future__ import annotations
 
 import argparse
+# MODULE-LEVEL, and the reason is a live bug it was hiding. `os.environ.get(...)` is read on the
+# SHIP DECISION in two places — the platform-envelope override — while `os` was only ever imported
+# locally as `_os` inside two other functions. So the moment a reel actually failed the envelope,
+# the line deciding whether the owner's override applies raised NameError instead of reading it:
+# REEL_ALLOW_BELOW_GRADE has never worked, and the failure path crashed rather than stopping
+# cleanly. Same class as the missing `logger` in reel/endcard.py, found the same way.
+import os
 import sys
 from pathlib import Path
 
