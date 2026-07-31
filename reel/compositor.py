@@ -106,10 +106,25 @@ def render_reel(
         # Veo 3.1 brings it to life. So the whole reel comes from the real place,
         # not one repeated frame. Falls back to the hero only if a scene has no seed.
         norm_clips: list[Path] = []
+        # CONTINUITY (owner, 2026-07-28, asking what makes a coherent scenario). Scenes were
+        # seeded independently, so scene 1 and scene 3 were two takes that resembled each other
+        # rather than one continuous moment — measured: `grep -rn last_frame reel/` returned zero.
+        # The previous clip's final frame can now seed the next scene, bounded and logged; see
+        # `reel/continuity.py` for what it refuses to override and why.
+        prev_tail: Optional[str] = None
+        prev_scene = None
+        chain_len = 0
         for i, scene in enumerate(storyboard.scenes):
-            ref = scene.seed_image_url or (
+            own_seed = scene.seed_image_url or (
                 storyboard.reference_image_url if scene.kind in ("intro", "outro") else None
             )
+            from .continuity import decide_seed, tail_frame
+            _cont = decide_seed(scene, prev_tail, own_seed=own_seed, chain_len=chain_len,
+                                previous_scene=prev_scene)
+            ref = _cont.seed
+            chain_len = chain_len + 1 if _cont.chained else 0
+            if _cont.chained:
+                print(f"[reel] scene {i} seed: {_cont.reason}", file=sys.stderr)
             gen_kwargs = dict(
                 out_path=tmpd / f"raw{i}.mp4",
                 duration_s=scene.duration_s,
@@ -229,6 +244,13 @@ def render_reel(
                                 tag="f")
                     if _v_final is not None:
                         scene_qa.append({"scene": i, **_v_final.model_dump()})
+
+            # THE TAIL COMES FROM THE TEXT-FREE CLIP, deliberately. `raw` is the scene as the
+            # provider rendered it and QA passed it; the captions are burnt on further down. A
+            # tail taken after that would carry a headline into the next scene's generation — the
+            # next clip would open with the previous scene's words baked into the world.
+            prev_tail = tail_frame(raw, tmpd / f"tail{i}.png")
+            prev_scene = scene
 
             norm = tmpd / f"norm{i}.mp4"
             d = scene.duration_s
