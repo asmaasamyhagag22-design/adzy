@@ -65,20 +65,41 @@ def _motion_directive(scene, *, look: str = "") -> str:
 
 
 def _product_asset(profile: Optional[dict], scene, real: Optional[str]) -> Optional[str]:
-    """The REAL asset to composite for a hero-product scene (Phase D): the scene's own real photo
-    for real_photo, else the brand's homepage/app screenshot for real_screen. None -> no composite."""
+    """The REAL asset to composite for a hero-product scene — SCREENS ONLY now.
+
+    THE USE DETERMINES THE METHOD (owner's production rule, 2026-07-28):
+
+        «لو بتعملي ريل فيديو، اعتمدي على التوليد بدون أي قلق، لأن حركة الإيد والإضاءة هتبطّل
+         العجب… لكن لو بتطلعي بوستر ثابت عالي الدقة، ارجعي لطريقة القص واللزق»
+
+    A poster is zoomed into and read; a two-second clip is not. So the poster pastes and the reel
+    GENERATES — motion and lighting carry the frame, and nobody pauses a reel to read the
+    ingredients panel.
+
+    MEASURED ON A LIVE VEO RUN (2026-08-01), which is what forced this. Scene 0's QA verdict:
+
+        "The product is not generated within the video scene; it is a STATIC IMAGE CRUDELY
+         OVERLAID on top of unrelated footage."
+
+    The gate was right. That scene burned THREE Veo renders at $1.60 each failing on the paste,
+    fell back to Ken Burns anyway, and the wasted spend exhausted the per-run budget before
+    scenes 3, 4 and 5 got a clip at all — so a defect in the compositing cost the reel most of
+    its actual motion. The frames that came back BEST in the same run were the ones the model
+    drew: a Nano Care carton on a kitchen counter, brand red, "Nanocare Liposomal E" legible.
+
+    A SCREEN IS STILL PASTED, and that is not an exception to the rule but an application of it.
+    An app UI is not packaging with a brand mark on it — it is dense fine print that IS the
+    product, it does not benefit from motion hiding it, and a video model cannot render legible
+    UI at any size. `real_screen` stays; the physical-pack paste goes.
+    """
     if not getattr(scene, "hero_product", False):
         return None
     ov = (getattr(scene, "product_overlay", "") or "").lower()
-    if ov == "real_photo" and real:
-        return real
-    if ov not in ("real_screen", "real_photo"):
-        # THE DIRECTOR FORGETTING A FIELD MUST NOT COST THE CURE. MEASURED on Nano Care: the plan
-        # marked the scene `hero_product` but left `product_overlay` empty, so no real asset was
-        # composited, the packaging went through the video model, and QA refused it — "the brand name and
-        # other details replaced by garbled, illegible text" — twice, then fell back to Ken Burns.
-        # A real photograph of the product exists; when a scene is ABOUT the product, use it.
-        return real or None
+    if ov != "real_screen":
+        # Physical product (real_photo, or a director who left the field empty): the model draws
+        # it. The seed generator already renders the product into the still, and the seed QA gate
+        # rejects a garbled label BEFORE any Veo spend — which is where that defect belongs.
+        return None
     vis = (profile or {}).get("visual") if isinstance(profile, dict) else None
     shot = vis.get("homepage_screenshot_path") if isinstance(vis, dict) else None
     if isinstance(shot, dict):

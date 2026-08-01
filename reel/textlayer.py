@@ -322,9 +322,15 @@ def _scene_html(scene: ReelScene, storyboard: Storyboard, width: int, height: in
     logo_bug = show_logo and scene.kind not in ("intro", "outro", "contact")
     logo_pos = "right:64px" if rtl else "left:64px"
     if logo_bug:
-        # The quiet form: smaller, softer, and NOT re-animated on every cut — a mark that pops in
-        # six times reads as six logos, not one brand. It rides the corner and stays put.
-        logo_pos += ";opacity:.72;transform:scale(.62);transform-origin:" \
+        # The quiet form: NOT re-animated on every cut — a mark that pops in six times reads as
+        # six logos, not one brand. It rides the corner and stays put.
+        #
+        # SIZED BY LOOKING AT THE RENDER, not by taste. The first attempt used scale(.62) and
+        # opacity(.72) and MEASURED on the live Nano Care reel it came out illegible — a few
+        # grey pixels. "Present" has to mean readable or it is decoration pretending to be
+        # branding. It also has to clear the clip's own letterboxing: at top:64px the mark landed
+        # INSIDE the black bar baked into the footage, detached from the picture entirely.
+        logo_pos += ";top:150px;opacity:.9;transform:scale(.82);transform-origin:" \
                     + ("right top" if rtl else "left top")
         logo_html = f'<div class="logo" style="{logo_pos}"><img src="{logo_uri}"></div>'
     else:

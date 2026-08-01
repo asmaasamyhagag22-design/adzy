@@ -54,7 +54,13 @@ def test_storyboard_maps_the_product_asset():
     prof = {"visual": {"homepage_screenshot_path": "/tmp/shot.png"}}
     sb = build_creative_storyboard(plan, PosterBrief(business_name="NTI", headline="NTI"), profile=prof)
     assert sb.scenes[0].product_asset_url == "/tmp/shot.png"       # real_screen -> brand screenshot
-    assert sb.scenes[1].product_asset_url == "http://img/1.jpg"    # real_photo -> the scene's own photo
+    # real_photo NO LONGER COMPOSITES (2026-08-01). The owner's production rule splits by use —
+    # a poster is zoomed into and read, a two-second clip is not — so video GENERATES its product
+    # and only a screen is still pasted (an app UI is dense fine print that IS the product, and no
+    # video model renders legible UI). Measured on the live Veo run that forced it: the pasted
+    # pack drew "a STATIC IMAGE CRUDELY OVERLAID on top of unrelated footage" from QA, burned
+    # three $1.60 renders, and starved three later scenes of any clip at all.
+    assert sb.scenes[1].product_asset_url is None                  # real_photo -> generated
     assert sb.scenes[2].product_asset_url is None                  # no hero -> no composite
 
 

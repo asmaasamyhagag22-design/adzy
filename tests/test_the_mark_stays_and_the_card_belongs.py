@@ -169,3 +169,70 @@ def test_the_module_has_the_logger_its_error_paths_use():
 
 
 import re  # noqa: E402  (used by the guard above)
+
+
+# =====================================================================
+# the reel generates its product; the poster pastes it
+# =====================================================================
+
+def test_a_physical_product_is_no_longer_pasted_into_a_reel():
+    """OWNER'S PRODUCTION RULE: «لو بتعملي ريل فيديو، اعتمدي على التوليد بدون أي قلق… لكن لو
+    بتطلعي بوستر ثابت، ارجعي لطريقة القص واللزق». MEASURED on the live Veo run that forced it —
+    scene 0's QA verdict was "a STATIC IMAGE CRUDELY OVERLAID on top of unrelated footage", the
+    scene burned three $1.60 Veo renders failing on it, and the wasted spend exhausted the
+    per-run budget before three later scenes got a clip at all."""
+    import types
+
+    from reel.creative import _product_asset
+    for overlay in ("", "real_photo", "anything"):
+        s = types.SimpleNamespace(hero_product=True, product_overlay=overlay)
+        assert _product_asset({}, s, "https://brand.test/box.jpg") is None, overlay
+
+
+def test_a_real_screen_is_still_pasted():
+    """Not an exception to the rule but an application of it: an app UI is dense fine print that
+    IS the product, motion does not hide it, and no video model renders legible UI."""
+    import types
+
+    from reel.creative import _product_asset
+    prof = {"visual": {"homepage_screenshot_path": "/tmp/shot.png"}}
+    s = types.SimpleNamespace(hero_product=True, product_overlay="real_screen")
+    assert _product_asset(prof, s, "https://brand.test/box.jpg") == "/tmp/shot.png"
+
+
+def test_a_non_product_scene_still_composites_nothing():
+    import types
+
+    from reel.creative import _product_asset
+    s = types.SimpleNamespace(hero_product=False, product_overlay="real_screen")
+    assert _product_asset({}, s, "https://brand.test/box.jpg") is None
+
+
+def test_the_body_mark_is_large_enough_to_read():
+    """scale(.62)/opacity(.72) MEASURED on the live reel as a few illegible grey pixels.
+    "Present" has to mean readable, or it is decoration pretending to be branding."""
+    import inspect
+    import re as _re
+
+    import reel.textlayer as tl
+    # STRIP THE COMMENTS FIRST. They document the OLD values — "used scale(.62) ... at top:64px" —
+    # so a regex over the raw source reads the numbers being explained instead of the ones in force.
+    src = "\n".join(l.split("#")[0] for l in inspect.getsource(tl._scene_html).splitlines())
+    body = src[src.find("if logo_bug:"):src.find("else:", src.find("if logo_bug:"))]
+    scale = float(_re.search(r"scale\((\.?\d+)\)", body).group(1))
+    opacity = float("0" + _re.search(r"opacity:(\.?\d+)", body).group(1))
+    assert scale >= 0.75, f"the body mark renders at {scale:.0%} — measured illegible below this"
+    assert opacity >= 0.85, f"the body mark is {opacity:.0%} opaque"
+
+
+def test_the_body_mark_clears_the_footage_letterbox():
+    """At top:64px the mark landed INSIDE the black bar baked into the clip, detached from the
+    picture. It has to sit on the image."""
+    import inspect
+    import re as _re
+
+    import reel.textlayer as tl
+    src = "\n".join(l.split("#")[0] for l in inspect.getsource(tl._scene_html).splitlines())
+    body = src[src.find("if logo_bug:"):src.find("else:", src.find("if logo_bug:"))]
+    top = int(_re.search(r"top:(\d+)px", body).group(1))
+    assert top >= 120, f"the mark sits at {top}px, inside the letterbox bar"

@@ -36,15 +36,34 @@ def _scene(**kw):
     return s
 
 
-def test_a_hero_product_scene_uses_the_real_photo_even_with_no_overlay_mode_set():
+def test_a_physical_product_is_now_GENERATED_not_pasted():
+    """REVERSED 2026-08-01, on the owner's production rule and a live measurement — and the
+    reversal is recorded rather than the old test deleted, because the reasoning is the point.
+
+    The rule: «لو بتعملي ريل فيديو، اعتمدي على التوليد بدون أي قلق، لأن حركة الإيد والإضاءة
+    هتبطّل العجب… لكن لو بتطلعي بوستر ثابت عالي الدقة، ارجعي لطريقة القص واللزق». A poster is
+    zoomed into and read; a two-second clip is not.
+
+    The measurement, from a live Veo run. Scene 0's QA verdict: "The product is not generated
+    within the video scene; it is a STATIC IMAGE CRUDELY OVERLAID on top of unrelated footage."
+    That scene burned THREE Veo renders at $1.60 each failing on the paste, fell back to Ken
+    Burns anyway, and the wasted spend exhausted the per-run budget before three later scenes got
+    a clip at all. Meanwhile the frames that came back BEST in the same run were the ones the
+    model drew.
+
+    The garbled-label fear this file was written about is now caught EARLIER and cheaper: the
+    seed-QA gate rejects an unreadable pack before any Veo spend (measured in the same run,
+    repeatedly: "the text on the product packaging is garbled and nonsensical")."""
     from reel.creative import _product_asset
-    got = _product_asset({}, _scene(hero_product=True), "https://x.test/box.jpg")
-    assert got == "https://x.test/box.jpg", (
-        "the director forgot `product_overlay`, so the real packshot was not used and the label "
-        "went through the video model")
+    for overlay in ("", "real_photo", "whatever"):
+        got = _product_asset({}, _scene(hero_product=True, product_overlay=overlay),
+                             "https://x.test/box.jpg")
+        assert got is None, f"a physical product is still pasted into video ({overlay!r})"
 
 
-def test_an_explicit_overlay_mode_still_wins():
+def test_a_real_screen_is_still_pasted():
+    """Not an exception to the rule but an application of it: an app UI is dense fine print that
+    IS the product, motion does not hide it, and no video model renders legible UI."""
     from reel.creative import _product_asset
     prof = {"visual": {"homepage_screenshot_path": "/tmp/shot.png"}}
     assert _product_asset(prof, _scene(hero_product=True, product_overlay="real_screen"),
@@ -56,9 +75,13 @@ def test_a_non_product_scene_composites_nothing():
     assert _product_asset({}, _scene(), "https://x.test/box.jpg") is None
 
 
-def test_no_real_asset_means_no_composite():
-    from reel.creative import _product_asset
-    assert _product_asset({}, _scene(hero_product=True), None) is None
+def test_the_poster_still_pastes():
+    """The other half of the same rule. A static poster IS zoomed into, so its label stays the
+    real file — nothing here may leak into that lane."""
+    import inspect
+
+    import poster.pipeline as P
+    assert "compose_or_background" in inspect.getsource(P)
 
 
 def test_the_prompt_tells_the_model_to_leave_the_products_place_empty():
