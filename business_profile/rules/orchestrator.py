@@ -156,6 +156,8 @@ def apply_rules(
         social_presence=social_presence,
         visual=visual,
         languages=languages,
+        # The site's OWN declaration outranks the edition we crawled (see the field).
+        declared_languages=list(getattr(manifest, "declared_languages", None) or []),
         extraction_meta=ExtractionMeta(
             manifest_path=manifest_path,
             extracted_at=datetime.now(timezone.utc),

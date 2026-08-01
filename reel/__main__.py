@@ -89,6 +89,63 @@ def _final_screening(reel_path) -> "int | None":
     return 3
 
 
+def _qa_caller():
+    """A multimodal caller for the last viewer, or None. Built HERE rather than threaded through
+    the render so the critic costs nothing on a run that never reaches the ship decision."""
+    try:
+        from business_profile.llm import default_caller
+        return default_caller(strong=True)
+    except Exception:  # noqa: BLE001 — no caller simply means nobody watched
+        return None
+
+
+def _film_critique(profile: dict, reel_path, creative=None, *, caller=None) -> "int | None":
+    """THE LAST VIEWER IS A CREATIVE DIRECTOR, not a file checker.
+
+    `_final_screening` above asks whether the FILE is broken — letterboxing, silence, a missing
+    endcard — and it is deliberately code-only. It has never asked whether the AD is any good,
+    which is how a reel shipped with an English voiceover for an Egyptian pharmacy, a problem
+    dramatised as visible flakes, a browser that was not theirs, and a resolution nobody's product
+    caused. Five defects the owner found in five seconds, past four gates that each judged a part.
+
+    Blocks on the four HARD axes only, and never on its own blindness: no caller, unreadable
+    frames, or a failed call all ship with a note rather than stopping the delivery."""
+    if os.environ.get("REEL_FILM_CRITIC") == "0":
+        return None
+    try:
+        from reel.film_critic import critique_film, failed_axes
+        from reel.audience import audience_language_for   # what the AUDIENCE speaks
+        lang, country, _why = audience_language_for(profile)
+        name = (profile or {}).get("name")
+        v = critique_film(
+            reel_path, caller=caller,
+            brand=str((name.get("value") if isinstance(name, dict) else name) or ""),
+            audience_language=lang, country=country,
+            voiceover=" ".join(getattr(s, "voiceover", "") or ""
+                               for s in (getattr(creative, "scenes", None) or [])).strip(),
+            captions=[getattr(s, "on_screen_text", "") or ""
+                      for s in (getattr(creative, "scenes", None) or [])])
+    except Exception:  # noqa: BLE001 — the critic failing is not the film failing
+        return None
+    if not v.checked:
+        print(f"     ! the film was NOT watched ({v.reason})", file=sys.stderr)
+        return None
+    _write_reel_sidecar(reel_path, {"film_critique": v.model_dump()})
+    if v.passed:
+        print(f"     + film critique: an ad worth running (score {v.score})", file=sys.stderr)
+        return None
+    for axis in failed_axes(v):
+        print(f"     ! {axis}", file=sys.stderr)
+    for fix in v.fixes:
+        print(f"       -> {fix}", file=sys.stderr)
+    if os.environ.get("REEL_ALLOW_BELOW_GRADE") == "1":
+        print("     ! shipping a film the critic rejected, by explicit override", file=sys.stderr)
+        return None
+    print(f"[X] the film is not an ad worth running (score {v.score}): {v.reason} — not shipping. "
+          "Set REEL_ALLOW_BELOW_GRADE=1 to override.", file=sys.stderr)
+    return 3
+
+
 def _write_reel_sidecar(reel_path, fields: dict) -> None:
     """MERGE `fields` into the reel's ONE sidecar, `<reel>.path.json`.
 
@@ -401,6 +458,11 @@ def main() -> int:
             # THE CONTAINER IS DECIDED HERE, once, on the file about to ship.
             _env = _finalize(result.reel_path)
             _stop = _final_screening(result.reel_path)
+            # ...and then somebody watches it as an ad. The screening above asks whether the FILE
+            # is broken; this asks whether the film is worth running. Only the creative path gets
+            # it — the template path has no plan to judge the copy against.
+            if _stop is None:
+                _stop = _film_critique(profile, result.reel_path, creative, caller=_qa_caller())
             if _env.get("value") is False and _stop is None:
                 print("[X] the delivery container failed the platform envelope — not shipping. "
                       "Set REEL_ALLOW_BELOW_GRADE=1 to override.", file=sys.stderr)

@@ -618,7 +618,19 @@ def design_creative_reel(
         if pairs:
             dominant = max(pairs, key=lambda cp: cp[1])[0] if any(p > 0 for _, p in pairs) \
                 else pairs[0][0]
-    lang = language or dominant or "en"
+    # THE AUDIENCE, NOT THE CRAWL (owner, 2026-08-01: «صيدلية في مصر وعندها عربي — عملت
+    # إنجليزي ليه؟»). `dominant` is the language of the pages we happened to FETCH, so crawling a
+    # bilingual store's English edition makes every ad English — the system inferring a fact from
+    # evidence it produced itself. `reel/audience.py` ranks what the SITE declares (hreflang) and
+    # where its customers ARE above that. An explicit `language=` still wins: a caller asking for
+    # a specific cut is not guessing.
+    _aud = ""
+    try:
+        from reel.audience import audience_language_code
+        _aud = audience_language_code(profile)
+    except Exception:  # noqa: BLE001
+        _aud = ""
+    lang = language or _aud or dominant or "en"
 
     parts, used = _image_parts(urls, max_images=n_scenes + 4) if urls else ([], [])
     if not parts and not no_photos:

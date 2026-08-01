@@ -541,6 +541,11 @@ class BusinessProfile(BaseModel):
     locations: list[Location] = Field(default_factory=list)
     service_areas: list[EvidencedField[str]] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)  # iso codes, copied from manifest
+    # WHAT THE SITE DECLARES ABOUT ITSELF (hreflang), as opposed to which edition we happened to
+    # crawl. `scraper/extractors/language.declared_languages` has read this since 2026-07-27 and
+    # it reached `competitor/matrix.py` and stopped — so the decision that sets the language a
+    # CUSTOMER HEARS never saw it, and an Egyptian pharmacy shipped an English commercial.
+    declared_languages: list[str] = Field(default_factory=list)
     hours: Optional[OpeningHours] = None
 
     # --- Contact & acquisition ---
