@@ -138,6 +138,29 @@ def _append_brand_endcard(profile: dict, reel_path, *, enabled: bool) -> None:
         print("     ! ENDCARD FAILED — the reel has no closing brand card", file=sys.stderr)
 
 
+# Veo's shortest clip. It SNAPS to 4/6/8 seconds, so a 2-second scene is billed — and rendered —
+# as four. Nothing downstream can recover the difference.
+_VEO_MIN_CLIP_S = 4.0
+
+
+def _scenes_for(max_seconds: float, requested: int) -> int:
+    """How many scenes a reel of this length can actually afford to ANIMATE.
+
+    THE OWNER'S COMPLAINT, and it was arithmetic all along: «انا مش عايزه الفيديو غير Veo لقطات
+    واحدة بس بتتحرك، انا عايزه الفيديو كله بيتحرك». MEASURED across two live runs — the director
+    was asked for 10 scenes for a 20-second reel, so each scene is 2 seconds, but Veo's minimum
+    clip is 4. The run therefore paid for 40 SECONDS of video to deliver 20, the per-run budget
+    ran out at scene 4, and every scene after that fell back to a Ken Burns still. Half the film
+    was a slideshow because the scene count was set by a flag that had never heard of the runtime.
+
+    Deriving it costs nothing and makes the whole reel move: 20s / 4s = 5 clips, which the same
+    $8 budget covers completely. Fewer, longer scenes also break the metronomic pacing the craft
+    checks flag. An explicit --frames still wins when it is SMALLER — a caller may want a short
+    cut — it just cannot ask for more motion than the runtime can pay for."""
+    affordable = max(3, int(float(max_seconds or 20.0) // _VEO_MIN_CLIP_S))
+    return min(max(3, int(requested)), affordable)
+
+
 def main() -> int:
     _load_env()
     import json
@@ -315,7 +338,12 @@ def main() -> int:
         photos = selected if selected is not None else \
             ((profile.get("visual") or {}).get("content_images") or [])
         provider = StubVideoProvider() if args.no_video else default_video_provider()
-        print(f"[creative] Opus directing {args.frames} scenes from {len(photos)} real photos; "
+        # PRINT WHAT IS ACTUALLY USED. This line printed the raw --frames flag while the call
+        # below passes `_scenes_for(...)`, so the moment the count started being derived the log
+        # began reporting 10 for a 5-scene reel — a log that lies about the run it is describing,
+        # which is the same class of defect this session has been closing all day.
+        _n = _scenes_for(args.max_seconds, args.frames)
+        print(f"[creative] Opus directing {_n} scenes from {len(photos)} real photos; "
               f"provider={provider.name}", file=sys.stderr)
         plan_override = None
         if getattr(args, "plan_file", None):
@@ -329,7 +357,7 @@ def main() -> int:
         try:
             result, creative = render_creative_reel(
                 profile, brief, photos, provider=provider, out_path=out,
-                n_scenes=max(3, args.frames), scale=args.scale,
+                n_scenes=_n, scale=args.scale,
                 language=args.language,
                 include_logo=not args.no_logo, music_path=args.music,
                 with_voiceover=not args.no_voiceover,

@@ -236,3 +236,67 @@ def test_the_body_mark_clears_the_footage_letterbox():
     body = src[src.find("if logo_bug:"):src.find("else:", src.find("if logo_bug:"))]
     top = int(_re.search(r"top:(\d+)px", body).group(1))
     assert top >= 120, f"the mark sits at {top}px, inside the letterbox bar"
+
+
+# =====================================================================
+# every scene moves, or the scene count is wrong
+# =====================================================================
+
+def test_the_scene_count_is_derived_from_the_runtime():
+    """OWNER: «انا مش عايزه الفيديو غير Veo لقطات واحدة بس بتتحرك، انا عايزه الفيديو كله بيتحرك».
+
+    It was arithmetic. The director was asked for 10 scenes for a 20-second reel — 2 seconds each
+    — while Veo's SHORTEST clip is 4. So the run paid for 40 seconds of video to deliver 20, the
+    per-run budget ran out at scene 4, and everything after it fell back to a Ken Burns still.
+    Half the film was a slideshow because a flag defaulting to 10 had never heard of the runtime."""
+    from reel.__main__ import _scenes_for
+    assert _scenes_for(20.0, 10) == 5, "a 20s reel still asks for more clips than it can animate"
+    assert _scenes_for(28.0, 10) == 7
+    assert _scenes_for(40.0, 10) == 10, "a long reel is not capped below what was asked"
+
+
+def test_an_explicit_smaller_request_still_wins():
+    """A caller may want a short cut; it just may not ask for more motion than the runtime pays for."""
+    from reel.__main__ import _scenes_for
+    assert _scenes_for(40.0, 4) == 4
+
+
+def test_the_floor_is_three_scenes():
+    from reel.__main__ import _scenes_for
+    assert _scenes_for(6.0, 10) == 3
+    # A missing duration means "no runtime given", not "a zero-second reel" — it falls back to the
+    # default runtime rather than collapsing to the floor.
+    assert _scenes_for(0.0, 10) == _scenes_for(20.0, 10)
+
+
+def test_every_scene_can_afford_a_clip_at_the_default_budget():
+    """The whole point: scenes x the minimum clip must fit the per-run ceiling, or the tail of the
+    reel is a slideshow again."""
+    from reel.__main__ import _scenes_for, _VEO_MIN_CLIP_S
+    import vertex_spend as vs
+    per_clip = vs.est_video_cost_usd(_VEO_MIN_CLIP_S)
+    n = _scenes_for(20.0, 10)
+    assert n * per_clip <= vs.veo_max_usd_per_run() + 1e-6, (
+        f"{n} scenes x ${per_clip:.2f} exceeds the ${vs.veo_max_usd_per_run():.2f} per-run budget")
+
+
+def test_the_log_reports_the_scene_count_actually_used():
+    """It printed the raw --frames flag while the call passed the derived count, so a 5-scene reel
+    logged "directing 10 scenes" — a log lying about the run it describes."""
+    import inspect
+
+    import reel.__main__ as M
+    src = inspect.getsource(M)
+    at = src.find("Opus directing")
+    line = src[src.rfind("\n", 0, at):src.find("\n", at)]
+    assert "args.frames" not in line, "the log still prints the raw flag"
+    assert "_n" in line
+
+
+def test_the_derived_count_is_computed_once():
+    """Computing it twice invites the two copies to drift, which is how the log started lying."""
+    import inspect
+
+    import reel.__main__ as M
+    src = inspect.getsource(M)
+    assert src.count("_scenes_for(args.max_seconds, args.frames)") == 1
