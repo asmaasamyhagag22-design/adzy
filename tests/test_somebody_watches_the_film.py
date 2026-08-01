@@ -216,8 +216,11 @@ def test_the_critic_runs_before_the_reel_ships():
 
     import reel.__main__ as M
     assert hasattr(M, "_film_critique")
-    src = inspect.getsource(M._film_critique)
-    assert "critique_film" in src and "audience_language_for" in src
+    # The call itself moved into `_watch` so the revision loop can reuse one paid viewing; the
+    # ship decision now consumes that verdict.
+    watch = inspect.getsource(M._watch)
+    assert "critique_film" in watch and "audience_language_for" in watch
+    assert "_watch(" in inspect.getsource(M._film_critique)
 
 
 def test_the_critic_never_blocks_on_its_own_blindness():

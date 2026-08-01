@@ -64,6 +64,7 @@ class FilmVerdict(BaseModel):
     score: int = 7                      # 1..10, an ad director's overall
     reason: str = ""
     fixes: list[str] = []               # what to change, in the order that matters
+    fix_scenes: list[int] = []          # 1-based scene per fix (0 = the whole film)
     # TRI-STATE: None = nobody watched. A film we could not screen is never reported as screened.
     passed: Optional[bool] = None
     checked: bool = False
@@ -78,6 +79,10 @@ class _CriticResponse(BaseModel):
     score: int
     reason: str
     fixes: list[str] = []
+    # WHICH SCENE each fix belongs to, 1-based and parallel to `fixes`. Without this a fix is a
+    # sentiment somebody has to route by hand, and "make the ending land" cannot be applied to
+    # anything. 0 means "the film as a whole".
+    fix_scenes: list[int] = []
 
 
 def _recompute(r: Any) -> bool:
@@ -120,7 +125,12 @@ def _system(brand: str, audience_lang: str, country: str) -> str:
         "- score: 1-10. Would a brand of this standing actually run this film?\n"
         "- reason: one sentence naming the WORST thing about it.\n"
         "- fixes: up to 3 concrete changes, worst first. Each names what to change, not a "
-        "sentiment — 'have her take the sachet from the pharmacist' beats 'make it warmer'."
+        "sentiment — 'have her take the sachet from the pharmacist' beats 'make it warmer'. "
+        "Write each as an INSTRUCTION TO THE SCENE it belongs to, so it can be applied without "
+        "you present.\n"
+        "- fix_scenes: the 1-based SCENE NUMBER each fix belongs to, in the same order as fixes. "
+        "Use 0 when a fix is about the film as a whole (its language, its pace, its ending). The "
+        "scene list is given below; count from it, not from the frames."
     )
 
 
@@ -156,7 +166,8 @@ def _sample(video: "str | Path", n: int) -> list[bytes]:
 
 def critique_film(video: "str | Path", *, caller: Any = None, brand: str = "",
                   audience_language: str = "", country: str = "",
-                  voiceover: str = "", captions: Optional[list] = None) -> FilmVerdict:
+                  voiceover: str = "", captions: Optional[list] = None,
+                  scenes: Optional[list] = None) -> FilmVerdict:
     """Watch the assembled film and judge it as an advertisement.
 
     Returns `checked=False` when no critic could run — a film nobody watched is never reported as
@@ -169,10 +180,19 @@ def critique_film(video: "str | Path", *, caller: Any = None, brand: str = "",
         return FilmVerdict(reason=f"only {len(frames)} frame(s) readable — the film was not watched")
 
     caps = [str(c).strip() for c in (captions or []) if str(c or "").strip()]
+    # THE SCENE LIST IS WHAT MAKES A FIX ROUTABLE. Frames have no numbers; scenes do. Without it
+    # the critic can only say "the ending does not land", which nobody and nothing can apply.
+    lines = []
+    for i, sc in enumerate(scenes or [], start=1):
+        what = " ".join(str(getattr(sc, "veo_prompt", "") or "").split())[:150]
+        vo = " ".join(str(getattr(sc, "voiceover", "") or "").split())[:90]
+        lines.append(f"  scene {i}: {what}" + (f" | VO: {vo}" if vo else ""))
     user = (
         f"VOICEOVER (verbatim): {voiceover.strip() or '(none)'}\n"
         f"ON-SCREEN COPY, in order: {' | '.join(caps) if caps else '(none)'}\n"
-        f"{len(frames)} frames follow, evenly spaced from the start of the film to its end.\n"
+        + ("THE SCENES, in order — number your fixes against THIS list:\n"
+           + "\n".join(lines) + "\n" if lines else "")
+        + f"{len(frames)} frames follow, evenly spaced from the start of the film to its end.\n"
         "Watch it as a whole and return the verdict."
     )
     try:
@@ -191,6 +211,7 @@ def critique_film(video: "str | Path", *, caller: Any = None, brand: str = "",
         score=int(resp.score or 0),
         reason=(resp.reason or "").strip(),
         fixes=[str(f).strip() for f in (resp.fixes or []) if str(f).strip()][:3],
+        fix_scenes=[int(i or 0) for i in (getattr(resp, "fix_scenes", None) or [])][:3],
         checked=True,
     )
     v.passed = _recompute(resp)

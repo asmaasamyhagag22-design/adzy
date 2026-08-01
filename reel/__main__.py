@@ -99,7 +99,76 @@ def _qa_caller():
         return None
 
 
-def _film_critique(profile: dict, reel_path, creative=None, *, caller=None) -> "int | None":
+def _watch(profile: dict, reel_path, creative=None, *, caller=None):
+    """The critic's verdict on one film — the raw judgement, before any ship decision."""
+    try:
+        from reel.audience import audience_language_for
+        from reel.film_critic import critique_film
+        lang, country, _why = audience_language_for(profile)
+        name = (profile or {}).get("name")
+        scenes = list(getattr(creative, "scenes", None) or [])
+        return critique_film(
+            reel_path, caller=caller,
+            brand=str((name.get("value") if isinstance(name, dict) else name) or ""),
+            audience_language=lang, country=country,
+            voiceover=" ".join(getattr(s, "voiceover", "") or "" for s in scenes).strip(),
+            captions=[getattr(s, "on_screen_text", "") or "" for s in scenes],
+            scenes=scenes)
+    except Exception:  # noqa: BLE001 — the critic failing is not the film failing
+        return None
+
+
+def _revise_once(profile, brief, photos, args, result, creative, verdict, *, caller):
+    """ONE revision pass: apply the critic's notes, render again, keep the better film.
+
+    THE HALF THAT MAKES A CRITIC WORTH HAVING (owner: «لما آخده لـGoogle Flow… طلع تحفة فنية»).
+    The model is the same one; what a person adds is watching, forming a note, changing the thing
+    the note is about, and looking again. A gate that only refuses burns a whole render to report
+    something a sentence could have changed.
+
+    ONE pass, deliberately. A loop that re-renders until a model is satisfied spends $1.60 a clip
+    until something else stops it. Returns (result, verdict) — the ORIGINAL pair unless the second
+    film is measurably better on the same axes.
+    """
+    from reel.revision import better_of, revise_plan
+    revised = revise_plan(creative, verdict)
+    if revised is None:
+        return result, verdict, False
+    for note in (verdict.fixes or []):
+        print(f"     -> revising on: {note}", file=sys.stderr)
+    try:
+        # Imported HERE: the module-level name lives inside main()'s scope, and relying on that
+        # would make this function work only when called from there.
+        from reel.creative import render_creative_reel
+        from reel.video_provider import default_video_provider
+        out2 = Path(str(result.reel_path)).with_name(
+            Path(str(result.reel_path)).stem + "_rev.mp4")
+        r2, c2 = render_creative_reel(
+            profile, brief, photos, provider=default_video_provider(), out_path=out2,
+            n_scenes=len(getattr(revised, "scenes", None) or []) or 5, scale=args.scale,
+            language=args.language, include_logo=not args.no_logo, music_path=args.music,
+            with_voiceover=not args.no_voiceover, featured_product=args.product_name,
+            plan_override=revised.model_dump(), photo_subjects=None)
+    except Exception as exc:  # noqa: BLE001 — a failed revision keeps the film we already have
+        print(f"     ! the revision could not render ({type(exc).__name__}); keeping the first cut",
+              file=sys.stderr)
+        return result, verdict, False
+    if r2 is None:
+        return result, verdict, False
+    _append_brand_endcard(profile, r2.reel_path, enabled=not args.no_logo)
+    _finalize(r2.reel_path)
+    v2 = _watch(profile, r2.reel_path, c2, caller=caller)
+    if better_of(verdict, v2) == "second":
+        print(f"     + the revision is better (score {getattr(v2, 'score', '?')} vs "
+              f"{verdict.score}) — shipping it", file=sys.stderr)
+        return r2, v2, True
+    print(f"     ! the revision did not improve it (score {getattr(v2, 'score', '?')} vs "
+          f"{verdict.score}) — keeping the first cut", file=sys.stderr)
+    return result, verdict, False
+
+
+def _film_critique(profile: dict, reel_path, creative=None, *, caller=None,
+                   verdict=None) -> "int | None":
     """THE LAST VIEWER IS A CREATIVE DIRECTOR, not a file checker.
 
     `_final_screening` above asks whether the FILE is broken — letterboxing, silence, a missing
@@ -112,21 +181,12 @@ def _film_critique(profile: dict, reel_path, creative=None, *, caller=None) -> "
     frames, or a failed call all ship with a note rather than stopping the delivery."""
     if os.environ.get("REEL_FILM_CRITIC") == "0":
         return None
-    try:
-        from reel.film_critic import critique_film, failed_axes
-        from reel.audience import audience_language_for   # what the AUDIENCE speaks
-        lang, country, _why = audience_language_for(profile)
-        name = (profile or {}).get("name")
-        v = critique_film(
-            reel_path, caller=caller,
-            brand=str((name.get("value") if isinstance(name, dict) else name) or ""),
-            audience_language=lang, country=country,
-            voiceover=" ".join(getattr(s, "voiceover", "") or ""
-                               for s in (getattr(creative, "scenes", None) or [])).strip(),
-            captions=[getattr(s, "on_screen_text", "") or ""
-                      for s in (getattr(creative, "scenes", None) or [])])
-    except Exception:  # noqa: BLE001 — the critic failing is not the film failing
+    # The caller has usually just watched this film to decide whether to revise it. Watching it
+    # again would be a second paid viewing of the same frames for the same answer.
+    v = verdict if verdict is not None else _watch(profile, reel_path, creative, caller=caller)
+    if v is None:
         return None
+    from reel.film_critic import failed_axes
     if not v.checked:
         print(f"     ! the film was NOT watched ({v.reason})", file=sys.stderr)
         return None
@@ -462,7 +522,19 @@ def main() -> int:
             # is broken; this asks whether the film is worth running. Only the creative path gets
             # it — the template path has no plan to judge the copy against.
             if _stop is None:
-                _stop = _film_critique(profile, result.reel_path, creative, caller=_qa_caller())
+                _critic = _qa_caller()
+                _v = _watch(profile, result.reel_path, creative, caller=_critic)
+                # WATCH, NOTE, CHANGE, LOOK AGAIN — the loop a person closes by hand. Only when
+                # the first cut actually failed: a film the critic passed has nothing to act on,
+                # and re-rendering it would spend a full render chasing a higher score.
+                if (_v is not None and _v.checked and _v.passed is False
+                        and os.environ.get("REEL_REVISION") != "0"):
+                    result, _v, _revised = _revise_once(
+                        profile, brief, photos, args, result, creative, _v, caller=_critic)
+                    if _revised:
+                        _final_screening(result.reel_path)
+                _stop = _film_critique(profile, result.reel_path, creative,
+                                       caller=_critic, verdict=_v)
             if _env.get("value") is False and _stop is None:
                 print("[X] the delivery container failed the platform envelope — not shipping. "
                       "Set REEL_ALLOW_BELOW_GRADE=1 to override.", file=sys.stderr)
