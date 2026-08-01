@@ -330,7 +330,12 @@ def _scene_html(scene: ReelScene, storyboard: Storyboard, width: int, height: in
         # grey pixels. "Present" has to mean readable or it is decoration pretending to be
         # branding. It also has to clear the clip's own letterboxing: at top:64px the mark landed
         # INSIDE the black bar baked into the footage, detached from the picture entirely.
-        logo_pos += ";top:150px;opacity:.9;transform:scale(.82);transform-origin:" \
+        # FULL SIZE, NOT A SHRUNK ONE (owner, 2026-08-01: «اللوجو صغير جدا، انا عايز
+        # بروفيشنال، واخد زاوية وباين معايا»). Two rounds of scaling it DOWN both came back
+        # illegible on the render, which is the answer: a broadcast corner mark is not a small
+        # logo, it is the logo, held quietly in a corner. So it keeps its full height and earns
+        # its quietness from stillness and a touch of transparency instead of from size.
+        logo_pos += ";top:150px;opacity:.92;transform-origin:" \
                     + ("right top" if rtl else "left top")
         logo_html = f'<div class="logo" style="{logo_pos}"><img src="{logo_uri}"></div>'
     else:

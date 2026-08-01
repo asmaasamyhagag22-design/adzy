@@ -219,9 +219,10 @@ def test_the_body_mark_is_large_enough_to_read():
     # so a regex over the raw source reads the numbers being explained instead of the ones in force.
     src = "\n".join(l.split("#")[0] for l in inspect.getsource(tl._scene_html).splitlines())
     body = src[src.find("if logo_bug:"):src.find("else:", src.find("if logo_bug:"))]
-    scale = float(_re.search(r"scale\((\.?\d+)\)", body).group(1))
+    assert "scale(" not in body, (
+        "the body mark is scaled DOWN — two rounds of that came back illegible on the render. A "
+        "broadcast corner mark is not a small logo, it is the logo held quietly in a corner")
     opacity = float("0" + _re.search(r"opacity:(\.?\d+)", body).group(1))
-    assert scale >= 0.75, f"the body mark renders at {scale:.0%} — measured illegible below this"
     assert opacity >= 0.85, f"the body mark is {opacity:.0%} opaque"
 
 
@@ -300,3 +301,39 @@ def test_the_derived_count_is_computed_once():
     import reel.__main__ as M
     src = inspect.getsource(M)
     assert src.count("_scenes_for(args.max_seconds, args.frames)") == 1
+
+
+# =====================================================================
+# motion over the still
+# =====================================================================
+
+def test_a_qa_failed_clip_is_kept_rather_than_replaced_by_a_still():
+    """OWNER: «انا مش عايزه Ken Burns في الريل». And the fallback does not cure the defect it
+    fires on: measured across three live runs, the verdicts that trigger it are about the label
+    MOVING — "the text on the product packaging morphs into garbled junk across the frames". Ken
+    Burns answers that by deleting the motion, trading the whole reason the clip exists."""
+    import inspect
+
+    import reel.compositor as comp
+    src = inspect.getsource(comp)
+    assert "KEEPING THE MOVING" in src, "a failed clip is still swapped for a still"
+    at = src.find("KEEPING THE MOVING")
+    guard = src[max(0, at - 700):at]
+    assert "REEL_ALLOW_KENBURNS" in guard, "the still has no way back for a caller who wants it"
+
+
+def test_a_scene_with_no_clip_at_all_still_falls_back():
+    """A different failure: nothing to ship, rather than something imperfect."""
+    import inspect
+
+    import reel.compositor as comp
+    src = inspect.getsource(comp)
+    at = src.find('REEL_ALLOW_KENBURNS')
+    line = src[at:src.find("\n", at)]
+    assert "raw is None" in line, "a scene that produced no clip at all has no fallback"
+
+
+def test_the_compositor_has_the_os_it_reads():
+    """Third instance today of a module reading os/logger it never imported."""
+    import reel.compositor as comp
+    assert hasattr(comp, "_os")

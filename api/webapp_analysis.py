@@ -744,3 +744,44 @@ def generate_plan(brand: dict, *, planning_period: str = "1_month",
     plan = _plan_to_frontend(media_plan, cal, brand, campaign_objective) if cal is not None \
         else {"objective": campaign_objective, "campaigns": []}
     return {"marketing_plan": plan, "content_calendar": calendar, "has_plan": True}
+
+
+def social_performance_for(profile: dict) -> dict:
+    """What the brand's OWN social content actually achieves, from the snapshot already on disk.
+
+    THE NUMBER WAS ALREADY THERE (owner, 2026-08-01: «اكتر حاجه جايبه لايك»). `like_count` is
+    declared in the social schema, populated by every provider, and — measured with a repo-wide
+    grep before this was written — read by nothing. `_social_themes_for` above loads the very same
+    signals one function away and passes them to theme extraction alone, so the engagement rode
+    all the way into the analysis and was dropped at the last step.
+
+    Deterministic and free: the snapshot is read off disk, ranking is arithmetic, no model and no
+    billing. Returns {} for a brand with no snapshot — the honest "we have not collected it".
+    """
+    try:
+        import json as _json
+        from pathlib import Path
+
+        from scripts.pull_instagram_apify import signals_from_apify_items
+        from social_intel.performance import creative_lessons, top_performers
+
+        from api.brand_translate import domain_key_from_url
+        src = (profile or {}).get("source_url")
+        if isinstance(src, dict):
+            src = src.get("value")
+        path = Path("runs/social_snapshots") / f"{domain_key_from_url(str(src or ''))}_ig.json"
+        if not path.is_file():
+            return {}
+        data = _json.loads(path.read_text(encoding="utf-8"))
+        rep = top_performers(signals_from_apify_items(data.get("items") or []))
+        if not rep.checked:
+            # Say WHY rather than returning an empty dict that reads as "nothing works here".
+            return {"checked": False, "reason": rep.reason}
+        return {
+            "checked": True,
+            "own": rep.own.model_dump() if rep.own else None,
+            "peers": [p.model_dump() for p in rep.peers],
+            "lessons": creative_lessons(rep),
+        }
+    except Exception:  # noqa: BLE001 — engagement is a bonus, never a dependency
+        return {}

@@ -17,6 +17,7 @@ polish item).
 """
 from __future__ import annotations
 
+import os as _os
 import sys
 import tempfile
 from pathlib import Path
@@ -236,12 +237,33 @@ def render_reel(
                         except Exception:  # noqa: BLE001 — a failed retry drops to the fallback
                             good = False
                         if not good:
-                            print(f"[reel] scene {i} still failed QA; faithful seed-frame KenBurns fallback",
-                                  file=sys.stderr)
-                            fallback_used = True
-                            raw = _paste_product(
-                                fb.generate(scene.visual_prompt + _NO_TEXT, **gen_kwargs),
-                                tag="f")
+                            # MOTION OVER THE STILL (owner, 2026-08-01: «انا مش عايزه Ken Burns
+                            # في الريل»), and the reasoning is not just preference.
+                            #
+                            # The fallback DOES NOT CURE THE DEFECT IT FIRES ON. Measured across
+                            # three live runs, the QA verdicts that trigger it are about the label
+                            # MOVING — "the text on the product packaging morphs into garbled
+                            # junk across the frames". Ken Burns answers that by removing the
+                            # motion entirely: it trades the whole reason the clip exists for a
+                            # slow zoom on a still, and the viewer gets a slideshow instead of a
+                            # film. The judged clip is kept, its verdict rides the audit trail,
+                            # and a human decides.
+                            #
+                            # A still is still the answer when there is NO clip at all — a
+                            # provider exception, an empty render. That is a different failure:
+                            # nothing to ship rather than something imperfect.
+                            if _os.environ.get("REEL_ALLOW_KENBURNS") == "1" or raw is None:
+                                print(f"[reel] scene {i} still failed QA; faithful seed-frame "
+                                      "KenBurns fallback", file=sys.stderr)
+                                fallback_used = True
+                                raw = _paste_product(
+                                    fb.generate(scene.visual_prompt + _NO_TEXT, **gen_kwargs),
+                                    tag="f")
+                            else:
+                                print(f"[reel] scene {i} failed QA twice — KEEPING THE MOVING "
+                                      f"CLIP ({v2.reason if _v_final else 'unjudged'}); the "
+                                      "verdict ships on the audit trail",
+                                      file=sys.stderr)
                     if _v_final is not None:
                         scene_qa.append({"scene": i, **_v_final.model_dump()})
 
