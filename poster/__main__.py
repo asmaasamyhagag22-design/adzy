@@ -101,6 +101,10 @@ def main() -> int:
     )
     ap.add_argument("--headline", default=None,
                     help="override the headline (e.g. a planned content-calendar hook).")
+    ap.add_argument("--product", default=None,
+                    help="URL of ONE product page — the poster is about THAT item. Resolves its "
+                         "real name and packshot from the catalogue, or fetches the page when the "
+                         "link is not in it (a store's Arabic and English URLs never match).")
     ap.add_argument("--product-name", default=None,
                     help="FEATURE one product: make it the hero offering so the concept centres on "
                          "it (the user picked it from the scraped catalogue).")
@@ -130,6 +134,29 @@ def main() -> int:
     # FEATURE a user-picked product: make it the HERO offering so the concept/art-director centres
     # the poster on it instead of a generic brand creative (engineer's suggestion #1). Grounded —
     # it's a real product the user chose from the scraped catalogue.
+    # ONE LINK IS ENOUGH. The reel lane takes a product URL and resolves the name and the packshot
+    # from it; the poster lane demanded both by hand (`--product-name` AND `--product-image`), so
+    # whoever ran it had to go read the page themselves — which is exactly how a headline ends up
+    # being written by the operator instead of derived from the brand. Same resolver as the reel,
+    # so one pasted link cannot produce two different ideas of what is being advertised.
+    if args.product and not (args.product_name and args.product_image):
+        try:
+            from api.webapp_images import hero_product_facts
+            _f = hero_product_facts(profile, args.product)
+            if _f.get("name") and not args.product_name:
+                args.product_name = _f["name"]
+            if (_f.get("images") or []) and not args.product_image:
+                args.product_image = _f["images"][0]
+            if _f:
+                print(f"[product] resolved from the link: {args.product_name}"
+                      + (f"  ({_f.get('price')})" if _f.get("price") else ""))
+            else:
+                print("!! the product link resolved to nothing — the poster falls back to the "
+                      "brand's own hero offering", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 — a dead link must not cost the poster
+            print(f"!! the product link could not be read ({type(exc).__name__}) — "
+                  "falling back to the brand's own hero offering", file=sys.stderr)
+
     if args.product_name:
         _p = profile.get("profile", profile) if isinstance(profile.get("profile"), dict) else profile
         _offs = _p.get("offerings") or []

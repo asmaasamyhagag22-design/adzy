@@ -226,3 +226,23 @@ def test_the_product_fidelity_check_compares_against_the_product():
     assert seed_at > 0, "the no-link fallback disappeared — a weak reference beats no QA at all"
     assert hero_at < seed_at, (
         "the packshot must be preferred over the first content image, not the other way round")
+
+
+def test_the_poster_lane_resolves_the_same_link_the_reel_lane_does():
+    """One pasted URL must not produce two different ideas of what is being advertised.
+
+    The reel took a product LINK; the poster demanded a product NAME and an IMAGE separately, so
+    whoever ran it had to open the page and copy both by hand. That gap is how a headline ends up
+    written by the operator rather than derived from the brand — the exact thing the owner caught
+    with «البرومبت دا طالع من المشروع صح مش من دماغك؟».
+    """
+    import ast as _ast
+    import inspect as _inspect
+
+    import poster.__main__ as pm
+    src = _ast.unparse(_ast.parse(_inspect.getsource(pm)))
+    assert "hero_product_facts" in src, (
+        "the poster still cannot resolve a product link — the two lanes take different inputs")
+    # And the hand-supplied values must still win: a caller who typed them meant them.
+    assert "not (args.product_name and args.product_image)" in src, (
+        "an explicit name and image are being overwritten by the link")

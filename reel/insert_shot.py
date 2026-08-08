@@ -70,71 +70,12 @@ def _ease(t: float) -> float:
     return t * t * (3.0 - 2.0 * t)
 
 
-# The pasted hero link, resolved ONCE per URL. Two consumers need the answer — the insert needs
-# the PACKSHOT and the director needs the NAME — and before this they asked separately: the insert
-# matched the catalogue while the director was told nothing, so a link with no `--product-name`
-# produced a film about the pharmacy with a spray glued to the last beat. One brand, one link, two
-# lanes with different ideas of what the ad was about. The cache is what makes one source of truth
-# affordable: the fallback path fetches a web page, and asking twice would fetch twice.
-_HERO_CACHE: dict = {}
-
-
-def hero_product_facts(profile: Optional[dict], hero_url: str) -> dict:
-    """`{"name", "images", "price"}` for the product the owner pasted — never raises.
-
-    THE CATALOGUE FIRST, because a catalogued item is already parsed, priced and free. Failing
-    that the PAGE ITSELF is fetched, because "not in the catalogue" is not "not available":
-    MEASURED on her real link, the catalogue held `/en/products/<latin-slug>` and she pasted
-    `/products/<arabic-slug>` — the same shop, the same item, slugs that can never match. No
-    matcher can bridge that; only a fetch can.
-
-    An empty dict means the link resolved to nothing, and every caller must treat that as "no hero"
-    rather than as "no product".
-    """
-    key = str(hero_url or "").strip()
-    if not key:
-        return {}
-    if key in _HERO_CACHE:
-        return _HERO_CACHE[key]
-    out: dict = {}
-    try:
-        from scraper.catalog import canonical_product_url
-        want = canonical_product_url(key)
-        for item in ((profile or {}).get("catalog") or []):
-            if not isinstance(item, dict):
-                continue
-            if canonical_product_url(str(item.get("url") or "")) == want:
-                u = str(item.get("image_url") or "").strip()
-                out = {"name": str(item.get("name") or "").strip(),
-                       "images": [u] if u else [],
-                       "price": str(item.get("price_text") or "").strip()}
-                logger.info("[insert] hero product resolved from the catalogue: %s",
-                            out["name"][:60])
-                break
-        else:
-            logger.info("[insert] hero link is not in the catalogue — fetching the page")
-            from api.webapp_images import product_from_link
-            prod, note = product_from_link(key)
-            imgs = [str(u).strip() for u in (list(getattr(prod, "images", None) or []) or
-                                             [getattr(prod, "image", "")]) if str(u or "").strip()]
-            if imgs:
-                out = {"name": str(getattr(prod, "name", "") or "").strip(),
-                       "images": imgs,
-                       "price": str(getattr(prod, "price", "") or "").strip()}
-                logger.info("[insert] hero fetched: %s", out["name"][:60])
-            else:
-                logger.info("[insert] hero link unusable: %s", str(note or "no image")[:80])
-    except Exception as exc:  # noqa: BLE001 — a hero that will not resolve must not cost the reel
-        logger.info("[insert] hero link could not be resolved (%s) — catalogue order stands",
-                    type(exc).__name__)
-        out = {}
-    # ONLY A SUCCESS IS REMEMBERED. Caching a failure would turn one timed-out fetch into a hero
-    # that stays unresolved for the life of the process — "absence read as success" with a memory.
-    # A retry costs one request per render, which is the correct price for not shipping the wrong
-    # product because the network blinked once.
-    if out:
-        _HERO_CACHE[key] = out
-    return out
+# The hero-product resolver lives with the fetcher it depends on (`api.webapp_images`), so
+# the POSTER lane can ask the same question the REEL lane asks and get the same answer.
+# One pasted link, one resolution — the two lanes disagreeing about what the ad is about
+# is the defect this whole thread exists to close. Re-exported here because this is where
+# the reel has always imported it from.
+from api.webapp_images import _HERO_CACHE, hero_product_facts  # noqa: F401
 
 
 def product_candidates(profile: Optional[dict], limit: int = 4,

@@ -331,10 +331,16 @@ def test_the_film_ends_on_the_product_when_there_is_one():
     src = inspect.getsource(__import__("reel.creative", fromlist=["x"]))
     # The last beat is still a product beat — and since 2026-08-02 (Axis 1) so is ANY scene
     # the director marked `hero_product`: no generated shot may show the product at all.
-    assert "idx == n - 1 and n > 1" in src
-    assert 'getattr(s, "hero_product", False)' in src, (
-        "only the last beat becomes an insert; a mid-film product scene is still generated"
-    )
+    # THE RULE, read off the code that enforces it rather than off one spelling of it. Axis 1
+    # settled this after three live runs: the product beat is the LAST beat, always, and a
+    # mid-film `hero_product` mark is dropped rather than honoured — a diffusion model cannot
+    # hold a registered label, and every attempt cost $2.40 and failed its own gate.
+    assert "_hero_beat = (n - 1) if n > 1" in src, (
+        "the product beat is no longer pinned to the last scene")
+    assert "_is_product_beat = (idx == _hero_beat)" in src, (
+        "a scene other than the hero beat can be composited as a product shot again")
+    assert 'getattr(sc, "hero_product", False)' in src, (
+        "the director's own product marks are no longer read at all")
     # THE INSERT COMES FROM THE CATALOGUE SELECTOR, and since 2026-08-08 it is also given the
     # product link the owner pasted (`hero_product_url`) — so this checks the CALL, not one exact
     # spelling of its arguments. The literal it used to assert broke the moment the hero link was
