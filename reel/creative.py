@@ -346,11 +346,16 @@ def render_creative_reel(
     #
     # Both now read the SAME resolver, so the film and its insert cannot be about different items.
     # An explicit `featured_product` still wins — a caller who typed a name meant it.
-    if hero_product_url and not featured_product:
+    _product_ad = False
+    if hero_product_url:
         try:
             from .insert_shot import hero_product_facts
             _hf = hero_product_facts(profile, hero_product_url)
-            if _hf.get("name"):
+            # RESOLVED means we hold the item's real packshot. A link that resolved to nothing is
+            # not a product ad — it is a brand reel with a dead link, and pretending otherwise
+            # would switch off the stockist rule on no evidence at all.
+            _product_ad = bool(_hf.get("images"))
+            if _hf.get("name") and not featured_product:
                 featured_product = _hf["name"]
                 logger.info("[reel] the film is about the pasted product: %s",
                             featured_product[:70])
@@ -391,7 +396,8 @@ def render_creative_reel(
             _critic = None
         creative, crep = plan_reel_gated(
             profile, photos, n_scenes=n_scenes, language=language,
-            featured_product=featured_product, photo_subjects=photo_subjects, critic_caller=_critic)
+            featured_product=featured_product, product_ad=_product_ad,
+            photo_subjects=photo_subjects, critic_caller=_critic)
         if not creative or not creative.scenes:
             return None, None
         if not crep.ok:

@@ -295,7 +295,17 @@ def test_director_carries_scenario_screen_guard_and_tts_rules():
 
 def test_featured_offering_without_photo_uses_varied_photos():
     anchored = _system_prompt(6, "ar", "generic", featured="X", product_photo_anchored=True)
-    assert "ALWAYS 0" in anchored               # real product photo -> same-item shots
+    # OVERTURNED 2026-08-02 (Axis 1) AND MEASURED 2026-08-08. This used to assert that the
+    # anchored brief asks for the SAME product in every scene, from photo index ALWAYS 0.
+    # That brief asked a video model for four angles of a labelled pack — three live runs
+    # returned «SAV TAERMALE» for «EAU THERMALE» and «IODERMA» for BIODERMA at $2.40 each,
+    # and on the owner's Vichy link the director marked hero_product on ALL FOUR scenes, so
+    # every one composited to an insert and the "reel" was four motionless push-ins with
+    # ZERO generated footage. The contract now: the product is NEVER filmed, the film is
+    # about the person, and the real photograph is composited into one beat.
+    assert "WITHOUT EVER FILMING IT" in anchored
+    assert "ALWAYS 0" not in anchored, (
+        "the brief pins every scene to the packshot again — the four-inserts, no-footage reel")
     unanchored = _system_prompt(6, "ar", "generic", featured="Fiber Course",
                                 product_photo_anchored=False)
     assert "ALWAYS 0" not in unanchored         # photo-less course: never one photo x6

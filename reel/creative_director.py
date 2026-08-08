@@ -230,7 +230,7 @@ def _is_beauty(profile: dict) -> bool:
     return sum(1 for k in _BEAUTY_KEYWORDS if k in text) >= 2
 
 
-def _vertical_mode(profile: dict) -> str:
+def _vertical_mode(profile: dict, featured: str = "", *, product_ad: bool = False) -> str:
     """'beauty' (person applying the product), 'elegant' (luxury/jewelry, worn), 'food' (savoured),
     else 'generic' — every mode now demands a PERSON using the product with real energy."""
     cat = _v(profile, "category").lower()
@@ -244,7 +244,19 @@ def _vertical_mode(profile: dict) -> str:
     # directed as a service. The note below already records this exact failure for `ecommerce`;
     # `retail` is the same trap wearing another label. A shop that sells its OWN food is a food
     # brand, and how it SELLS never outranks what the customer EATS.
-    if (cat in _SERVICE_CATS or _is_service(profile)) and not _is_food(profile):
+    # SERVICE YIELDS TO A RESOLVED PRODUCT. MEASURED 2026-08-08: the owner pasted a Vichy Dercos
+    # link and the prompt carried BOTH "This reel advertises ONLY this offering" and, from this
+    # branch, "DO NOT build the film around one product being used" — two instructions in one
+    # message that cancel each other, and the stockist one wins because it is the more concrete.
+    # That is why these reels kept coming back about the PHARMACY.
+    #
+    # THE SIGNAL IS THE RESOLVED PRODUCT, NOT THE CATEGORY. A business type is not a creative type:
+    # `ecommerce` says how a brand sells, never what THIS film is about. `product_ad` is set only
+    # when a product page or catalogue entry actually resolved. `featured` + a goods catalogue is
+    # the older, weaker signal, kept so a caller who names a catalogue item still gets a product
+    # reel; a CLINIC naming one of its own services has no catalogue and stays a service.
+    _stocks_goods = bool((profile or {}).get("catalog"))
+    if (cat in _SERVICE_CATS or _is_service(profile)) and not _is_food(profile)             and not (product_ad or (featured and _stocks_goods)):
         return "service"
     # FOOD BEFORE BEAUTY, and read off the brand's own words for the same reason SERVICE is.
     #
@@ -455,11 +467,69 @@ _COVERAGE_RULE = (
 )
 
 
+def _spine_map(n_scenes: int) -> str:
+    """Which spine job each scene carries, stated as a table instead of left to arithmetic.
+
+    THE AMBIGUITY THIS CLOSES. The AD SPINE names FIVE jobs — hook, what-it-is, benefit, proof,
+    CTA — and a 15-second reel is FOUR scenes (three generated shots plus the composited product
+    insert). Nothing said which job gets doubled or dropped, so the director resolved it silently
+    and differently every run: sometimes proof vanished, sometimes the CTA shared a beat with the
+    benefit and neither landed.
+
+    Where jobs are paired it is deliberate: scene 0 must name the brand for a MUTED viewer anyway,
+    so hook and what-it-is are one job there; proof is the job that yields when there is no room,
+    because an unsupported proof line is worse than none.
+    """
+    maps = {
+        3: ("scene 0 = HOOK + WHAT IT IS · scene 1 = BENEFIT (the product in use) · "
+            "scene 2 = CTA on the held product"),
+        4: ("scene 0 = HOOK + WHAT IT IS · scene 1 = BENEFIT (the product in use) · "
+            "scene 2 = PROOF · scene 3 = CTA on the held product"),
+        5: ("scene 0 = HOOK · scene 1 = WHAT IT IS · scene 2 = BENEFIT (the product in use) · "
+            "scene 3 = PROOF · scene 4 = CTA on the held product"),
+    }
+    row = maps.get(int(n_scenes)) or (
+        "scene 0 = HOOK + WHAT IT IS · the middle scenes = BENEFIT (the product in use), one of "
+        "them PROOF if the identity has real proof · the last scene = CTA on the held product")
+    return (f"SCENE MAP (this reel has {int(n_scenes)} scenes and the spine has five jobs — this "
+            f"is the assignment, not a suggestion):\n  {row}\nEvery scene declares its job through "
+            "arc_beat. Do not leave a job unassigned, and do not give one scene two jobs beyond "
+            "the pairing above.\n\n")
+
+
 def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
                    featured: Optional[str] = None, compliance: str = "",
                    product_photo_anchored: bool = False, register: str = "",
-                   locale_primer: str = "", trend_context: str = "") -> str:
+                   locale_primer: str = "", trend_context: str = "",
+                   # True when the caller pasted a product link and its real packshot resolved.
+                   product_known: bool = False,
+                   # A SEMANTIC CONTRACT, not only a routing flag. The Python fix stops the stockist
+                   # clause from being ASSEMBLED; this makes the prompt say so out loud, so the
+                   # contradiction cannot come back if the routing is ever changed or this prompt is
+                   # reused elsewhere.
+                   product_ad: bool = False) -> str:
     motion = _MOTION_GUIDANCE.get(mode, _MOTION_GUIDANCE["generic"])
+    override = ""
+    if product_ad:
+        override = (
+            "PRODUCT-FOCUSED REEL — THIS OVERRIDES ANY RULE BELOW THAT CONFLICTS WITH IT.\n"
+            "A specific physical product was explicitly featured, resolved from a product page or "
+            "a catalogue entry. Therefore:\n"
+            "- The featured product is the HERO of this film.\n"
+            "- Using the product may be the central action.\n"
+            "- The stockist / service rule does NOT apply here.\n"
+            "- The retailer appears only as the SELLER and the CTA destination — where you buy it, "
+            "not what the film is about.\n"
+            "- Do NOT turn this into a general advertisement for the shop, its branches or its "
+            "range.\n"
+            "The stockist rule applies ONLY when no specific physical product is featured.\n\n"
+            "CLAIM OWNERSHIP — two brands are on screen and their evidence is NOT interchangeable. "
+            "The identity below belongs to the RETAILER. A fact about the retailer may never be "
+            "restated as a fact about the product: \"trusted by 7,000 customers daily\" describes "
+            "the shop, and writing it as \"<product> is trusted by 7,000 customers daily\" is a "
+            "fabricated product claim. State a retailer fact ABOUT the retailer (\"available at "
+            "<retailer>, who serves 7,000 customers a day\"), and make product claims only from "
+            "what the product's own page states. Invent nothing about the manufacturer.\n\n")
     deliveries = _DELIVERY_EG.get(mode, _DELIVERY_EG["generic"])
     register_note = (f"LOCKED DIALECT — write EVERY voiceover line in: {register}. One register, no "
                      f"drift (the [ONE VOICE] contract).\n\n" if register else "")
@@ -508,10 +578,27 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         # stays locked on it, but the visuals move through DIFFERENT real brand photos — the
         # owner's NTI reel (2026-07-12) seeded one generic 'about' photo into all 6 scenes
         # because the old rule forced index 0 even when photo 0 was not the product.
+        # WHAT THE FILM MAY NOT SHOW IS NOT WHAT DOES NOT EXIST. When a product link resolves, its
+        # real packshot IS held — it is simply not attached, on purpose: Axis 1 forbids seeding the
+        # generator on the product (three live runs: «SAV TAERMALE» for «EAU THERMALE», «IODERMA»
+        # for BIODERMA), and the final beat composites the real photograph instead.
+        #
+        # "No dedicated product photo exists" told the director the brand has no picture of its own
+        # product. False — and it reads as "this cannot be shown", so the film got written AROUND
+        # the item instead of toward it. PRODUCT EVIDENCE (what the director knows) and GENERATION
+        # SEEDS (what the model is fed) are different things, and the brief now says which is which.
+        _photo_note = (
+            "PRODUCT EVIDENCE: the brand's real photograph of this product EXISTS and the final "
+            "beat COMPOSITES it — so write that beat as a held shot and never describe its label. "
+            "It is deliberately NOT among the attached photos, because those are GENERATION SEEDS "
+            "and the video model cannot hold a real label. Ground "
+            if product_known else
+            "No dedicated product photo exists, so ground ")
         featured_line = (
             f"FEATURED OFFERING: {featured}. This reel advertises ONLY this offering — every line "
-            "of copy is about it. No dedicated product photo exists, so ground each scene in a "
-            "DIFFERENT attached real photo whose content fits that scene's message.\n\n")
+            f"of copy is about it. {_photo_note}"
+            "each scene in a DIFFERENT attached real photo whose content fits that scene's "
+            "message.\n\n")
         image_rule = ("- image_index: the real photo whose content fits THIS scene — use a "
                       "DIFFERENT photo per scene when several exist; never repeat one photo for "
                       "every scene.\n")
@@ -579,6 +666,7 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         "The AD SPINE below is WHAT each scene must communicate; the strategy above is HOW the story "
         "moves and feels. Every scene serves both at once.\n\n"
         + _COVERAGE_RULE
+        + override
         + "You are given a business's identity and its REAL photos (you can see them). Design a "
         f"{n_scenes}-scene reel that ADVERTISES this brand with the proven AD SPINE — the scenes MUST "
         "follow it in order:\n"
@@ -619,7 +707,8 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         "e.g. 'Shop the mist today'). The reel AUTO-APPENDS a branded end-card with the real logo, so "
         "DESCRIBE no text, button, or logo in the footage — Veo renders none; the caption carries the "
         "CTA words.\n"
-        "HARD RULE: by scene 2 a first-time viewer must know exactly WHAT BRAND, WHAT IT DOES, and WHAT "
+        + _spine_map(n_scenes)
+        + "HARD RULE: by scene 2 a first-time viewer must know exactly WHAT BRAND, WHAT IT DOES, and WHAT "
         "PRODUCT OR SERVICE this "
         "advertises — if not, the reel has FAILED. Anchor the WHOLE reel on ONE concrete hero product/"
         "offering (the product in REAL PHOTO index 0 when one is featured); do NOT narrate store "
@@ -780,6 +869,8 @@ def design_creative_reel(
     n_scenes: int = 6,
     language: Optional[str] = None,
     featured_product: Optional[str] = None,
+    # THE SIGNAL IS A RESOLVED PRODUCT, NOT A CATEGORY AND NOT A TYPED NAME.
+    product_ad: bool = False,
     caller=None,
     user_note: Optional[str] = None,
     photo_subjects: Optional[list[str]] = None,
@@ -880,7 +971,11 @@ def design_creative_reel(
     try:
         from poster.contracts import compliance_for
         resp, usage = caller(
-            _system_prompt(n_scenes, lang, _vertical_mode(profile), featured=featured_product,
+            _system_prompt(n_scenes, lang,
+                           _vertical_mode(profile, featured_product or "", product_ad=product_ad),
+                           featured=featured_product,
+                           product_known=bool(product_ad),
+                           product_ad=bool(product_ad),
                            compliance=compliance_for(_v(profile, "category")),
                            product_photo_anchored=bool(featured_product) and len(used) == 1,
                            register=register, locale_primer=_locale_primer(profile),

@@ -268,8 +268,19 @@ def test_featured_product_makes_the_whole_reel_one_product():
     p = _system_prompt(5, "en", "generic", featured="Rosemary Hair Oil",
                        product_photo_anchored=True)
     assert "Rosemary Hair Oil" in p
-    assert "SAME product" in p
-    assert "ALWAYS 0" in p                                    # every scene reuses the one seed photo
+    # OVERTURNED 2026-08-02 (Axis 1) AND MEASURED 2026-08-08. This used to assert that the
+    # anchored brief asks for the SAME product in every scene, from photo index ALWAYS 0.
+    # That brief asked a video model for four angles of a labelled pack — three live runs
+    # returned «SAV TAERMALE» for «EAU THERMALE» and «IODERMA» for BIODERMA at $2.40 each,
+    # and on the owner's Vichy link the director marked hero_product on ALL FOUR scenes, so
+    # every one composited to an insert and the "reel" was four motionless push-ins with
+    # ZERO generated footage. The contract now: the product is NEVER filmed, the film is
+    # about the person, and the real photograph is composited into one beat.
+    assert "WITHOUT EVER FILMING IT" in p, (
+        "the anchored brief no longer forbids filming the product")
+    assert "composited in post" in p
+    assert "ALWAYS 0" not in p, (
+        "the brief pins every scene to the packshot again — the four-inserts, no-footage reel")
     # featured but photo-less (a course/service): varied real photos, message-locked
     course = _system_prompt(5, "ar", "generic", featured="Fiber Course")
     assert "FEATURED OFFERING" in course and "ALWAYS 0" not in course

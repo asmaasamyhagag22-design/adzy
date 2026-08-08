@@ -542,7 +542,8 @@ def evaluate_reel_coherence(reel: Any, *, profile: Optional[dict] = None, featur
 # ------------------------------------------------------------------------------------------
 
 def plan_reel_gated(profile: dict, photos: list, *, n_scenes: int = 6, language: Optional[str] = None,
-                    featured_product: Optional[str] = None, caller: Any = None,
+                    featured_product: Optional[str] = None, product_ad: bool = False,
+                    caller: Any = None,
                     critic_caller: Any = None, user_note: Optional[str] = None,
                     photo_subjects: Optional[list] = None, images: Optional[list] = None,
                     max_rounds: int = 2, log=None) -> tuple[Any, CoherenceReport]:
@@ -554,7 +555,8 @@ def plan_reel_gated(profile: dict, photos: list, *, n_scenes: int = 6, language:
 
     def _author(fix_note=None):
         return design_creative_reel(profile, photos, n_scenes=n_scenes, language=language,
-                                    featured_product=featured_product, caller=caller,
+                                    featured_product=featured_product, product_ad=product_ad,
+                                    caller=caller,
                                     user_note=user_note, photo_subjects=photo_subjects,
                                     fix_note=fix_note)
 

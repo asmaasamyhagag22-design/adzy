@@ -195,3 +195,51 @@ def test_every_mode_the_router_can_return_has_guidance():
     for mode in ("service", "beauty", "elegant", "food", "generic"):
         assert mode in _MOTION_GUIDANCE, mode
         assert mode in _DELIVERY_EG, mode
+
+
+def test_a_stockist_directing_a_named_product_is_not_directed_as_a_stockist():
+    """MEASURED 2026-08-08 on the reel the owner asked for. She pasted a Vichy Dercos spray link,
+    and the prompt that reached the director carried BOTH of these:
+
+        "FEATURED OFFERING: … This reel advertises ONLY this offering — every line of copy is
+         about it"
+        "DO NOT build the film around one product being used. An ad that shows a customer using a
+         single item is an ad for that item's maker, not for the business that stocked it"
+
+    Two instructions in one message that cancel each other, and the stockist clause wins because it
+    is the more concrete. It is why these reels kept coming back about the PHARMACY.
+
+    The stockist rule is right for a BRAND reel. It cannot also govern a reel whose subject the
+    caller named.
+    """
+    from reel.creative_director import _system_prompt, _vertical_mode
+
+    pharmacy = _profile(category="ecommerce",
+                        description="online retailer of health and beauty products, skincare, "
+                                    "hair care, vitamins and pharmaceutical items")
+    pharmacy["catalog"] = [{"name": "Vichy Dercos Densi-Solutions", "url": "https://x/p/1",
+                            "image_url": "https://x/1.webp"}]
+
+    assert _vertical_mode(pharmacy) == "service", (
+        "a pharmacy with no named product is still a stockist — the brand reel is about the shop")
+    assert _vertical_mode(pharmacy, "Vichy Dercos Densi-Solutions Hair Mass Creator") != "service", (
+        "a named product must not be directed under the do-not-feature-one-product rule")
+
+    got = _system_prompt(4, "ar", _vertical_mode(pharmacy, "Vichy Dercos Densi-Solutions"),
+                         featured="Vichy Dercos Densi-Solutions")
+    assert "DO NOT build the film around one product being used" not in got, (
+        "the prompt still forbids the very thing it was asked to advertise")
+    assert "advertises ONLY this offering" in got, "the featured offering vanished from the brief"
+
+
+def test_a_clinic_featuring_its_own_service_stays_a_service():
+    """The stockist rule was never about a brand whose offering IS the service. A clinic has no
+    catalogue of goods, so naming one of its treatments must not turn it into a product ad."""
+    from reel.creative_director import _vertical_mode
+
+    clinic = _profile(category="clinic",
+                      description="a dermatology clinic offering laser and skin treatments")
+    clinic.pop("catalog", None)
+    assert _vertical_mode(clinic) == "service"
+    assert _vertical_mode(clinic, "Laser hair removal") == "service", (
+        "a clinic naming its own treatment is still a service brand")
