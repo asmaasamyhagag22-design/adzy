@@ -72,7 +72,18 @@ def _extract_frames(clip_path: "str | Path", n: int = 3) -> list[bytes]:
     p = Path(clip_path)
     if not p.is_file() or p.stat().st_size == 0:
         return []
-    # probe duration; fall back to sampling by frame if unknown
+    # MEASURE THE CLIP, DON'T ASSUME IT IS FOUR SECONDS. This used to seek `frac * 4.0`, a nominal
+    # length hardcoded when every clip really was 4s. On a 6-second clip that samples 0.4s / 2.0s /
+    # 3.6s and calls them start / middle / end — so the judge never saw the last third, which is
+    # exactly where a product vanishes or a face warps. Buying ceil'd clips (2026-08-01) makes 6s
+    # and 8s ordinary, so the assumption stopped being harmless.
+    try:
+        from reel.text_overlay import _probe_duration
+        span = float(_probe_duration(p) or 0.0)
+    except Exception:  # noqa: BLE001
+        span = 0.0
+    if span <= 0:
+        span = 4.0                       # unmeasurable: the old nominal, now a stated fallback
     fracs = [0.1, 0.5, 0.9][:max(1, n)]
     out: list[bytes] = []
     import tempfile
@@ -80,10 +91,10 @@ def _extract_frames(clip_path: "str | Path", n: int = 3) -> list[bytes]:
         try:
             with tempfile.TemporaryDirectory() as td:
                 dst = Path(td) / "f.jpg"
-                # -ss before -i is fast; use a fraction of a nominal 4s clip if seek overshoots,
-                # ffmpeg clamps to the last frame, which is exactly what we want for the tail.
+                # -ss before -i is fast; on an overshoot ffmpeg clamps to the last frame, which is
+                # exactly what we want for the tail.
                 subprocess.run(
-                    [ff, "-y", "-ss", f"{frac * 4.0:.2f}", "-i", str(p),
+                    [ff, "-y", "-ss", f"{frac * span:.2f}", "-i", str(p),
                      "-frames:v", "1", "-q:v", "4", str(dst)],
                     capture_output=True, timeout=30,
                 )

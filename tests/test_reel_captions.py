@@ -68,27 +68,35 @@ def test_edge_prosody_is_tone_driven_not_flat(monkeypatch):
 
 
 def test_dark_logo_becomes_white_knockout_for_the_reel_overlay():
-    # topshoes reel frame: the dark crest was invisible on dark footage. The broadcast
-    # watermark rule: a DARK logo ships as its white-knockout variant (same silhouette);
-    # a light logo passes through untouched.
-    import io as _io
+    """A dark, COLOURLESS crest still becomes a white silhouette — it is invisible otherwise.
+
+    `_knockout_if_dark` now returns (bytes, needs_plate) because the rule learned to see colour:
+    owner, 2026-08-02, «الفواتئد اللجو اتسحب منه الالوان». Al Fouad's mark is a RED heart with a
+    BLACK wordmark — luma 0.13, chroma 0.26 — so the old luminance-only rule flattened the brand's
+    own colours out of every frame of every reel.
+    """
+    import io
+
     from PIL import Image
+
     from reel.textlayer import _knockout_if_dark
 
-    def _logo(color):
-        im = Image.new("RGBA", (200, 80), (0, 0, 0, 0))
-        for x in range(10, 190):
-            for y in range(10, 70):
-                im.putpixel((x, y), (*color, 255))
-        b = _io.BytesIO(); im.save(b, format="PNG")
-        return b.getvalue()
+    def _png(rgb):
+        im = Image.new("RGBA", (40, 40), rgb + (255,))
+        b = io.BytesIO(); im.save(b, format="PNG"); return b.getvalue()
 
-    dark_out = _knockout_if_dark(_logo((25, 27, 48)))
-    im = Image.open(_io.BytesIO(dark_out)).convert("RGBA")
-    opaque = [p for p in im.getdata() if p[3] > 40]
-    assert opaque and all(p[0] > 240 for p in opaque)          # white variant
-    light = _logo((250, 250, 250))
-    assert _knockout_if_dark(light) is light                   # untouched
+    mono, plate = _knockout_if_dark(_png((20, 20, 22)))       # dark, no colour
+    assert plate is False
+    px = Image.open(io.BytesIO(mono)).convert("RGBA").getdata()[0]
+    assert px[0] > 200 and px[1] > 200, "a dark colourless crest must be knocked out"
+
+    coloured, plate = _knockout_if_dark(_png((190, 20, 30)))  # dark, strongly red
+    assert plate is True, "a coloured mark must ask for a plate instead of a knockout"
+    px = Image.open(io.BytesIO(coloured)).convert("RGBA").getdata()[0]
+    assert px[0] > 150 and px[1] < 80, "the brand's colour was destroyed"
+
+    light, plate = _knockout_if_dark(_png((240, 240, 240)))   # already light
+    assert light is not None and plate is False
 
 
 def test_arabic_dialect_is_an_option_not_a_hardcode(monkeypatch):

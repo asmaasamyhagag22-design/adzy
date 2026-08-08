@@ -88,6 +88,40 @@ def trends_of(brand: dict) -> list:
     return list(mirrored or []) if isinstance(mirrored, list) else []
 
 
+def market_signals_for(brand: dict) -> list:
+    """The brand's stored trend rows, filtered, in the shape `synthesize_swot(trends=…)` reads.
+
+    THE FILTER HAS TO RUN HERE, not only where trends are fetched. `trends.sources` learned to
+    reject shopping results — a place to BUY the category is not a statement ABOUT it — but every
+    row stored before that runs through this path unfiltered, and each one becomes an Opportunity.
+
+    MEASURED 2026-08-02 over the stored brands: of 22 "market signals", **3** were market signals.
+    The rest were an Amazon product page, a Carrefour category, «Dried Fruits» twice as a bare
+    label, two Instagram posts and a Facebook video — and they were the Opportunities column of a
+    client's SWOT. What survives is Statista and two market-research reports, which is what the
+    quadrant is for.
+
+    Rows are read, never re-fetched: fetching is a paid Serper call and the market has not moved
+    because we filtered it.
+    """
+    from types import SimpleNamespace
+    try:
+        from trends.sources import is_commerce_result
+    except Exception:  # noqa: BLE001 — no filter available -> hand them all over, never drop blind
+        def is_commerce_result(_t, _u):
+            return False
+    out = []
+    for r in (trends_of(brand) or []):
+        if not isinstance(r, dict):
+            continue
+        title, url = str(r.get("title") or ""), str(r.get("url") or "")
+        if not title or is_commerce_result(title, url):
+            continue
+        out.append(SimpleNamespace(title=title, url=url,
+                                   matched_terms=tuple(r.get("matched_terms") or ())))
+    return out
+
+
 def fetch_trends_for_brand(brand: dict) -> list:
     """Fetch this brand's market signals, standalone — no SWOT required."""
     return trend_rows(_trends_for(_profile_of(brand)))
@@ -329,7 +363,8 @@ def _social_themes_for(profile: dict) -> list:
         if isinstance(src, dict):
             src = src.get("value")
         slug = domain_key_from_url(str(src or ""))
-        path = Path("runs/social_snapshots") / f"{slug}_ig.json"
+        from social_intel.snapshot import default_snapshot_dir
+        path = default_snapshot_dir() / f"{slug}_ig.json"
         if not path.is_file():
             return []
         data = _json.loads(path.read_text(encoding="utf-8"))
@@ -429,6 +464,29 @@ def _items(items) -> list[dict]:
     return out
 
 
+def _headline_strength(strengths: list) -> str:
+    """The ONE line the client reads first — never a single customer's comment.
+
+    MEASURED on nanocare, and caught by an adversarial audit of a written record:
+    `main_advantage` was «شكرا جدا فرحتوني 💃🇪🇬» ("thank you so much, you made me happy"), quoted
+    from one Instagram comment, above a national food-safety registration sitting six lines down.
+
+    A customer's words are EVIDENCE FOR a strength, not the strength itself: "someone thanked us"
+    is not a company advantage, and the priority scorer ranks customer voice above own-site claims
+    (0.27 vs 0.12) on purpose — a real customer beats a self-description. That ordering is right
+    for the column and wrong for the headline, because the headline is a claim ABOUT THE BUSINESS.
+
+    So the headline skips customer-voice lines when any other strength exists, and falls back to
+    the top line when customer voice is all there is — an empty headline would be a worse lie.
+    """
+    if not strengths:
+        return ""
+    for row in strengths:
+        if "customer voice" not in str(row.get("reasoning") or "").lower():
+            return str(row.get("title") or "")
+    return str(strengths[0].get("title") or "")
+
+
 def _swot_to_frontend(swot) -> dict:
     quad = {
         "strengths": _items(swot.strengths),
@@ -451,7 +509,7 @@ def _swot_to_frontend(swot) -> dict:
         "mode": getattr(swot, "mode", "competitive"),
         "notes": list(getattr(swot, "notes", []) or []),
         "strategic_summary": {
-            "main_advantage": quad["strengths"][0]["title"] if quad["strengths"] else "",
+            "main_advantage": _headline_strength(quad["strengths"]),
             "top_opportunity": quad["opportunities"][0]["title"] if quad["opportunities"] else "",
             "top_confirmed_threat": quad["threats"][0]["title"] if quad["threats"] else "",
         },
@@ -471,17 +529,34 @@ def generate_swot(brand: dict) -> dict:
     yet keeps the old behaviour (the SWOT fetches for itself), so nothing is ever blocked on a
     stage the user has not run.
     """
-    from types import SimpleNamespace
-    existing = trends_of(brand)
-    handed = [SimpleNamespace(title=r.get("title", ""), url=r.get("url", ""),
-                              matched_terms=tuple(r.get("matched_terms") or ()))
-              for r in existing if isinstance(r, dict)] or None
+    handed = market_signals_for(brand) or None
     swot, _peers = _compute_swot(_profile_of(brand), trends=handed)
-    return {
+    # THE COMPETITORS WERE DISCOVERED AND THROWN AWAY ON THIS LINE. `_peers` was bound and never
+    # used, so a brand analysed through the DASHBOARD had `competitors == []` forever — the whole
+    # discovery pass ran, cost what it costs, and its result never left this function. Only the
+    # CLI path (`adopt_full_result`) ever wrote that field, so the panel could show a count of
+    # zero and nothing else.
+    #
+    # Stored under a separate key rather than overwriting `competitors`: that field is the OWNER's
+    # registry, which she curates by hand through /api/brands/{dk}/competitors, and a generated
+    # list must not silently replace a chosen one.
+    out = {
         "swot": _swot_to_frontend(swot),
         "_swot_raw": _swot_raw_dict(swot),   # asdict alone erased the trends it had just computed
         "has_swot": True,
     }
+    try:
+        found = []
+        for p in (_peers or []):
+            name = str(getattr(p, "name", "") or (p.get("name") if isinstance(p, dict) else ""))
+            url = str(getattr(p, "url", "") or (p.get("url") if isinstance(p, dict) else ""))
+            if name or url:
+                found.append({"name": name, "url": url})
+        if found:
+            out["discovered_competitors"] = found
+    except Exception:  # noqa: BLE001 — the SWOT is the deliverable; the peer list is a bonus
+        pass
+    return out
 
 
 # =====================================================================
@@ -511,13 +586,30 @@ def _swot_from_raw(raw: dict):
     MOVED out of the strategic quadrants on the owner's ruling and `_swot_to_frontend` carries them
     precisely so the move is honest rather than a deletion — and then this rebuild deleted them.
     """
-    from competitor.swot import SWOT, SWOTItem
+    from competitor.swot import Priority, SWOT, SWOTItem
+
+    def _one(i: dict):
+        item = SWOTItem(text=i.get("text", ""), citation=list(i.get("citation", []) or []),
+                        evidence=i.get("evidence", ""),
+                        claim_strength=i.get("claim_strength", "internally_supported"))
+        # ID AND PRIORITY TRAVEL TOO. This rebuilt four fields, so every path through it — the
+        # CLI→dashboard bridge `adopt_full_result`, the strategy builder, the plan builder — threw
+        # away the ranking the analysis had just computed AND the stable handle TOWS anchors on.
+        # `SWOTItem.id` exists precisely because TOWS used to derive S1/W2/O1 from list POSITION;
+        # dropping the id here re-creates that bug one layer up, silently, on adoption.
+        item.id = str(i.get("id") or "")
+        item.peers_compared = int(i.get("peers_compared") or 0)
+        p = i.get("priority")
+        if isinstance(p, dict):
+            try:
+                fields = getattr(Priority, "__dataclass_fields__", {})
+                item.priority = Priority(**{k: v for k, v in p.items() if k in fields})
+            except Exception:  # noqa: BLE001 — a priority that will not rebuild is dropped, not faked
+                item.priority = None
+        return item
 
     def _mk(items):
-        return [SWOTItem(text=i.get("text", ""), citation=list(i.get("citation", []) or []),
-                         evidence=i.get("evidence", ""),
-                         claim_strength=i.get("claim_strength", "internally_supported"))
-                for i in (items or [])]
+        return [_one(i) for i in (items or []) if isinstance(i, dict)]
 
     swot = SWOT(
         strengths=_mk(raw.get("strengths")), weaknesses=_mk(raw.get("weaknesses")),
@@ -759,21 +851,23 @@ def social_performance_for(profile: dict) -> dict:
     billing. Returns {} for a brand with no snapshot — the honest "we have not collected it".
     """
     try:
-        import json as _json
-        from pathlib import Path
-
         from scripts.pull_instagram_apify import signals_from_apify_items
         from social_intel.performance import creative_lessons, top_performers
+        from social_intel.snapshot import load_ig_snapshot, snapshot_path_for
 
-        from api.brand_translate import domain_key_from_url
-        src = (profile or {}).get("source_url")
-        if isinstance(src, dict):
-            src = src.get("value")
-        path = Path("runs/social_snapshots") / f"{domain_key_from_url(str(src or ''))}_ig.json"
-        if not path.is_file():
+        path = snapshot_path_for(profile)
+        if path is None or not path.is_file():
             return {}
-        data = _json.loads(path.read_text(encoding="utf-8"))
-        rep = top_performers(signals_from_apify_items(data.get("items") or []))
+        # Accepts BOTH snapshot shapes. Two different pullers write this filename — Apify's
+        # `{"items": …}` and the Graph API's `{"media": …}` — and every reader here understood
+        # only the first, so a Graph-shaped file read as "this brand has no social presence".
+        rows, meta = load_ig_snapshot(path)
+        if not rows:
+            return {}
+        # LABEL THE ROWS. Without `is_own_brand`, `performance.py` files the brand's OWN posts
+        # under `peers` and the lessons layer calls them "a competitor's top post".
+        rep = top_performers(signals_from_apify_items(
+            rows, is_own_brand=True, brand_ref=str(meta.get("username") or "")))
         if not rep.checked:
             # Say WHY rather than returning an empty dict that reads as "nothing works here".
             return {"checked": False, "reason": rep.reason}
@@ -783,5 +877,12 @@ def social_performance_for(profile: dict) -> dict:
             "peers": [p.model_dump() for p in rep.peers],
             "lessons": creative_lessons(rep),
         }
-    except Exception:  # noqa: BLE001 — engagement is a bonus, never a dependency
-        return {}
+    except Exception as exc:  # noqa: BLE001 — engagement is a bonus, never a dependency
+        # SAY WHY. This used to `return {}`, which the caller renders as "we never collected this
+        # brand's social" — indistinguishable from a snapshot that IS on disk and an import that
+        # blew up reading it. MEASURED 2026-08-01: the function returned `checked: True` with 15
+        # ranked posts when called directly, and `{}` through the route, and the swallow was the
+        # only reason that difference had nowhere to show. An error is a THIRD state.
+        logger.exception("social_performance_for failed")
+        return {"checked": False, "reason": f"could not read the snapshot ({type(exc).__name__}: "
+                                            f"{str(exc)[:160]})"}

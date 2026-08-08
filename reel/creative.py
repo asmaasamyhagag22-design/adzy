@@ -23,6 +23,13 @@ from poster.schemas import PosterBrief
 from .compositor import render_reel
 from .creative_director import CreativeReel, design_creative_reel
 from .from_profile import is_rtl
+# MODULE-LEVEL, and the reason is the bug class this repo has already paid for twice (the missing
+# `os` in reel/__main__.py, the missing `logger` in reel/endcard.py): these were imported inside
+# the beat-grid `try`, and two callers further down the SAME function use them. A grid failure
+# would leave the names unbound and turn a degraded tempo into a NameError mid-render.
+from .runtime import (
+    DEFAULT_RUNTIME_S, endcard_tail_s, fit_to_runtime, narration_fit, picture_budget_s,
+)
 from .schemas import ReelScene, Storyboard
 from .video_provider import VideoProvider
 from .voiceover import synth_voiceover
@@ -57,11 +64,29 @@ def _motion_directive(scene, *, look: str = "") -> str:
                 "Only the camera moves (slow push-in or gentle orbit) and any person moves "
                 "naturally around the still pack.")
     else:
-        base = ("Free, dynamic, cinematic motion. NO readable text, labels, logos, screens or "
-                "signage anywhere in the frame at any point.")
-    if str(look or "").strip():
-        base += f"\nTHE LOOK (identical in every shot of this film): {look.strip()}"
-    return base
+        # THE TEXT BAN LIVES IN ONE PLACE NOW. `compositor._NO_TEXT` rides every prompt — this
+        # said the same thing a second time, in a second wording, in the same request. Two
+        # statements of one rule do not double it; they take the space the SCENE needed. MEASURED
+        # 2026-08-06: only 21% of what reached Veo was the shot the director wrote.
+        base = "Free, dynamic, cinematic motion."
+    return base + _look_clause(base, look)
+
+
+_LOOK_MARK = "THE LOOK (identical in every shot of this film):"
+
+
+def _look_clause(existing: str, look: str) -> str:
+    """The look sentence, or "" when there is nothing to say or it is already said.
+
+    Split out of `_motion_directive` so the APPROVED (verbatim) path can carry the look without
+    carrying the motion contract with it — the two used to be one string, which is why an approved
+    plan silently lost its look lock. Idempotent: an owner who wrote the look into her own prompt
+    is not given it twice, and re-running the builder on an already-built prompt is a no-op.
+    """
+    text = str(look or "").strip()
+    if not text or _LOOK_MARK in str(existing or "") or text in str(existing or ""):
+        return ""
+    return f"\n{_LOOK_MARK} {text}"
 
 
 def _product_asset(profile: Optional[dict], scene, real: Optional[str]) -> Optional[str]:
@@ -126,7 +151,8 @@ def build_creative_storyboard(reel: CreativeReel, brief: PosterBrief,
                               seeds: Optional[list] = None,
                               profile: Optional[dict] = None,
                               verbatim_prompts: bool = False,
-                              look: str = "") -> Storyboard:
+                              look: str = "",
+                              hero_product_url: str = "") -> Storyboard:
     """Map an Opus CreativeReel onto the render Storyboard. Each scene carries its
     real-photo seed + Opus's Veo prompt.
 
@@ -139,6 +165,21 @@ def build_creative_storyboard(reel: CreativeReel, brief: PosterBrief,
         captions = os.environ.get("REEL_CAPTIONS", "").lower() in ("on", "1", "true")
     scenes: list[ReelScene] = []
     n = len(reel.scenes)
+    # ONE PRODUCT BEAT, AND IT IS THE LAST ONE. Since Axis 1, a scene marked `hero_product` is not
+    # generated at all — it is COMPOSITED from the brand's own photograph, a motionless push-in on
+    # a packshot. That is the right shot to end an ad on and the wrong thing to build one out of.
+    #
+    # MEASURED 2026-08-08 on the owner's Vichy link: with a featured product the director marked
+    # hero_product on ALL FOUR scenes, so the whole film resolved to four static inserts and no
+    # generated footage — a slideshow, one message after she asked for «كله يبقا veo». The
+    # director's brief now asks for one; this GUARANTEES it, because a prompt is a request and the
+    # compositor needs a fact. A mid-film mark is dropped, not honoured.
+    _marked = [i for i, sc in enumerate(reel.scenes) if bool(getattr(sc, "hero_product", False))]
+    _hero_beat = (n - 1) if n > 1 else (0 if _marked else -1)
+    if len(_marked) > 1 or (_marked and _marked != [_hero_beat]):
+        logger.info("[reel] the director marked %d product beat(s) %s — Axis 1 composites every "
+                    "one of them, so only the last beat (%d) stays a product shot; the rest are "
+                    "filmed as human moments", len(_marked), _marked, _hero_beat)
     for idx, s in enumerate(reel.scenes):
         real = reel.images[s.image_index] if 0 <= s.image_index < len(reel.images) else None
         seed, place_ref = real, None
@@ -177,12 +218,56 @@ def build_creative_storyboard(reel: CreativeReel, brief: PosterBrief,
         # the generator must be told to leave its place empty, or the shot carries a garbled
         # invented box underneath a real one.
         _asset = _product_asset(profile, s, real)
+        # THE FILM ENDS ON THE PRODUCT, and that shot is the one we render ourselves.
+        #
+        # The ad spine already asks the LAST scene for "a clean, HELD hero shot of the product" —
+        # a still subject, a locked camera, the name legible. That is the single worst thing to
+        # ask a video model for (it repaints the label every frame; see `_product_asset` for the
+        # measured cost) and the single easiest thing to render from the brand's own photograph.
+        # So the last beat becomes an INSERT when a real packshot exists, and stays a generated
+        # scene when none does — a service brand with no product image simply never gets one.
+        # AXIS 1 (owner, 2026-08-02): «ممنوع منعاً باتاً تطلبي من Veo إنه يظهر المنتج».
+        #
+        # It was only the LAST beat. Any OTHER scene the director marked `hero_product` was left
+        # to the generator, on a 2026-07-27 A/B that found a protected label beat a blanket ban.
+        # Three live runs today overturned it, and the verdicts are in the audit trail: «the
+        # advertised product is completely absent from the generated clip» (twice), «the product
+        # label is rendered with garbled, illegible text», «SAV TAERMALE» for «EAU THERMALE»,
+        # «IODERMA» for BIODERMA. A diffusion model cannot hold a registered label, and every
+        # attempt cost $2.40 and failed its own gate.
+        #
+        # So EVERY product beat is composited from the brand's own photograph, and the generator
+        # only ever shoots lifestyle. The one shot that came back right in all three runs was the
+        # insert — because nothing generated it.
+        _insert: list[str] = []
+        _is_product_beat = (idx == _hero_beat)
+        if _is_product_beat:
+            from .insert_shot import product_candidates
+            _insert = product_candidates(profile, hero_url=hero_product_url)
+        if _insert:
+            # An insert is not bound by the video model's 4-second minimum — nothing is being
+            # generated — so it holds only as long as the beat needs: its own designed length, or
+            # long enough to speak the CTA, whichever is greater. Three seconds of a motionless
+            # pack is where a 15-second film goes to die.
+            from .insert_shot import INSERT_S
+            dur = max(INSERT_S, round(0.3 + vo_words / 2.2, 2) if vo_words else 0.0,
+                      1.5 + 0.35 * words if cap else 0.0)
         scenes.append(ReelScene(
             kind=kind,
             duration_s=round(dur, 2),
             # HITL law: an APPROVED plan renders VERBATIM — the motion contract is only
             # appended to prompts the DIRECTOR just wrote (verbatim_prompts=False).
-            visual_prompt=(str(s.veo_prompt or "") if verbatim_prompts
+            #
+            # THE LOOK IS NOT PART OF THAT LAW. `verbatim` protects the owner's CREATIVE choices:
+            # what happens in the shot, how it moves, what the copy says. The look lock is a
+            # TECHNICAL constraint — "every shot of this film is lit and graded the same way" —
+            # and dropping it turned an approved plan into a film shot in four different rooms
+            # under four different lights. `compositor.py`'s `_NO_TEXT` already sets this
+            # precedent: it rides every prompt, approved or not, because a text ban is not a
+            # creative opinion either. `_look_clause` no-ops when the prompt already carries it,
+            # so an owner who edited the look by hand keeps her edit.
+            visual_prompt=(str(s.veo_prompt or "") + _look_clause(str(s.veo_prompt or ""), look)
+                           if verbatim_prompts
                            else str(s.veo_prompt or "").rstrip() + "\n"
                                 + _motion_directive(s, look=look)
                                 + _composited_product_guard(bool(_asset))),
@@ -190,6 +275,7 @@ def build_creative_storyboard(reel: CreativeReel, brief: PosterBrief,
             place_ref_url=place_ref,
             product_asset_url=_asset,   # Phase D: real screen/photo to composite
             product_placement=(s.product_overlay or "").strip(),
+            insert_product_urls=_insert,
             headline=headline,
             cta_text=cta_text,
             source_field="creative",
@@ -238,11 +324,39 @@ def render_creative_reel(
     featured_product: Optional[str] = None,
     plan_override: Optional[dict] = None,
     photo_subjects: Optional[list[str]] = None,
+    # THE DELIVERED LENGTH, threaded rather than assumed. The CLI had it (`--max-seconds`) and the
+    # API had it (`max_seconds`), and neither reached the only function that decides how long the
+    # cuts are — so the format was a flag that governed the SCENE COUNT and nothing else.
+    max_seconds: float = DEFAULT_RUNTIME_S,
+    # THE ITEM THE OWNER NAMED — Axis 1's product selector. She pastes a product link and the film
+    # is about THAT product: the insert cuts to its real packshot instead of whichever catalogue
+    # entry happened to rank first. Empty keeps the catalogue's own order, i.e. every existing
+    # caller is unchanged.
+    hero_product_url: str = "",
 ):
     """Full creative pipeline. Returns (render_result, creative_reel) or (None, None)
     when Opus could not design a reel (caller falls back to the normal storyboard).
     `featured_product` (set when the user picked one) makes the WHOLE reel about that item.
     `photo_subjects` (aligned to `photos`) tells the director what each photo depicts."""
+    # A PASTED LINK NAMES THE PRODUCT TOO, not just the packshot. `hero_product_url` reached the
+    # INSERT and stopped there, while the director was briefed from `featured_product` — a separate
+    # argument, a separate CLI flag. So a link with no `--product-name` produced a film about the
+    # pharmacy in general with the right bottle glued to the last beat: the voice-over never named
+    # it, and the `sfx` lines never asked for the one sound the picture is about (a spray).
+    #
+    # Both now read the SAME resolver, so the film and its insert cannot be about different items.
+    # An explicit `featured_product` still wins — a caller who typed a name meant it.
+    if hero_product_url and not featured_product:
+        try:
+            from .insert_shot import hero_product_facts
+            _hf = hero_product_facts(profile, hero_product_url)
+            if _hf.get("name"):
+                featured_product = _hf["name"]
+                logger.info("[reel] the film is about the pasted product: %s",
+                            featured_product[:70])
+        except Exception:  # noqa: BLE001 — an unnamed hero still gets its packshot in the insert
+            pass
+
     # HITL (owner law 2026-07-12): a user-APPROVED plan replaces the director call
     # verbatim; every downstream gate (plan_eval, scene_qa, grounding) still runs on it.
     # HITL SANCTITY (owner, 2026-07-12 — "you wrote a prompt that was never executed"): a
@@ -357,6 +471,18 @@ def render_creative_reel(
                 _look = look_lock(brand_dna=_dna, profile=profile)
             except Exception:  # noqa: BLE001
                 _look = ""
+            # AND THE GRADE THAT MATCHES IT, resolved from the SAME dna and profile in the SAME
+            # place. `reel/grade.py` opens by saying why: "if the two ever disagreed, a film would
+            # be shot one way and graded another." It has been complete, tested and unreachable
+            # since it was written — no production module imported it, so every clip shipped
+            # exactly as the generator returned it. MEASURED across 48 rendered reels, per shot
+            # with cuts detected and the end-card excluded: median luma spread between shots of
+            # the same film = 90 of 255, sigma_luma = 35.
+            try:
+                from reel.grade import grade_filter
+                _grade = grade_filter(brand_dna=_dna, profile=profile)
+            except Exception:  # noqa: BLE001 — a film with no grade beats a render that dies
+                _grade = ""
             # THE UNGATED REFERENCE POOL — the fix for «فين المنتجات»: when the display gate
             # rejects every photo, real brand imagery still reaches the stills as conditioning.
             _pool: list = []
@@ -410,28 +536,94 @@ def render_creative_reel(
 
     storyboard = build_creative_storyboard(creative, brief, seeds=seeds, profile=profile,
                                            verbatim_prompts=bool(plan_override),
-                                           look=locals().get("_look", "") or "")
+                                           look=locals().get("_look", "") or "",
+                                           hero_product_url=hero_product_url)
 
-    # DEAD-TAIL FIT (owner, twice: "الكلام خلص من 10 ثواني والفيديو مكمل"): the video's
-    # total must track the SURVIVING speech (post-grounding). Estimate the read at the
-    # same natural pace the pacing stretch uses, and SHRINK scenes proportionally when
-    # the video would outlive the narration by more than ~2s (2.0s per-scene floor).
+    # THE COPY IS MEASURED AGAINST THE FORMAT — it no longer bends the format to fit itself.
+    #
+    # This block used to SHRINK the film to `speech + 2s` (owner, twice: «الكلام خلص من 10 ثواني
+    # والفيديو مكمل»). It was the right instinct against the wrong cause. The film outlived its
+    # narration because nothing owned the delivered length, so the only lever anyone had was to
+    # cut the picture down to whatever the copy happened to be — which is how a fifteen-second
+    # format shipped at 9.40s and 11.00s (MEASURED, `web_reel_f3815e3b` and `alfouad_v2_rev`).
+    #
+    # `fit_to_runtime` below now owns the length, and it is the length the owner asked for. So the
+    # shortfall is REPORTED rather than absorbed: a film whose script does not fill its format is a
+    # WRITING problem, and shortening the ad is not this function's decision to make. The two
+    # defects that produced the original complaint are both closed elsewhere — the picture now
+    # CUTS instead of holding (`reel/cinematic.py`) and the sound bed carries the whole film
+    # including the logo (`reel/runtime.py`), so a beat without narration is scored, not silent.
     if with_voiceover:
         _lines = [(s_.voiceover or "").strip() for s_ in creative.scenes]
-        _words = sum(len(l.split()) for l in _lines if l)
-        _n = sum(1 for l in _lines if l)
-        if _words:
-            speech_est = _words / 2.2 + 0.4 * max(0, _n - 1) + 0.5
-            total = storyboard.total_duration_s or 0.0
-            target = speech_est + 2.0
-            if total > target > 0:
-                scale = target / total
-                for sc_ in storyboard.scenes:
-                    sc_.duration_s = round(max(2.0, sc_.duration_s * scale), 2)
-                storyboard.total_duration_s = round(
-                    sum(s_.duration_s for s_ in storyboard.scenes), 2)
-                print(f"[reel] dead-tail fit: video {total:.1f}s -> "
-                      f"{storyboard.total_duration_s:.1f}s (speech ~ {speech_est:.1f}s)")
+        _speech, _note = narration_fit(
+            sum(len(l.split()) for l in _lines if l),
+            sum(1 for l in _lines if l),
+            picture_budget_s(max_seconds, with_endcard=include_logo))
+        if _note:
+            print(f"[reel] narration: {_note}", file=__import__("sys").stderr)
+        elif _speech:
+            print(f"[reel] narration ~{_speech:.1f}s over a "
+                  f"{picture_budget_s(max_seconds, with_endcard=include_logo):.1f}s picture")
+
+    # THE BEAT GRID — and this must be the LAST thing that touches a duration.
+    #
+    # The dead-tail fit above multiplies every scene by a scalar, and a scaled beat multiple is not
+    # a beat multiple. Quantising before it would be silently undone; quantising here is the only
+    # correct order. See `reel/tempo.py` for why the tempo is DERIVED (we synthesize the bed, so we
+    # are the composer) and why cumulative starts are snapped rather than individual lengths.
+    #
+    # The floors are the legibility contracts the owner has rejected a reel over twice — a caption
+    # must stay long enough to READ and a line long enough to SAY. They win; the grid may only ever
+    # round UP against them.
+    _beat = None
+    try:
+        from reel.insert_shot import INSERT_S
+        from reel.tempo import beat_grid_for_brand
+        _beat = beat_grid_for_brand(brand_dna=locals().get("_dna"), profile=profile)
+        # THE FLOORS ARE LEGIBILITY, NOT PURCHASE SIZE. The video model's 4-second minimum governs
+        # what we BUY (`video_provider.py` ceils to 4/6/8) and says nothing about what we CUT —
+        # that separation is the whole point of buying coverage. Using 4.0 here re-coupled them and
+        # undid the dead-tail fit: a film correctly shortened to 8.8s to match its narration was
+        # pushed back to 12.6s of silence at the end.
+        #
+        # What may not be broken is what the owner has rejected a reel over twice: a line must have
+        # time to be SAID and a caption time to be READ.
+        _floors = []
+        for _i, _sc in enumerate(storyboard.scenes):
+            _vo = (creative.scenes[_i].voiceover or "").strip() if _i < len(creative.scenes) else ""
+            _cap = (_sc.headline or _sc.cta_text or "")
+            _floors.append(max(
+                0.3 + len(_vo.split()) / 2.2 if _vo else 0.0,
+                1.5 + 0.35 * len(_cap.split()) if _cap else 0.0,
+                INSERT_S if _sc.insert_product_urls else 1.0,   # the schema's own lower bound
+            ))
+        _before = [s_.duration_s for s_ in storyboard.scenes]
+        # THE RUNTIME IS A NUMBER THE FILM LANDS ON, not one it starts from.
+        #
+        # `quantise` alone may only ever round UP against the legibility floors, so the film grew
+        # past its format on every run — and the end card was never in the budget at all, so what
+        # shipped was `budget + 2.1s`. MEASURED across four delivered reels: 15.30 / 16.69 / 11.00 /
+        # 9.40, for a format the owner names as fifteen seconds. `fit_to_runtime` keeps the same
+        # precedence (floors > total > beat) and reconciles the total instead of ignoring it; see
+        # `reel/runtime.py`. A film that cannot be fitted says so rather than running long.
+        _budget = picture_budget_s(max_seconds, with_endcard=include_logo)
+        _after, _fit_note = fit_to_runtime(_before, _floors, _beat.beat_s, _budget)
+        for _sc, _d in zip(storyboard.scenes, _after):
+            _sc.duration_s = _d
+        storyboard.total_duration_s = round(sum(_after), 3)
+        print(f"[reel] beat grid: {_beat.reason}, beat {_beat.beat_s:.3f}s — "
+              f"cuts quantised, {sum(_before):.2f}s -> {sum(_after):.2f}s "
+              f"(picture budget {_budget:.2f}s"
+              + (f" + {endcard_tail_s():.1f}s end card = {max_seconds:.1f}s delivered"
+                 if include_logo else " , no end card")
+              + ")")
+        if _fit_note:
+            print(f"[reel] runtime: {_fit_note}", file=__import__("sys").stderr)
+    except Exception as _e:  # noqa: BLE001 — an unquantised film beats a render that dies
+        import sys as _sys
+        print(f"[reel] beat grid unavailable ({type(_e).__name__}: {_e}) — cuts NOT quantised",
+              file=_sys.stderr)
+        _beat = None
 
     vo_path = None
     if with_voiceover:
@@ -492,7 +684,56 @@ def render_creative_reel(
     # music is supplied, synthesize a mood-tuned bed + the plan's authored per-scene sfx (whoosh /
     # impact / chime) so the sound follows the story arc and no scene is dead air. Free ffmpeg synth;
     # the compositor ducks it under the VO. Best-effort — a synth failure just leaves today's behavior.
+    # THE SYNTH BED IS OFF (owner, 2026-08-02: «امسح صوت veo لانه بشع… واظبط صوت 11لاب»).
+    #
+    # MEASURED before touching anything: Veo's own audio never reaches the file — the per-scene
+    # normalise maps `[v]` only, and the mux takes `0:v` from a concat that has no audio track at
+    # all. So the machine sound she heard could only be OURS: `synth_sound_bed`, an ffmpeg-
+    # generated whoosh/pulse/chime bed. Naming it Veo was the wrong suspect; the sound was real.
+    #
+    # The film now carries the ElevenLabs voice alone. A silent bed is not a missing feature —
+    # a real commercial is voice over picture, and a synthesised whoosh on every cut is the
+    # single loudest tell that nobody scored this film.
+    # THE EFFECTS ARE REAL NOW (owner, 2026-08-03: «استعمل كل قوة 11LAB… حتى لو عايز تعمل أصوات
+    # الرش، كل ده 11 لاب»). The ffmpeg synth bed stays off — it is what she called «بشع» — and the
+    # director's own `sfx` lines are fetched from ElevenLabs `/v1/sound-generation` instead.
+    # MEASURED before wiring: POST returns 200 audio/mpeg on this account.
+    #
+    # Nothing generic is invented: an effect exists only because a SCENE asked for a sound that
+    # happens in it, which is the difference between scoring a film and putting music under it.
     if music_path is None:
+        try:
+            from .sfx_eleven import available as _sfx_ok, bed_from_beats
+            if _sfx_ok():
+                # THE CUE TIMES MUST BE ON THE DELIVERED TIMELINE, not on the sum of the scenes.
+                # `compositor._crossfade` OVERLAPS each join by `_SWEEP_S`, so on the file that
+                # ships, scene i starts `i * _SWEEP_S` EARLIER than its cumulative duration and the
+                # film is `(N-1) * _SWEEP_S` shorter overall. Laying effects on the raw sums put
+                # every spray progressively later than the hand that pressed the nozzle — and the
+                # last cue past the final frame, where `bed_from_beats` drops it. Same arithmetic
+                # as the compositor, read from the same constant, so the two cannot drift apart.
+                from .compositor import _SWEEP_S
+                _starts, _acc = [], 0.0
+                for _i, _s in enumerate(storyboard.scenes):
+                    _starts.append(max(0.0, _acc - _i * _SWEEP_S))
+                    _acc += float(getattr(_s, "duration_s", 0.0) or 0.0)
+                _acc = max(0.1, _acc - max(0, len(storyboard.scenes) - 1) * _SWEEP_S)
+                _cues = [(_starts[i], (creative.scenes[i].sfx or "").strip())
+                         for i in range(min(len(_starts), len(creative.scenes)))
+                         if (creative.scenes[i].sfx or "").strip()]
+                if _cues:
+                    _b = bed_from_beats(_cues, Path(out_path).with_suffix(".sfx.m4a"),
+                                        total_s=_acc,
+                                        work_dir=Path(out_path).parent / "_sfx")
+                    if _b:
+                        music_path = _b
+                        logger.info("[reel] %d ElevenLabs effect(s) laid on the timeline",
+                                    len(_cues))
+        except Exception:  # noqa: BLE001 — a quieter reel, never a failed one
+            logger.exception("[reel] ElevenLabs effects unavailable; continuing without them")
+
+    _BED_OFF = True
+    if music_path is None and not _BED_OFF:
         try:
             from .sound import synth_sound_bed
             starts, acc = [], 0.0
@@ -503,9 +744,34 @@ def render_creative_reel(
                          for i in range(min(len(starts), len(creative.scenes)))
                          if (creative.scenes[i].sfx or "").strip()]
             mood = (creative.sound_design or creative.music_mood or "")
+            # `starts` are already ON the grid (they are cumulative sums of the quantised
+            # durations), so the whooshes land on the beat with no extra arithmetic — and the
+            # pulse below gives the listener the grid those cuts are landing on. Cutting to a
+            # silence is a claim; cutting to something audible is an edit.
+            # THE LENGTH THE FILM ACTUALLY IS, not the length a field remembers.
+            #
+            # This read `storyboard.total_duration_s or acc` — a STORED field, where `acc` two
+            # lines above is the sum of the very durations the compositor is about to cut to. When
+            # the two disagree the bed is written for a film that does not exist.
+            #
+            # MEASURED 2026-08-02 on the Al Fouad reel: the picture ran 13.03s and the audio 15.46s
+            # — the owner heard it as «الصوت خلص بدري» and the last 3.29 seconds were dead silence
+            # over a frozen frame. `acc` is Σ scene durations by construction, so it cannot drift
+            # from what gets rendered; the stored total can, and did.
+            # THE MUSIC HAS TO SURVIVE THE LOGO. `append_endcard_to_reel` feeds the card an
+            # `anullsrc` and cross-fades the reel's audio into it, so the last beat of every film
+            # this pipeline has ever shipped is SILENCE under a static card. MEASURED: alfouad_run3
+            # goes quiet at 12.73s of 15.30s, nanocare_film at 10.40s of 16.69s — which is what the
+            # owner heard as «الصوت خلص بدري».
+            #
+            # A commercial resolves the other way round: the track lands ON the end frame, and the
+            # logo arrives with the last beat. So the bed is written LONG ENOUGH TO COVER THE CARD,
+            # and the card is given that tail instead of silence.
+            _tail = endcard_tail_s() if include_logo else 0.0
             bed = synth_sound_bed(Path(out_path).with_suffix(".bed.m4a"),
-                                  storyboard.total_duration_s or acc,
-                                  cut_times=starts[1:], mood=mood, sfx_beats=sfx_beats)
+                                  (acc or storyboard.total_duration_s) + _tail,
+                                  cut_times=starts[1:], mood=mood, sfx_beats=sfx_beats,
+                                  bpm=(_beat.bpm if _beat else None))
             if bed:
                 music_path = str(bed)
                 logger.info("[reel] sound bed synthesized (mood=%r, %d sfx beats)",
@@ -518,5 +784,18 @@ def render_creative_reel(
         scale=scale, include_logo=include_logo,
         music_path=music_path, voiceover_path=vo_path,
         qa_caller=qa_caller, qa_product_hint=featured_product, qa_reference_image=qa_ref,
+        # The music's fade belongs at the END OF THE DELIVERED FILM, not at the end of the
+        # PICTURE — otherwise it dips out just before the card it is supposed to land on.
+        music_tail_s=(endcard_tail_s() if include_logo else 0.0),
+        # THE SAME PERSON IN EVERY SHOT. `_face` is the brand's SELECTED presenter, already
+        # resolved above for the seed generator — it was reaching the stills and stopping there,
+        # so Veo re-invented the protagonist from the prompt on every clip. `locals().get` for the
+        # same reason as `_look` and `_grade`: REEL_SEED_MODE=real skips the block that binds it,
+        # and no presenter is an honest outcome rather than a guessed one.
+        identity_refs=([locals().get("_face")] if locals().get("_face") else None),
+        # `locals().get` because `_grade` is bound inside the generated-seeds block, exactly like
+        # `_look` above it — REEL_SEED_MODE=real skips that block entirely and there is then no
+        # brand grade to apply, which is the honest outcome rather than a guessed one.
+        grade=locals().get("_grade", "") or "",
     )
     return result, creative

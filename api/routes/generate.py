@@ -240,3 +240,45 @@ def calendar_generate_image(req: CalendarImageRequest, user: dict = Depends(requ
     return {"image_url": url, "is_preview": out["is_preview"],
             "degraded_reason": out["degraded_reason"],
             "trust_violation": out["trust_violation"], "trust_note_ar": out["trust_note_ar"]}
+
+
+# --- The reel, on the dashboard's own auth ---
+#
+# WHY THIS EXISTS. The SPA's reel button posts to `/api/reel/from-profile`, which is mounted behind
+# `require_api_key` (main.py:227) — a MACHINE credential. The SPA's `api()` helper only ever sends
+# `Authorization: Bearer`, so with `BASEERA_API_KEY` configured the button returns 401 and the
+# frontend's own error handler converts that into "Session expired" and LOGS THE USER OUT. Mid-demo.
+#
+# Today the key is not set, so `auth.py:57` falls to the loopback branch and the button works on the
+# owner's laptop. That is luck, not design: the moment anyone sets the key — which is exactly what
+# deploying properly means — the branch at `auth.py:54` is taken and it does NOT look at loopback.
+#
+# The fix is the one the rest of the dashboard already uses: a JWT-gated route beside every other
+# paid webapp action, sharing `require_spend_budget` with them. `/api/reel/*` stays as the API-key
+# surface for machine callers; sending the paid key to the browser instead would publish it to
+# every visitor.
+class ReelRequest(BaseModel):
+    domain_key: str
+    language: str = "auto"          # "ar" | "en" | "auto"
+    max_seconds: float = 15.0       # the format the owner named; the scene count follows from it
+    n_scenes: int = 5               # a CEILING — the route derives the real count
+    product_url: str = ""           # paste a product page; the film is built around THAT item
+
+
+@router.post("/reel")
+def reel(req: ReelRequest, user: dict = Depends(require_user)) -> dict:
+    """Render a reel for a stored brand. Same engine as `/api/reel/from-profile`, dashboard auth."""
+    from reel.schemas import ReelFromProfileRequest
+
+    from .reel import create_reel_from_profile
+
+    brand = _brand_or_404(req.domain_key, user["id"])
+    profile = brand.get("_profile") or {}
+    if not profile:
+        raise HTTPException(status_code=409,
+                            detail="This brand has no stored profile to direct a reel from.")
+    out = create_reel_from_profile(ReelFromProfileRequest(
+        profile=profile, language=req.language,
+        max_seconds=req.max_seconds, n_scenes=req.n_scenes,
+        hero_product_url=req.product_url))
+    return out.model_dump() if hasattr(out, "model_dump") else out

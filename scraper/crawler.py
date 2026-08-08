@@ -38,6 +38,7 @@ from .config import (
     TWO_PHASE_IMAGE_FETCH,
     VIEWPORT_HEIGHT,
     VIEWPORT_WIDTH,
+    scrapes_root,
 )
 from .classify.page_type import classify_homepage, classify_url, is_leaf_detail, is_product_detail  # noqa: F401
 from .errors import ErrorCode
@@ -660,7 +661,7 @@ def _process_fetched_page(
 # Top-level scrape entry point
 # ---------------------------------------------------------------------
 
-def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
+def scrape(input_url: str, output_root: str = "", *, light: bool = False,
            thorough: bool = False) -> tuple[ScrapeManifest, Path]:
     """Scrape one business URL and return (manifest, output_dir).
 
@@ -674,6 +675,11 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
     thorough=True: restore the OLD load-every-homepage-image behaviour (disables the two-phase
     below-fold image-byte block). The default is the lighter two-phase footprint (owner ruling).
     """
+    # ONE RESOLVER FOR THE CORPUS ROOT. `""` (the default) means "wherever the config says",
+    # which is `scrapes` unless BASEERA_SCRAPES_DIR moves it off a slow synced drive. Repeating
+    # the literal here is how a caller ends up writing to a different corpus than the one the
+    # CLI reads — see `scraper/config.py:DEFAULT_OUTPUT_ROOT`.
+    output_root = str(output_root or scrapes_root())
     two_phase = TWO_PHASE_IMAGE_FETCH and not thorough
     started = time.monotonic()
     # Validate the USER INPUT once, here at the boundary (ensure_scheme no longer validates,

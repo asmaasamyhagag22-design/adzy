@@ -10,9 +10,12 @@ profile fields that exist for every brand, never a vertical or brand name.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from competitor.swot import SWOTItem
+
+logger = logging.getLogger(__name__)
 
 
 # Trust signals are proof points, but a site also lists generic ones ("Secure Payments",
@@ -84,7 +87,24 @@ def _is_strong_trust(text: str) -> bool:
 
 def _gated(ledger: Any, text: str) -> bool:
     """The EXACT gate tows.py / strategy use: EVERY hard claim in the line must resolve to real
-    evidence. Fails CLOSED (drop) on any ledger error. No ledger -> gating off (pass)."""
+    evidence. Fails CLOSED (drop) on any ledger error. No ledger -> gating off (pass).
+
+    WHAT THIS GATE DOES AND DOES NOT DO — stated because it used to be neither.
+
+    Until 2026-08-02 the caller handed it a ledger built FROM the very fields it was judging, so a
+    value proposition was "sourced" by its own copy of itself. Combined with `all([]) is True` for
+    a claim-free line, the MEASURED reject rate was 0 of 148. `competitor/swot.py` now builds a
+    separate ledger with `exclude_fields=("value_propositions", "trust_signals")`, and the measured
+    reject rate is 4 of 27 — every rejection a hard claim with no independent evidence behind it
+    ("100% original products", "cashews from the best farms in Vietnam").
+
+    IT STILL PASSES A CLAIM-FREE LINE, and that is deliberate rather than overlooked. `all([])` is
+    True because a sentence with no number, no superlative and no named entity has nothing this
+    engine can check; failing it would not be strictness, it would be refusing prose. Those lines
+    carry `claim_strength="internally_supported"` — own-site truth, not peer-validated — which is
+    the honest label for exactly that. The DIFFERENTIATION test in `strengths_from_profile` is what
+    judges them, and it judges them against the competition rather than against a ledger.
+    """
     if ledger is None:
         return True
     try:
@@ -93,30 +113,111 @@ def _gated(ledger: Any, text: str) -> bool:
         return False
 
 
-def strengths_from_profile(profile: Any, ledger: Any = None) -> list[SWOTItem]:
-    """Brand-level Strengths from the grounded profile: distinctive value propositions and real
-    proof points. Each cites its profile field; claim_strength='internally_supported' (own-site
-    truth, not peer-validated). Ledger-gated + de-duplicated. [] on an empty/absent profile."""
+def strengths_from_profile(profile: Any, ledger: Any = None,
+                           peers: Any = None) -> list[SWOTItem]:
+    """Brand-level Strengths from the grounded profile, TESTED FOR DIFFERENTIATION.
+
+    Each cites its profile field. Ledger-gated + de-duplicated. [] on an empty/absent profile.
+
+    `peers` is [(name, PeerWords)] — what the competition says on its own pages, from
+    `competitor/peer_words.py`. It is the answer to the owner's «بيطلع قشور»: MEASURED across six
+    brands, 76% of SWOT items were transcription and 19% analysis, and 5 of AlFouad's 7 slogan
+    strengths entered through THIS function unexamined — "Fast Delivery", "100% Original Products",
+    "Secure and Multiple Payment Methods".
+
+    The module's own docstring already stated the bar — keep only signals carrying real proof "so
+    Strengths stay differentiators, not checkout boilerplate" — and applied it to `trust_signals`
+    while `value_propositions`, the larger list, went through the loop below with no test at all.
+    `swot_priority.py` states the principle: strengths "are only such in comparison to the
+    competition… relative and not absolute".
+
+    With peers, each promise is now one of three things:
+      * COMMODITISED — >=2 readable peers promise the same thing. Not a strength; dropped, and the
+        drop is logged so it is a decision rather than a disappearance.
+      * DIFFERENTIATING — carries the count with it ("no compared peer promises this (3 checked)"),
+        which is what turns a slogan into a finding.
+      * NOT A BUSINESS CLAIM — no commerce promise in it at all (measured: every one of Abu Auf's
+        "value propositions" is a blurb about one SKU). Kept, unlabelled — judging it needs the
+        catalog, not the peer set.
+
+    `peers=None` is the old behaviour exactly, so every existing caller is unchanged.
+    """
     p = _unwrap(profile)
     out: list[SWOTItem] = []
     seen: set[str] = set()
+    dropped: list = []
 
-    def emit(text: str, field: str) -> None:
+    readable = [(n, w) for n, w in (peers or []) if getattr(w, "checked", False)]
+
+    def emit(text: str, field: str, note: str = "", *, peers_compared: int = 0) -> None:
         t = (text or "").strip()
         k = t.lower()
         if not t or k in seen or not _gated(ledger, t):
             return
         seen.add(k)
-        out.append(SWOTItem(text=t, citation=["your profile", field],
-                            evidence=f"brand signal ({field})",
-                            claim_strength="internally_supported"))
+        item = SWOTItem(text=t, citation=["your profile", field],
+                        evidence=(f"brand signal ({field})" + (f" — {note}" if note else "")),
+                        claim_strength="internally_supported")
+        # The comparison that just happened, recorded as a NUMBER and not only as English prose in
+        # `evidence`. Without it the scorer re-states every one of these as «لم يُقارَن بأحد» and the
+        # item contradicts itself in the client's document.
+        item.peers_compared = int(peers_compared or 0)
+        out.append(item)
 
+    product_level: list = []
     for vp in (p.get("value_propositions") or []):
-        emit(_val(vp), "value_propositions")
+        text = _val(vp)
+        # A SWOT STRENGTH IS A CLAIM ABOUT THE COMPANY. "Carefully roasted macadamia nuts with a
+        # creamy cheese coating" is a claim about a bag of nuts — true, well-evidenced, and not a
+        # strength of Abu Auf the business. Its evidence proves it: every page cited is
+        # `/products/<one-item>`, while AlFouad's promises are cited on `/en` and
+        # `/en/collections/types`. MEASURED: Abu Auf 4/4 product-level, AlFouad 0/5, Nano Care 3/5
+        # — a clean separation with no tuning, because the provenance IS the discriminator.
+        #
+        # Checked before the peer test on purpose: a product blurb is not a promise, so asking
+        # whether rivals make the same promise is the wrong question about it.
+        try:
+            from .peer_words import is_product_level_claim
+            if is_product_level_claim(vp):
+                product_level.append(text)
+                continue
+        except Exception:  # noqa: BLE001
+            pass
+        if not readable:
+            emit(text, "value_propositions")
+            continue
+        try:
+            from .peer_words import (claim_is_commoditised, claim_text_for_comparison,
+                                     differentiation_note)
+            # Compare PAGE TEXT to PAGE TEXT. The stored value is the model's paraphrase ("Ensures
+            # secure payments with multiple payment methods"); the evidence quote is what the page
+            # shows ("Secure payments Multiple payment methods"), which is the same kind of string
+            # as the rival's badge.
+            raw = claim_text_for_comparison(vp) or text
+            commodity, said_by = claim_is_commoditised(raw, readable)
+            if commodity:
+                dropped.append((text, said_by))
+                continue
+            emit(text, "value_propositions", differentiation_note(raw, readable) or "",
+                 peers_compared=len(readable))
+        except Exception:  # noqa: BLE001 — the test is an enrichment, never a dependency
+            emit(text, "value_propositions")
+
     for ts in (p.get("trust_signals") or []):
         t = _val(ts)
         if _is_strong_trust(t):
             emit(t, "trust_signals")
+
+    # SAID OUT LOUD, BOTH KINDS. A strength that vanishes without explanation is the same defect as
+    # a strength that appears without evidence.
+    if dropped:
+        logger.info("[strengths] %d promise(s) dropped as commoditised: %s",
+                    len(dropped),
+                    "; ".join(f"{t[:40]!r} (also promised by {', '.join(w)})" for t, w in dropped))
+    if product_level:
+        logger.info("[strengths] %d claim(s) are about a PRODUCT, not the business — they belong "
+                    "to the catalog, not the SWOT: %s",
+                    len(product_level), "; ".join(repr(t[:44]) for t in product_level))
     return out
 
 

@@ -298,8 +298,13 @@ def score_gap(gap: Any) -> Priority:
                     focus=focus, drop=drop, peers_measured=peers)
 
 
+_SELF_CLAIM_CHECKED_BASIS = ("ادعاء البراند عن نفسه (من موقعه)، واتقارن بوعود {n} قرين على "
+                             "صفحاتهم — بيفضل وعد معلَن، بس اتفحص.")
+
+
 def score_opinion_item(*, claim_strength: str = "internally_supported",
-                       basis: str = "", kind: str = "self_claim") -> Priority:
+                       basis: str = "", kind: str = "self_claim",
+                       peers_compared: int = 0) -> Priority:
     """Score a factor that came from a CLAIM rather than a measured comparison.
 
     The brand's own value propositions are mined into Strengths by `brand_signals`. They are the
@@ -326,10 +331,20 @@ def score_opinion_item(*, claim_strength: str = "internally_supported",
         written = basis
     elif kind == "site_observation":
         written = _SITE_OBSERVATION_BASIS
+    elif peers_compared > 0:
+        # A CLAIM THAT *WAS* CHECKED. `brand_signals` compares a value proposition against the
+        # peers' own page words and writes the verdict into the item's evidence — and this
+        # function used to stamp «لم يُقارَن بأحد» ("was not compared with anyone") on it anyway,
+        # with peers_measured=0. MEASURED on Al Fouad: an item read "no compared peer promises this
+        # (2 checked)" and, in the same object, declared that nobody was checked. The score does
+        # not change — a promise that no rival makes is still the brand's own promise, not a proven
+        # advantage — only the sentence stops contradicting the line above it.
+        written = _SELF_CLAIM_CHECKED_BASIS.format(n=peers_compared)
     elif claim_strength == "internally_supported":
         written = _SELF_CLAIM_BASIS
     else:
         written = ""
     return Priority(importance=importance, performance="unknown", impact="unknown",
                     probability="unknown", basis=written,
-                    rank=round(weight * 0.6, 4), focus=False, drop=False, peers_measured=0)
+                    rank=round(weight * 0.6, 4), focus=False, drop=False,
+                    peers_measured=int(peers_compared or 0))

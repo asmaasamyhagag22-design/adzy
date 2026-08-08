@@ -38,6 +38,29 @@ from .models import CompetitorProfile
 _DIM_KEYS = [
     "online_booking", "whatsapp", "shows_reviews", "cta_count",
     "offerings_count", "bilingual", "trust_count", "social_count",
+    # THE PEER'S SOCIAL IDENTITY, WHICH THIS LIST USED TO DESTROY.
+    #
+    # `lite_scrape.lite_peer_dims` returns both, with a comment explaining exactly why the
+    # ADDRESSES matter and not just the count ("'instagram' is not something a comment pull can be
+    # aimed at — `instagram.com/<handle>` is"). Then `extract_scraped_dimensions` below projects
+    # every peer through this list, both keys fell off, and the consequence was silent and total:
+    # `social_gaps._peer_platforms` skips any column without `social_platforms`, so it returned {}
+    # for every peer, `social_gaps()` returned [] on every run, and `swot.py` added ZERO social
+    # gaps. Competitor social has never once reached a SWOT.
+    #
+    # MEASURED across the six stored brands before this line existed: weaknesses 1-2 and threats
+    # 0-1 against strengths 4-11. Both starved quadrants are the COMPARATIVE ones, and this was one
+    # of the comparisons.
+    #
+    # Safe to widen: `DIMENSIONS` (below) is a separate list and `_gap_for` scores only from it, so
+    # these two ride through as projected VALUES and become no scored dimension. A list value can
+    # never reach that scalar comparison.
+    "social_platforms", "social_urls",
+    # And what the peer PROMISES, so a strength can be tested for differentiation. Same reason as
+    # the two above: `lite_peer_dims` derives it from HTML it already holds, and this projection is
+    # the only thing standing between that and the SWOT. Not a scored dimension — see the note
+    # above; it rides through as a value.
+    "peer_words",
 ]
 
 

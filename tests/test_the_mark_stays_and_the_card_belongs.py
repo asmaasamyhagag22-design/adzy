@@ -249,11 +249,23 @@ def test_the_scene_count_is_derived_from_the_runtime():
     It was arithmetic. The director was asked for 10 scenes for a 20-second reel — 2 seconds each
     — while Veo's SHORTEST clip is 4. So the run paid for 40 seconds of video to deliver 20, the
     per-run budget ran out at scene 4, and everything after it fell back to a Ken Burns still.
-    Half the film was a slideshow because a flag defaulting to 10 had never heard of the runtime."""
+    Half the film was a slideshow because a flag defaulting to 10 had never heard of the runtime.
+
+    THE NUMBERS MOVED ON 2026-08-06, AND THE RULE DID NOT. `max_seconds` is the DELIVERED length,
+    and the branded end card takes its share of it (`reel/runtime.py:picture_budget_s`); counting
+    scenes against the whole number handed the generated shots seconds the card was already using,
+    which is half of why every "15-second" reel shipped at 15.3-17.6s. So a 20-second reel now
+    budgets 18.7s of picture and affords 4 animated shots, not 5.
+    """
     from reel.__main__ import _scenes_for
-    assert _scenes_for(20.0, 10) == 5, "a 20s reel still asks for more clips than it can animate"
-    assert _scenes_for(28.0, 10) == 7
-    assert _scenes_for(40.0, 10) == 10, "a long reel is not capped below what was asked"
+    from reel.runtime import picture_budget_s
+    assert _scenes_for(20.0, 10) == 4, "a 20s reel still asks for more clips than it can animate"
+    assert _scenes_for(28.0, 10) == 6
+    assert _scenes_for(40.0, 10) == 9, "a long reel is not capped below what was asked"
+    # the property behind the numbers: never more shots than the PICTURE can pay for at the
+    # video model's 4-second floor
+    for ms in (15.0, 20.0, 28.0, 40.0):
+        assert _scenes_for(ms, 10) <= max(3, int(picture_budget_s(ms) // 4.0))
 
 
 def test_an_explicit_smaller_request_still_wins():
@@ -300,7 +312,10 @@ def test_the_derived_count_is_computed_once():
 
     import reel.__main__ as M
     src = inspect.getsource(M)
-    assert src.count("_scenes_for(args.max_seconds, args.frames)") == 1
+    # Matched on the call, not on its exact argument list — the call grew a `has_insert=` argument
+    # on 2026-08-01 when the last beat became a rendered product insert, which buys back a scene.
+    # The property under test is that it is called ONCE and the log prints what it returned.
+    assert src.count("_scenes_for(args.max_seconds, args.frames") == 1
 
 
 # =====================================================================

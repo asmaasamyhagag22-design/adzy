@@ -178,6 +178,18 @@ def test_stable_competitors_behavior_survives_pool_drift(tmp_path):
     run2 = [_peer("Alpha Clinic", "https://alpha.example/"),
             _peer("Stranger Co", "https://stranger.example/")]   # drift: Beta gone, Stranger in
     got2, diff2 = stable_competitors("brand_x", run2, store_dir=str(tmp_path), now="t2")
-    names2 = [p["candidate"]["name"] for p in got2]
+
+    # A re-hydrated peer comes back as a real CompetitorProfile (built from the registry entry),
+    # while one the live pool supplied is whatever the pool passed in — here a dict. Read both.
+    def _name(p):
+        return p["candidate"]["name"] if isinstance(p, dict) else p.candidate.name
+
+    names2 = [_name(p) for p in got2]
     assert "Stranger Co" not in names2            # a newcomer NEVER auto-joins the client set
     assert "Alpha Clinic" in names2               # the approved member persists
+    # AND BETA COMES BACK (2026-08-01). This is the invariant the docstring above always claimed —
+    # "the client-facing set must be the APPROVED baseline's members" — and which the code did not
+    # keep: `approved_competitors` is a FILTER over the live pool, so an approved peer the pool
+    # stopped returning was silently dropped. Measured on AlFouad: three approved peers, discovery
+    # returned zero (the Google project was billing-blocked), SWOT peers=0, weaknesses=0.
+    assert "Beta Clinic" in names2, "an approved peer vanished because the live pool forgot it"

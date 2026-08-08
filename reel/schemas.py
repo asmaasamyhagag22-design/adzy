@@ -42,6 +42,11 @@ class ReelScene(BaseModel):
     # (so a software product is actually shown). None -> no composite.
     product_asset_url: Optional[str] = None
     product_placement: str = ""              # "" | "inset" (reserved for future placements)
+    # THE PRODUCT INSERT (2026-08-01). Non-empty -> this scene is not generated at all: the
+    # compositor renders it from the brand's REAL packshot (see `reel/insert_shot.py`), so the
+    # label is the photograph itself instead of something a video model repaints every frame.
+    # Candidates, best-first — the compositor keeps the first that cuts out cleanly.
+    insert_product_urls: list[str] = Field(default_factory=list, max_length=6)
     # Cheat-sheet: per-word CSS delays for the hero lockup, measured off the narration's
     # ElevenLabs word timestamps. None -> the designed 0.07s stagger (the schedule is a
     # bonus, never a dependency).
@@ -119,11 +124,21 @@ class ReelRenderResult(BaseModel):
 
 class ReelFromProfileRequest(BaseModel):
     profile: dict[str, Any]
-    # 5 calmer ~4s shots => ~17s reel (was 3 short shots => ~4.5s frantic reel).
+    # A CEILING, NOT A COUNT (2026-08-01). The route now derives the real count with the same
+    # `_scenes_for` the CLI uses — from `max_seconds` and whether the last beat is a rendered
+    # product insert — and takes this only when it is SMALLER. Before that the browser's hardcoded
+    # 5 was used verbatim, so the dashboard and the CLI shipped different films.
     n_scenes: int = Field(default=5, ge=2, le=6)
+    # The length the film is CUT to. 15s is the format the owner named; the scene count follows
+    # from it rather than the other way round.
+    max_seconds: float = Field(default=15.0, ge=6.0, le=60.0)
     # Output language for captions + spoken voiceover: "ar"/"en" force it (owner's
     # choice); "auto" infers from the brand's audience (the old behavior).
     language: Literal["auto", "ar", "en"] = "auto"
+    # THE PRODUCT THE OWNER NAMED. A pasted product-page link makes the film about THAT item: the
+    # insert cuts to its real packshot from the catalogue instead of whichever entry ranked first.
+    # Empty is the old behaviour exactly.
+    hero_product_url: str = ""
 
 
 class ReelFromProfileResponse(BaseModel):

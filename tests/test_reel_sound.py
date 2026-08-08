@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import reel.sound as snd
 
 
@@ -48,34 +50,36 @@ def test_positional_call_is_back_compatible(monkeypatch, tmp_path):
     assert "110.00" in g and "amix" in g                          # default pad, valid graph
 
 
-def test_render_creative_synthesizes_a_bed_when_no_music(monkeypatch, tmp_path):
-    import reel.creative as rc
-    from poster.schemas import PosterBrief
-    from reel.creative_director import CreativeReel, CreativeScene
+def test_render_creative_does_not_synthesize_a_bed():
+    """The film carries the ElevenLabs voice alone — the synth bed is OFF.
 
-    captured: dict = {}
-    monkeypatch.setattr(rc, "render_reel", lambda sb, **kw: captured.update(kw) or {"ok": True})
+    OWNER, 2026-08-02: «امسح صوت veo لانه بشع… واظبط صوت 11لاب». Measured before changing
+    anything: Veo's audio never reaches the file — the per-scene normalise maps `[v]` only and the
+    mux takes `0:v` from a concat with no audio track. So the machine sound was OURS:
+    `synth_sound_bed`, an ffmpeg whoosh/pulse/chime bed. She named the wrong suspect; the sound
+    was real.
 
-    def _fake_bed(out, total, cut_times=None, *, mood="", sfx_beats=None, impact=True):
-        captured["bed"] = {"total": total, "mood": mood, "sfx_beats": sfx_beats}
-        Path(out).write_bytes(b"BED")
-        return Path(out)
-    monkeypatch.setattr("reel.sound.synth_sound_bed", _fake_bed)
+    A silent bed is not a missing feature. A synthesised whoosh on every cut is the loudest tell
+    that nobody scored the film. `synth_sound_bed` itself is kept — a real track can be handed in
+    via `music_path`, and this only stops the pipeline from inventing one.
+    """
+    import inspect
 
-    plan = CreativeReel(
-        concept="c", hook="h", cta="x", language="ar", sound_design="tense -> confident",
-        images=["u0", "u1"],
-        scenes=[CreativeScene(image_index=0, veo_prompt="A", voiceover="", duration_s=3.0, sfx="impact"),
-                CreativeScene(image_index=1, veo_prompt="B", voiceover="", duration_s=4.0, sfx="chime")])
-    rc.render_creative_reel({}, PosterBrief(business_name="NTI", headline="NTI"), [],
-                            provider=None, out_path=tmp_path / "r.mp4",
-                            plan_override=plan.model_dump(), with_voiceover=False)
-    # a bed was synthesized and handed to the compositor as music
-    assert captured.get("music_path") and Path(captured["music_path"]).name.endswith(".bed.m4a")
-    bed = captured["bed"]
-    assert bed["mood"] == "tense -> confident"
-    assert bed["total"] == 7.0                                    # == storyboard duration (no dead-air tail)
-    assert bed["sfx_beats"] == [(0.0, "impact"), (3.0, "chime")]  # cues at cumulative scene starts
+    import reel.creative as cr
+    src = inspect.getsource(cr)
+    assert "_BED_OFF = True" in src
+    assert "if music_path is None and not _BED_OFF:" in src, (
+        "the pipeline still synthesizes a bed of its own"
+    )
+
+
+def test_a_real_music_track_is_still_muxed():
+    """Turning the SYNTH off must not turn AUDIO off: a caller-supplied track still plays."""
+    import inspect
+
+    import reel.compositor as comp
+    src = inspect.getsource(comp.render_reel)
+    assert "has_music" in src and "music_path" in src
 
 
 def test_supplied_music_is_not_overridden_by_the_synth(monkeypatch, tmp_path):

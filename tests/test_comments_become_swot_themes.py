@@ -154,3 +154,30 @@ def test_the_caller_can_declare_whose_account_the_snapshot_came_from():
 
     assert themes_from_signals([_Bare()])[0].is_own_brand is False          # what the row says
     assert themes_from_signals([_Bare()], is_own_brand=True)[0].is_own_brand is True
+
+
+# --- a reaction is not a finding ------------------------------------------------------------
+
+def test_a_praise_word_on_its_own_is_not_a_brand_strength():
+    """MEASURED on nanocareegypt_com's stored SWOT, which shipped «تحفة 😍❤️❤️❤️❤️» as a brand
+    STRENGTH, cited to an Instagram post. The emoji-only filter did not catch it because «تحفة» is
+    four letters — the praise WORD was the whole comment."""
+    assert themes_from_signals([_sig("تحفة 😍❤️❤️❤️❤️")]) == []
+    assert themes_from_signals([_sig("amazing")]) == []
+    assert themes_from_signals([_sig("ممتاز 🔥")]) == []
+
+
+def test_a_short_but_real_complaint_survives():
+    """The bar is deliberately at ONE content word, not three. «التوصيل بطيء جدا» leaves exactly two
+    words after its marker — the same count as the contentless «شكرا جدا فرحتوني» — so any threshold
+    tuned to drop the second also drops this, and this is a textbook weakness."""
+    themes = themes_from_signals([_sig("التوصيل بطيء جدا")])
+    assert len(themes) == 1 and themes[0].polarity == "complaint"
+
+
+def test_the_residual_is_declared_not_hidden():
+    """A gratitude message with no content still passes, and the docstring says so. This test exists
+    so the limitation is a recorded decision rather than a surprise found in a client's deck."""
+    from competitor.social_themes import is_substantive
+    assert is_substantive("شكرا جدا فرحتوني 💃🇪🇬") is True
+    assert is_substantive("تحفة") is False

@@ -17,6 +17,7 @@ chunk and they consume `PeerMatchResult`.
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import List, Optional
 
@@ -24,7 +25,9 @@ from .models import CompetitorProfile, MatchCriteria, PeerMatchResult
 from .peer_match import (
     TARGET_PEERS, select_peers, tokenize, passes_hard_filters, expand_bilingual,
 )
-from .places_client import PlacesClient
+from .places_client import PlacesClient, _redact_secrets
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -602,5 +605,22 @@ def find_subject_places(profile, client, *, max_results: int = 8):
             if len(core) >= 4 and all(core in n for n in cores):
                 return max(named, key=lambda c: c.review_count or 0)
         return None
-    except Exception:  # noqa: BLE001 — a lookup failure must never break the SWOT
+    except Exception as exc:  # noqa: BLE001 — a lookup failure must never break the SWOT
+        # "PLACES REFUSED US" AND "THIS BRAND HAS NO LISTING" ARE DIFFERENT FACTS, and this
+        # `return None` made them the same one. The consequence was not cosmetic: Threats is empty
+        # for every brand on this path, this function's own docstring names itself "the measured
+        # root cause", and a whole investigation concluded the branch was dead in the CODE.
+        #
+        # MEASURED 2026-08-02, calling it directly:
+        #     403 Permission denied: Consumer 'api_key:…' has been suspended
+        # The key is suspended — the same Google account problem that stopped Veo and Gemini. There
+        # was never anything wrong with this branch, and nobody could tell, because a refusal and
+        # an absence both arrived here as None.
+        #
+        # Logged, not raised: the contract that a lookup failure must not break a SWOT stands.
+        # REDACTED, because Google echoes the API KEY back inside the 403 body — logging the
+        # failure verbatim would write a live credential into logs/ on every empty SWOT.
+        logger.warning("[places] subject lookup failed (%s: %s) — the Threats quadrant will be "
+                       "empty for a REASON, not for lack of a listing",
+                       type(exc).__name__, _redact_secrets(str(exc))[:200])
         return None

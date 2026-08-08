@@ -163,6 +163,16 @@ def _craft_checks(scenes, caps, vos, veos, roles, arc_beats, fail) -> None:
     # D) RHYTHM. A flat duration profile is a metronome no amount of intra-scene cutting fixes.
     durs = [float(getattr(s, "duration_s", 0) or 0) for s in scenes]
     durs = [d for d in durs if d > 0]
+    # >= 4 STANDS, and I tried to lower it on 2026-08-01 on a premise that does not hold. The
+    # argument was "the default reel is 3 shots now, so this never fires on the real shape" — but
+    # `_scenes_for(15, has_insert=True)` returns FOUR: three generated shots plus the rendered
+    # product insert, and the plan the gate reads has all four. So the check does fire on the
+    # shape the pipeline produces, and the only case left exempt is a 3-shot reel with no insert,
+    # where three samples are genuinely too few to call a rhythm.
+    #
+    # Lowering it also broke eight tests, several of them "a clean plan passes" — the gate began
+    # refusing plans this repo considers good. `test_rhythm_is_not_judged_on_a_three_shot_cut`
+    # pins the exemption deliberately.
     if len(durs) >= 4:
         lo, hi = min(durs), max(durs)
         if hi > 0 and lo / hi > _MIN_DURATION_SPREAD:

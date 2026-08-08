@@ -767,6 +767,38 @@
   .gen-placeholder i { font-size: 3rem; }
   .gen-placeholder p { font-size: 0.85rem; line-height: 1.5; }
   .gen-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+  /* The brief shown before generation. Styled as a READING surface, not a control panel: a
+     label column that scans vertically, the value in the reading weight, and the evidence in a
+     quieter third column so "why" sits beside "what" instead of under it. */
+  .preview-brief {
+    margin: 12px 0 4px; padding: 14px 16px; border-radius: 12px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09);
+    max-height: 46vh; overflow-y: auto;
+  }
+  .pv-title { font-weight: 700; font-size: 0.9rem; margin-bottom: 10px; }
+  .pv-row {
+    display: grid; grid-template-columns: 104px minmax(0,1fr); gap: 4px 12px;
+    padding: 7px 0; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.84rem;
+  }
+  .pv-row:first-of-type { border-top: 0; }
+  .pv-k { color: var(--text3); font-size: 0.78rem; padding-top: 1px; }
+  .pv-v { min-width: 0; overflow-wrap: anywhere; }
+  .pv-hint {
+    grid-column: 2; color: var(--text3); font-size: 0.75rem; line-height: 1.45;
+  }
+  .pv-cost { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .pv-note { color: var(--text3); font-size: 0.76rem; margin-top: 8px; }
+  .pv-details { margin-top: 10px; }
+  .pv-details summary {
+    cursor: pointer; color: var(--text3); font-size: 0.78rem; user-select: none;
+  }
+  .pv-details summary:hover { color: var(--text2); }
+  .pv-pre {
+    margin-top: 8px; padding: 10px 12px; border-radius: 8px; max-height: 30vh;
+    overflow: auto; background: rgba(0,0,0,0.28); font-size: 0.73rem; line-height: 1.5;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
   .gen-loading {
     display: none; flex-direction: column; align-items: center; gap: 16px; padding: 60px;
   }
@@ -1921,6 +1953,12 @@
         </div>
       </div>
 
+      <!-- WHAT WILL BE ASKED FOR, BEFORE ANY MONEY IS SPENT.
+           There was no such surface: the poster response carries its prompt, but only AFTER the
+           render, and nothing here read it. Everything shown is resolved deterministically from
+           the brand's own evidence — no model is called, so the preview is not itself the spend. -->
+      <div id="prompt-preview" class="preview-brief" style="display:none;"></div>
+
       <!-- Footer: settings chip left · gradient Generate right -->
       <div class="studio-footer">
         <div class="settings-summary" onclick="togglePopover('settings-popover')">
@@ -1930,6 +1968,10 @@
           <span class="sep">·</span>
           <span id="sum-style">Gradient</span>
         </div>
+        <button class="btn btn-secondary" id="preview-btn" onclick="showPromptPreview()"
+                title="See exactly what the system will ask for — and what it will cost — before spending">
+          <i class="ph ph-eye"></i> Preview brief
+        </button>
         <button class="btn-generate" id="generate-btn" onclick="studioGenerate()">Generate</button>
       </div>
     </div>
@@ -2079,6 +2121,33 @@
 
     <!-- SWOT view -->
     <div class="strat-view" id="strat-view-swot">
+      <!-- WHAT ACTUALLY GETS THE LIKES (owner: «أكتر حاجة جايبة لايك»).
+           The engagement was collected, stored on disk and read by nothing: the ranker wanted five
+           fields off a signal and the ingest carried three, so the analysis could only ever answer
+           "unmeasured". This panel is the other end of that chain. -->
+      <div id="social-perf-panel" style="margin-bottom:18px; padding:14px 16px; border-radius:12px;
+           background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+        <div style="font-weight:700; font-size:0.95rem;">What gets the likes</div>
+        <div style="font-size:0.78rem; color:var(--text3); margin-top:2px; margin-bottom:10px;">
+          The brand's own posts, ranked by measured engagement.
+        </div>
+        <div id="social-perf-body" style="display:flex; flex-direction:column; gap:8px;"></div>
+      </div>
+
+      <!-- WHAT THE RUN ALREADY KNEW. Measured on Al Fouad's stored run: a CLI analysis produces 20
+           blocks and 9 reached this screen. `marketing_intel` and `competitor_intel` were two of
+           the missing ones, and they are not diagnostics — they are the offers, the USPs, the pain
+           points and the message angles, each carrying the post it was quoted from. Thirteen such
+           lines existed for this one brand and had nowhere to be shown. -->
+      <div id="intel-panel" style="margin-bottom:18px; padding:14px 16px; border-radius:12px;
+           background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+        <div style="font-weight:700; font-size:0.95rem;">What the analysis found</div>
+        <div style="font-size:0.78rem; color:var(--text3); margin-top:2px; margin-bottom:10px;">
+          Offers, promises and complaints — yours and each competitor's — with the source behind every line.
+        </div>
+        <div id="intel-body" style="display:flex; flex-direction:column; gap:8px;"></div>
+      </div>
+
       <!-- Competitors the owner names herself. Automatic discovery is still improving, and with no
            peers there are no strengths or weaknesses at all — they only exist by comparison. This
            panel is the unblock the SWOT's own note points at. -->
@@ -2583,6 +2652,147 @@ function fmt(v) {
 // Each row shows WHERE the competitor came from, because a name the owner typed and one the
 // system found, ranked and scored are different kinds of evidence and this product never lets
 // two kinds of evidence look alike.
+// THREE STATES, RENDERED AS THREE DIFFERENT THINGS. "we never collected it", "we collected it and
+// there was nothing to measure" and "here are the numbers" are different answers, and collapsing
+// the first two into one empty panel would recreate, in the UI, the exact defect the backend was
+// fixed for: an absence presented as a result.
+async function loadSocialPerformance() {
+  const box = document.getElementById('social-perf-body');
+  const dk = state.currentBrand && state.currentBrand.domain_key;
+  if (!box || !dk) return;
+  const note = (t) => `<div style="font-size:0.8rem; color:var(--text3);">${t}</div>`;
+  box.innerHTML = note('Loading…');
+  let d = null;
+  try {
+    d = await api('GET', `/api/social/performance/${dk}`);
+  } catch (e) { box.innerHTML = note('Could not load engagement.'); return; }
+
+  if (!d || d.collected === false) {
+    box.innerHTML = note('No social snapshot collected for this brand yet.');
+    return;
+  }
+  if (!d.checked) {
+    box.innerHTML = note(fmt(d.reason || 'Collected, but engagement could not be measured.'));
+    return;
+  }
+  const own = d.own || {};
+  const posts = own.top || [];
+  if (!posts.length) {
+    box.innerHTML = note('Collected and measured, but no post cleared the ranking threshold.');
+    return;
+  }
+  const med = own.median_likes;
+  let html = `<div style="font-size:0.78rem; color:var(--text3);">`
+    + `${own.ranked} post(s) measured · median ${fmt(med)} likes</div>`;
+  for (const p of posts.slice(0, 5)) {
+    const lift = med ? (p.likes / med) : null;
+    html += `<div style="display:flex; gap:10px; align-items:flex-start; font-size:0.85rem;`
+      + ` padding:8px 0; border-top:1px solid rgba(255,255,255,0.06);">`
+      + `<span style="min-width:64px; font-weight:700; font-variant-numeric:tabular-nums;">`
+      + `${fmt(p.likes)}</span>`
+      + `<span style="flex:1; min-width:0;">${fmt((p.text || '').slice(0, 140))}</span>`
+      + (lift && lift >= 1.5
+        ? `<span style="font-size:0.7rem; padding:2px 8px; border-radius:999px; white-space:nowrap;`
+          + ` background:rgba(120,180,255,0.15); color:#8FBEFF;">${lift.toFixed(1)}x median</span>`
+        : '')
+      + `</div>`;
+  }
+  for (const l of (d.lessons || []).slice(0, 3)) {
+    html += `<div style="font-size:0.8rem; color:var(--text2); margin-top:6px;">• ${fmt(l)}</div>`;
+  }
+  box.innerHTML = html;
+}
+
+// THE ANALYSIS THE CLIENT PAID FOR, ON THE SCREEN.
+// Same three-state rule as the panel above, because the same three answers exist and they are not
+// interchangeable: never analysed / analysed and found nothing / here it is. A peer that WAS read
+// and yielded nothing is a finding about that peer — it is not the same as a peer nobody opened,
+// and `rejected` says whether claims were found and dropped by the grounding gate or never found.
+const INTEL_LABELS = {
+  offers: 'Offers', usps: 'Promises', pain_points: 'Complaints', message_angles: 'Angles',
+};
+
+function intelRows(block, limit) {
+  let html = '';
+  for (const key of ['offers', 'usps', 'pain_points', 'message_angles']) {
+    const rows = (block.items && block.items[key]) || [];
+    if (!rows.length) continue;
+    // SAY WHAT IS NOT ON SCREEN. The header counts every line; the sections show the first few. A
+    // panel that promises 13 and displays 9 has silently truncated the client's own evidence, and
+    // a silent cap reads as "that is all there was" — the same absence-as-an-answer this whole
+    // panel exists to avoid, one layer further in.
+    const extra = Math.max(0, rows.length - limit);
+    html += `<div style="font-size:0.7rem; letter-spacing:0.06em; text-transform:uppercase;`
+      + ` color:var(--text3); margin-top:8px;">${INTEL_LABELS[key]}`
+      + (extra ? `<span style="text-transform:none; letter-spacing:0;"> · ${extra} more not shown</span>` : '')
+      + `</div>`;
+    for (const r of rows.slice(0, limit)) {
+      const src = r.source_url
+        ? `<a href="${encodeURI(r.source_url)}" target="_blank" rel="noopener noreferrer"
+             style="font-size:0.7rem; color:#8FBEFF; text-decoration:none; white-space:nowrap;">source</a>`
+        : `<span style="font-size:0.7rem; color:var(--text3); white-space:nowrap;">no source</span>`;
+      html += `<div style="display:flex; gap:10px; align-items:flex-start; font-size:0.85rem;`
+        + ` padding:6px 0; border-top:1px solid rgba(255,255,255,0.06);">`
+        + `<span style="flex:1; min-width:0;">${fmt(r.value)}`
+        + (r.quote ? `<div style="font-size:0.74rem; color:var(--text3); margin-top:2px;">`
+            + `“${fmt(r.quote.slice(0, 150))}”</div>` : '')
+        + `</span>${src}</div>`;
+    }
+  }
+  return html;
+}
+
+async function loadBrandIntel() {
+  const box = document.getElementById('intel-body');
+  const dk = state.currentBrand && state.currentBrand.domain_key;
+  if (!box || !dk) return;
+  const note = (t) => `<div style="font-size:0.8rem; color:var(--text3);">${t}</div>`;
+  box.innerHTML = note('Loading…');
+  let d = null;
+  try {
+    d = await api('GET', `/api/intel/${dk}`);
+  } catch (e) { box.innerHTML = note('Could not load the analysis.'); return; }
+
+  if (!d || d.analysed === false) {
+    box.innerHTML = note('No full analysis stored for this brand yet — run one to fill this in.');
+    return;
+  }
+
+  const own = d.own || { items: {}, total: 0, rejected: 0, empty: true };
+  let html = '';
+
+  html += `<div style="font-weight:600; font-size:0.85rem;">This brand</div>`;
+  if (own.empty) {
+    html += note(own.rejected
+      ? `Analysed. ${own.rejected} claim(s) were found and dropped for having no source behind them.`
+      : 'Analysed, and nothing quotable was found on the pages and posts we read.');
+  } else {
+    html += `<div style="font-size:0.78rem; color:var(--text3);">${own.total} line(s), each quoted`
+      + (own.rejected ? ` · ${own.rejected} dropped as unsourced` : '') + `</div>`;
+    html += intelRows(own, 4);
+  }
+
+  const peers = d.peers || [];
+  html += `<div style="font-weight:600; font-size:0.85rem; margin-top:14px;">Competitors</div>`;
+  if (!peers.length) {
+    html += note('No competitor was analysed in this run.');
+  } else {
+    for (const p of peers) {
+      html += `<div style="margin-top:8px;">`
+        + `<div style="font-size:0.82rem; font-weight:600;">${fmt(p.name)}`
+        + `<span style="font-weight:400; color:var(--text3); font-size:0.76rem;">`
+        + (p.empty
+            ? (p.rejected ? ` — read; ${p.rejected} claim(s) dropped as unsourced`
+                          : ' — read, and nothing quotable was on their pages')
+            : ` — ${p.total} line(s)`)
+        + `</span></div>`
+        + (p.empty ? '' : intelRows(p, 3))
+        + `</div>`;
+    }
+  }
+  box.innerHTML = html;
+}
+
 async function loadCompetitors() {
   const box = document.getElementById('comp-list');
   const dk = state.currentBrand && state.currentBrand.domain_key;
@@ -2836,6 +3046,58 @@ function selectLang(btn) {
 function chosenLanguage() {
   const box = document.getElementById('studio-language');
   return (box && box.dataset.lang) || 'auto';
+}
+
+// THE BRIEF, BEFORE THE BILL. Reads GET /api/prompt-preview/{dk} — everything the system resolves
+// from the brand's own evidence with no model call: the audience language and WHY, the locked
+// register, the look lock, the grade family, the tempo, how many shots and why, whether the last
+// beat can be a real product insert, and the estimated Veo cost. Free to call, so it is also the
+// only creative surface that still answers when the video project is billing-blocked.
+async function showPromptPreview() {
+  const box = document.getElementById('prompt-preview');
+  const dk = state.studioBrand && (state.studioBrand.domain_key
+    || domainKeyFromUrl(state.studioBrand.source_url || ''));
+  if (!box) return;
+  if (!dk) { toast('Pick a brand first', 'error'); return; }
+  box.style.display = '';
+  box.innerHTML = '<div class="pv-note">Reading the brief…</div>';
+  let d;
+  try {
+    d = await api('GET', `/api/prompt-preview/${encodeURIComponent(dk)}`
+      + `?kind=reel&language=${encodeURIComponent(chosenLanguage())}`);
+  } catch (e) {
+    box.innerHTML = `<div class="pv-note">Could not read the brief: ${fmt(e.message)}</div>`;
+    return;
+  }
+  const r = (d && d.resolved) || {};
+  const row = (k, v, hint) => v === undefined || v === null || v === ''
+    ? ''
+    : `<div class="pv-row"><span class="pv-k">${fmt(k)}</span>`
+      + `<span class="pv-v">${fmt(String(v))}</span>`
+      + (hint ? `<span class="pv-hint">${fmt(hint)}</span>` : '') + `</div>`;
+  let html = '<div class="pv-title">What will be asked for</div>';
+  html += row('Language', r.audience_language, r.language_evidence);
+  html += row('Register', r.locked_register);
+  html += row('Vertical', r.vertical_mode);
+  html += row('Look', r.look_lock);
+  html += row('Grade', r.grade_family);
+  html += row('Tempo', r.bpm ? `${r.bpm} BPM · beat ${r.beat_s}s` : '', r.tempo_reason);
+  html += row('Shots', r.scenes ? `${r.scenes} (${r.generated_shots} generated)` : '',
+              r.scene_count_reason);
+  html += row('Last beat', r.last_beat);
+  if (r.est_video_usd !== undefined) {
+    html += `<div class="pv-row"><span class="pv-k">Estimated cost</span>`
+      + `<span class="pv-v pv-cost">$${fmt(String(r.est_video_usd))}</span>`
+      + `<span class="pv-hint">${fmt(r.est_video_note || '')}</span></div>`;
+  }
+  for (const n of (d.notes || [])) html += `<div class="pv-note">${fmt(n)}</div>`;
+  if (d.system_prompt) {
+    html += `<details class="pv-details"><summary>The director's full brief `
+      + `(${d.system_prompt.length.toLocaleString()} characters)</summary>`
+      + `<pre class="pv-pre">${fmt(d.system_prompt)}</pre></details>`;
+  }
+  html += `<div class="pv-note">Nothing above cost anything — no model was called.</div>`;
+  box.innerHTML = html;
 }
 
 function showProductRead(data) {
@@ -3908,6 +4170,8 @@ function renderStrategyDashboard(b) {
   swotSummaryEl.textContent = summaryText;
 
   loadCompetitors();
+  loadSocialPerformance();
+  loadBrandIntel();
 
   const quadGrid = document.getElementById('swot-quadrants');
   quadGrid.innerHTML = '';
@@ -5004,12 +5268,19 @@ async function generateReel() {
     ensureDomainKey(state.studioBrand);
     const dk = state.studioBrand.domain_key || domainKeyFromUrl(state.studioBrand.source_url || '');
     if (!dk) throw new Error('No brand selected. Please scrape a URL first.');
-    const brand = await api('GET', '/api/brands/' + encodeURIComponent(dk));
-    const profile = brand._profile || brand.profile;
-    if (!profile) throw new Error('This brand has no stored profile to direct a reel from.');
-    const data = await api('POST', '/api/reel/from-profile', {
-      profile, n_scenes: 5, language: chosenLanguage() === 'ar' ? 'ar'
-        : chosenLanguage() === 'en' ? 'en' : 'auto',
+    // POST /api/reel (JWT), not /api/reel/from-profile (API key).
+    //
+    // The machine route is gated by `require_api_key`, and this helper only ever sends
+    // `Authorization: Bearer`. With BASEERA_API_KEY configured that returns 401, and the handler
+    // in `api()` turns a 401 into "Session expired" and logs the user out — mid-demo. It works
+    // today only because no key is set, so the loopback branch is taken; that is luck, not design.
+    //
+    // The server now derives the scene count itself (from `max_seconds` and whether the last beat
+    // can be a rendered product insert), so the browser no longer dictates the shape of the film —
+    // it used to post a hardcoded 5 and the dashboard shipped a different film from the CLI.
+    const data = await api('POST', '/api/reel', {
+      domain_key: dk,
+      language: chosenLanguage() === 'ar' ? 'ar' : chosenLanguage() === 'en' ? 'en' : 'auto',
     });
     document.getElementById('gen-loading').classList.remove('active');
     const v = document.createElement('video');

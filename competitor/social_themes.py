@@ -62,6 +62,11 @@ _PRAISE = (
 _LETTERS = re.compile(r"[^\W\d_]", re.UNICODE)
 _MIN_LETTERS = 4
 
+# Words a comment must carry BESIDES its sentiment marker before it can become a SWOT line.
+# ONE, and one is not a compromise — it is the whole of what can be proved here. See
+# `is_substantive` for the three stronger rules that were tried and measured false.
+_MIN_CONTENT_WORDS = 1
+
 # Only genuine audience voice. A caption or a post is the BRAND talking about itself.
 _CUSTOMER_KINDS = {"comment", "reply"}
 
@@ -90,6 +95,56 @@ def _polarity(text: str) -> Optional[str]:
     # Both or neither: a mixed or neutral comment is not evidence for either box. Guessing here
     # would put an unearned verdict into the client's SWOT.
     return None
+
+
+def _words(text: str) -> set:
+    return {w for w in re.findall(r"[^\W\d_]{3,}", str(text or "").lower(), re.UNICODE)}
+
+
+def is_substantive(text: str) -> bool:
+    """Is the sentiment word the ENTIRE comment?
+
+    MEASURED on nanocareegypt_com's stored SWOT, which shipped this as a brand STRENGTH:
+
+        «تحفة 😍❤️❤️❤️❤️»   cited to an Instagram post
+
+    Real customer praise, and not a fact about the company. It passed because the only filter here
+    rejected emoji-ONLY text and «تحفة» is four letters — the praise WORD was the whole comment.
+    This is the "قشور" the owner named: a client opens the SWOT and the Strengths column contains a
+    stranger's emoji.
+
+    THREE STRONGER RULES WERE TRIED AND EACH WAS MEASURED FALSE. Recorded so they are not
+    re-invented:
+
+      * Overlap with the BRAND'S OWN vocabulary ("the customer must name something the brand
+        sells"). Grounded, no lexicon, elegant — and unusable: nanocare's scraped vocabulary is
+        ENGLISH ('absorption', 'beauty', 'liposomal') while its customers comment in ARABIC.
+        Overlap was zero for every comment, true and false alike. A brand and its audience often do
+        not share a language, so the test cannot work cross-lingually.
+
+      * Recurrence alone ("n=1 is not a finding"). This repo's own principle, and here it fails
+        backwards: a one-word reaction is far MORE likely to be repeated verbatim by five people
+        than a specific sentence is. «تحفة» ×5 would pass while a single precise complaint about a
+        named branch would not.
+
+      * A floor of three content words. Killed by the repo's own tests: «التوصيل بطيء جدا» ("the
+        delivery is slow") leaves exactly two words after its marker — and so does «شكرا جدا
+        فرحتوني» ("thank you, you made me happy"). One is a textbook weakness, the other is
+        nothing, and they are the SAME LENGTH. Word count cannot separate them, so a threshold
+        tuned to drop the second necessarily drops the first.
+
+    What is left is small and certain: strip the markers that classified the comment, and require
+    that ANYTHING remains. «تحفة» leaves nothing — provably contentless, at zero risk to real
+    signal. Everything above this line is semantics, and semantics is not what a deterministic,
+    hermetic, no-model module gets to claim.
+
+    THE RESIDUAL, STATED PLAINLY rather than papered over: «شكرا جدا فرحتوني 💃🇪🇬» still passes.
+    It is gratitude with no content, and separating it from «التوصيل بطيء جدا» needs meaning, not
+    counting. It is weak, not wrong, and it is cited — which is more than the emoji line was.
+    """
+    words = _words(text)
+    markers = {w for w in words if any(m in w or w in m for m in _PRAISE + _COMPLAINT)}
+    return len(words - markers) >= _MIN_CONTENT_WORDS
 
 
 def _key(text: str) -> str:
@@ -132,6 +187,8 @@ def themes_from_testimonials(testimonials: Any) -> list:
         polarity = _polarity(quote)
         if polarity is None:
             continue
+        if not is_substantive(quote):
+            continue          # a printed «ممتاز» is a rating, not a statement about the business
         key = (polarity, _key(quote))
         if key in seen:
             continue
@@ -149,7 +206,11 @@ def themes_from_signals(signals: Any, *, is_own_brand: Optional[bool] = None) ->
     is known by the CALLER and not always by the row. MEASURED: `scripts.pull_instagram_apify`
     emits an `IgSignal` with no such field at all, so comments pulled from the brand's OWN
     Instagram defaulted to `False` and would have been routed to Opportunities/Threats — a
-    customer praising this brand read as a rival's strength."""
+    customer praising this brand read as a rival's strength.
+
+    `is_substantive` is what keeps a stranger's «تحفة 😍❤️❤️❤️❤️» out of a client's Strengths
+    column — see its docstring for the two rules that were measured false before this one.
+    """
     merged: dict = {}
     for sig in (signals or []):
         kind = str(getattr(sig, "signal_kind", "") or "")
@@ -178,4 +239,4 @@ def themes_from_signals(signals: Any, *, is_own_brand: Optional[bool] = None) ->
             is_unmet_need=(not own and polarity == "complaint"),
             is_own_brand=own,
         )
-    return list(merged.values())
+    return [t for t in merged.values() if is_substantive(t.text)]

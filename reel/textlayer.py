@@ -49,28 +49,51 @@ def _is_elegant_tone(tone: Optional[str]) -> bool:
     return any(k in (tone or "").lower() for k in _ELEGANT_TONES)
 
 
-def _knockout_if_dark(data: bytes) -> bytes:
-    """FIX (topshoes reel frame: dark crest invisible on dark footage): the broadcast
-    watermark rule — a DARK logo becomes its WHITE-KNOCKOUT variant for the reel overlay
-    (exact silhouette, near-white fill; reads on shifting footage with the CSS shadow).
-    A light/colorful-readable logo passes through untouched. Never raises."""
+# Logo URLs whose mark is dark AND coloured: the artwork is kept and the renderer seats it on a
+# light plate. A module-level set rather than a return value because `_logo_data_uri` is called
+# from two places that both only want the URI — threading a tuple through them would change two
+# signatures to carry one bit.
+_PLATE_LOGOS: set = set()
+
+
+def _knockout_if_dark(data: bytes) -> tuple[bytes, bool]:
+    """(logo_bytes, needs_plate). The broadcast watermark rule, taught to see colour.
+
+    FIX (topshoes reel frame): a DARK crest is invisible on dark footage, so it became a
+    WHITE-KNOCKOUT silhouette. Correct for a monochrome mark — and destructive for a coloured
+    one.
+
+    OWNER, 2026-08-02, on the Al Fouad reel: «الفواتئد اللجو اتسحب منه الالوان». Measured: that
+    logo is a RED heart with BLACK wordmark, mean luminance 0.32 — under the old threshold — so
+    every frame of every reel carried a flat white silhouette where the brand's own colours
+    should have been. The poster showed it correctly, which is how the loss was visible at all.
+
+    A mark is knocked out only when it is dark AND essentially colourless. A dark mark that
+    CARRIES BRAND COLOUR keeps its artwork, and the caller is told to seat it on a light plate
+    instead — readability bought with a background, not with the brand's identity.
+    """
     try:
         import io as _io
         from PIL import Image
         im = Image.open(_io.BytesIO(data)).convert("RGBA")
         px = [q for q in im.getdata() if q[3] > 40]
         if not px:
-            return data
+            return data, False
         lum = sum((0.2126 * q[0] + 0.7152 * q[1] + 0.0722 * q[2]) / 255 for q in px) / len(px)
         if lum >= 0.5:
-            return data
+            return data, False
+        # Chroma, measured the cheap way: how far the average pixel's channels spread. A greyscale
+        # crest sits near 0; a red heart pulls it up. 0.10 of full range is a colour a viewer sees.
+        chroma = sum((max(q[:3]) - min(q[:3])) / 255 for q in px) / len(px)
+        if chroma >= 0.10:
+            return data, True          # keep the colours; ask for a plate behind them
         white = Image.new("RGBA", im.size, (250, 250, 252, 0))
         white.putalpha(im.split()[3])
         buf = _io.BytesIO()
         white.save(buf, format="PNG")
-        return buf.getvalue()
+        return buf.getvalue(), False
     except Exception:  # noqa: BLE001
-        return data
+        return data, False
 
 
 def _logo_data_uri(url: Optional[str]) -> Optional[str]:
@@ -102,7 +125,12 @@ def _logo_data_uri(url: Optional[str]) -> Optional[str]:
             keyed = white_key_logo(data)
             if keyed is not data:
                 data, mime = keyed, "image/png"
-            knocked = _knockout_if_dark(data)
+            knocked, needs_plate = _knockout_if_dark(data)
+            if needs_plate:
+                # A dark COLOURED mark: the artwork survives and readability comes from a plate
+                # behind it, not from erasing the brand. The flag rides on the data URI so the one
+                # caller that builds the CSS can act on it without a second fetch.
+                _PLATE_LOGOS.add(url or "")
             if knocked is not data:
                 data, mime = knocked, "image/png"      # white variant re-encodes as PNG
             else:
@@ -321,6 +349,12 @@ def _scene_html(scene: ReelScene, storyboard: Storyboard, width: int, height: in
     show_logo = bool(logo_uri)
     logo_bug = show_logo and scene.kind not in ("intro", "outro", "contact")
     logo_pos = "right:64px" if rtl else "left:64px"
+    # THE PLATE. A dark COLOURED mark keeps its artwork (see `_knockout_if_dark`) and buys its
+    # readability from a soft light card behind it — the ordinary broadcast answer — instead of
+    # being flattened to a white silhouette. Al Fouad's red heart is exactly this case.
+    plate_css = ("background:rgba(255,255,255,.92);border-radius:14px;padding:12px 18px;"
+                 "box-shadow:0 6px 22px -6px rgba(0,0,0,.45);"
+                 if _PLATE_LOGOS else "")
     if logo_bug:
         # The quiet form: NOT re-animated on every cut — a mark that pops in six times reads as
         # six logos, not one brand. It rides the corner and stays put.
@@ -339,8 +373,8 @@ def _scene_html(scene: ReelScene, storyboard: Storyboard, width: int, height: in
                     + ("right top" if rtl else "left top")
         logo_html = f'<div class="logo" style="{logo_pos}"><img src="{logo_uri}"></div>'
     else:
-        logo_html = (f'<div class="logo" {_LOGO_ANIM} style="{logo_pos}"><img src="{logo_uri}"></div>'
-                     if show_logo else "")
+        logo_html = (f'<div class="logo" {_LOGO_ANIM} style="{logo_pos}{plate_css}">'
+                     f'<img src="{logo_uri}"></div>' if show_logo else "")
 
     inner: list[str] = []
     if scene.headline:

@@ -138,7 +138,7 @@ def _same_moment(scene: Any, previous: Any) -> bool:
 def tail_frame(clip_path: "str | Path", out_path: "str | Path") -> Optional[str]:
     """The clip's LAST frame as a PNG, or None. Never raises — a missing tail costs continuity,
     and continuity must never cost a render."""
-    from .ffmpeg_tools import ffmpeg_exe, run_ffmpeg
+    from .ffmpeg_tools import run_ffmpeg
     src, dest = Path(str(clip_path)), Path(str(out_path))
     if not src.is_file():
         return None
@@ -146,12 +146,48 @@ def tail_frame(clip_path: "str | Path", out_path: "str | Path") -> Optional[str]
         dest.parent.mkdir(parents=True, exist_ok=True)
         # `-sseof -0.2` seeks from the END, so this does not depend on knowing the duration and
         # cannot land past it. `-update 1` keeps overwriting one file, leaving the final frame.
+        #
+        # NO `ffmpeg_exe()` AND NO `-y` HERE (fixed 2026-08-01, and this is why the whole feature
+        # was dead): `run_ffmpeg` already prepends both. Passing the binary again made ffmpeg read
+        # its own path as the OUTPUT FILE — "Error initializing the muxer for ffmpeg-win-x86_64" —
+        # so every call raised, the except returned None, and `decide_seed` read that None as
+        # "no tail available to chain". MEASURED on a real clip: tail_frame() -> None, always.
+        # Continuity has never chained a single scene since it was written; the module's own
+        # promise ("continuity must never cost a render") is what hid it.
         res = run_ffmpeg([
-            ffmpeg_exe(), "-y", "-sseof", "-0.2", "-i", str(src),
+            "-sseof", "-0.2", "-i", str(src),
             "-vsync", "0", "-update", "1", "-frames:v", "1", str(dest),
         ])
-        if getattr(res, "returncode", 1) != 0 or not dest.is_file() or dest.stat().st_size < 64:
-            return None
-        return str(dest)
+        return _kept(res, dest)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _kept(res, dest: Path) -> Optional[str]:
+    if getattr(res, "returncode", 1) != 0 or not dest.is_file() or dest.stat().st_size < 64:
+        return None
+    return str(dest)
+
+
+def head_frame(clip_path: "str | Path", out_path: "str | Path",
+               at_s: float = 0.35) -> Optional[str]:
+    """A frame from near the START of the clip, as a PNG, or None.
+
+    The join a viewer actually sees is `previous.tail -> current.head`, and a generated clip's very
+    first frames are its warm-up (which is why `cinematic.head_trim_for` exists), so this samples
+    just past it rather than at 0. Used by `reel/shot_match.py` to measure one shot against the
+    film's anchor. Same contract as `tail_frame`: never raises, None on anything unusable.
+    """
+    from .ffmpeg_tools import run_ffmpeg
+    src, dest = Path(str(clip_path)), Path(str(out_path))
+    if not src.is_file():
+        return None
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        res = run_ffmpeg([
+            "-ss", f"{max(0.0, float(at_s)):.2f}", "-i", str(src),
+            "-vsync", "0", "-update", "1", "-frames:v", "1", str(dest),
+        ])
+        return _kept(res, dest)
     except Exception:  # noqa: BLE001
         return None

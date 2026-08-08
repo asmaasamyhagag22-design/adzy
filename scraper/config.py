@@ -397,7 +397,28 @@ BOT_PROTECTION_HTML_MARKERS = BOT_CHALLENGE_MARKERS + BOT_VENDOR_MARKERS
 EMAIL_REGEX = r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"
 
 # --- Output dirs ----------------------------------------------------
+# WHERE THE SCRAPES LIVE — one resolver, so nobody has to remember four defaults.
+#
+# The corpus is 3.4 GB across 12k files and it was sitting inside the owner's Google-Drive folder,
+# where every stat() goes through the sync layer: a `du` over it did not finish in eight minutes
+# and a single `find` timed out at five. Nothing in it is committed (`.gitignore`: "Scrape outputs
+# (large, regeneratable)"), so the whole corpus can live on a local disk while the code stays on
+# the synced drive.
+#
+# A junction was the obvious fix and the Drive filesystem REFUSES it ("Incorrect function" —
+# reparse points are not implemented there), which is why this is a config value and not a symlink.
+# Unset -> "scrapes", byte-identical to every previous run.
 DEFAULT_OUTPUT_ROOT = "scrapes"
+
+
+def scrapes_root() -> str:
+    """The corpus root, resolved AT CALL TIME.
+
+    Read here rather than pinned at import because `.env` is loaded by the entry points, and a
+    constant computed at import would be frozen before `load_dotenv` ever ran — the variable would
+    be set, ignored, and every scrape would silently write to the old place.
+    """
+    return (os.environ.get("BASEERA_SCRAPES_DIR") or "").strip() or DEFAULT_OUTPUT_ROOT
 
 # --- Image / asset ----
 MAX_PALETTE_COLORS = 6

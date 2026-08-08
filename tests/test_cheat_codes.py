@@ -118,13 +118,65 @@ def test_head_trim_is_half_a_second_and_guarded():
 
 # --- intra-scene cuts: one clip, several shots -------------------------------
 
-def test_a_long_scene_is_recut_into_shots_with_alternating_punch():
+def _shot_zooms(chain: str) -> list[float]:
+    """Each shot's zoom in cut order — 1.0 for a shot that plays the untouched plate."""
+    out = []
+    for seg in chain.split(";"):
+        if "trim=" not in seg:
+            continue
+        m = re.search(r"scale=iw\*([\d.]+)", seg)
+        out.append(float(m.group(1)) if m else 1.0)
+    return out
+
+
+def test_a_long_scene_is_recut_into_shots():
     from reel.cinematic import intra_scene_chain
     chain = intra_scene_chain("bg", "bgc", duration_s=5.4, width=1080, height=1920)
     assert chain.count("trim=") >= 3, "a 5.4s scene stayed one shot"
     assert "concat=" in chain
-    assert "1.06" in chain or "1.07" in chain, "no punch-in — the cuts would be invisible"
     assert chain.count("setpts=PTS-STARTPTS") >= 3
+
+
+def test_consecutive_shots_change_size_enough_to_read_as_a_cut():
+    """THE MEASUREMENT THAT KILLED THE OLD PUNCH (2026-08-06).
+
+    `intra_scene_chain` used to move 6% and its own docstring claimed that "registers as a new
+    angle". Scene-change scores on the shipped `outputs/reels/alfouad_run3.mp4` say otherwise: the
+    real cuts scored 0.52-0.67 and the 6% punches 0.079-0.104 — the same range ordinary movement
+    scores. Nine cuts in the plan, three a viewer could see.
+
+    An editor's threshold for two shots of the same subject cutting together is roughly a third of
+    image size. This asserts the LADDER, so the number cannot quietly shrink back.
+    """
+    from reel.cinematic import MIN_CUT_RATIO, intra_scene_chain
+    for d in (3.0, 4.0, 5.4, 6.0, 8.0):
+        zooms = _shot_zooms(intra_scene_chain("bg", "bgc", duration_s=d,
+                                              width=1080, height=1920))
+        assert len(zooms) >= 2, d
+        for a, b in zip(zooms, zooms[1:]):
+            ratio = max(a, b) / min(a, b)
+            assert ratio >= MIN_CUT_RATIO, (
+                f"{a} -> {b} is a {ratio:.2f}x change on a {d}s scene — a zoom, not a cut")
+
+
+def test_the_reframe_never_softens_the_picture_past_recognition():
+    """The video model delivers 720p here, so a 1.5x punch already blows up a 486px-wide region.
+    The ceiling is a picture-quality contract, not taste: a soft shot is a worse defect than a
+    tame cut."""
+    from reel.cinematic import intra_scene_chain
+    zooms = _shot_zooms(intra_scene_chain("bg", "bgc", duration_s=8.0, width=1080, height=1920))
+    assert max(zooms) <= 1.5, f"{max(zooms)}x on a 720p source is visibly soft"
+
+
+def test_the_close_shots_move_as_well_as_zoom():
+    """A punch that only scales is a zoom. A camera that is somewhere ELSE is an angle — so the
+    close tier must shift its crop centre off dead-centre, or the ladder is just a slow zoom in
+    two steps."""
+    from reel.cinematic import framings_for
+    closes = [f for f in framings_for(6) if f[0] > 1.1]
+    assert closes
+    assert any(abs(cx - 0.5) > 0.01 or abs(cy - 0.5) > 0.01 for _z, cx, cy in closes), \
+        "every close shot is dead-centre — the punch never becomes a new camera position"
 
 
 def test_a_short_scene_is_left_alone():

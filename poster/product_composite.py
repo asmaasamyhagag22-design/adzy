@@ -310,7 +310,7 @@ def _harmonize(prod, bg, x: int, y: int, w: int, h: int) -> tuple:
 def composite_product(background: "str | Path", asset, *,
                       zone: "tuple | None" = None, contact_shadow: bool = True,
                       product_url: str = "", mode: str = "", harmonize: bool = True,
-                      out_path: "str | Path | None" = None) -> Optional[str]:
+                      align: str = "", out_path: "str | Path | None" = None) -> Optional[str]:
     """Paste the product onto `background` inside `zone`. `asset` is bytes, a URL/path, or a
     LIST of candidates — the first that keys into a clean cut-out wins; if none does, the first
     usable one is FEATHERED in. Returns the new path, or None only when nothing loads at all.
@@ -318,7 +318,13 @@ def composite_product(background: "str | Path", asset, *,
     `zone` comes from `product_placement.decide_placement`; None means nobody decided, which is
     logged rather than silently treated as a choice. `mode` is that decision's mode — it changes
     the shadow's physics, because an object lying under an overhead camera and an object standing
-    on a floor do not throw the same shape."""
+    on a floor do not throw the same shape.
+
+    `align="center"` overrides the zone's X and centres the product horizontally. A caller cannot
+    do this itself: the width is only known after the asset is keyed, trimmed and scaled in here,
+    so a fixed `zx` puts the product's LEFT EDGE where the caller meant its middle. The poster
+    keeps the default (a zone is a reserved rectangle there, and the copy is laid out around it);
+    the reel's product INSERT needs a true centre, which is what this is for."""
     from PIL import Image, ImageFilter
 
     if zone is None:
@@ -364,7 +370,7 @@ def composite_product(background: "str | Path", asset, *,
         target_w, target_h = int(prod.width * scale), int(prod.height * scale)
     prod = prod.resize((target_w, target_h), Image.LANCZOS)
 
-    x = int(W * float(zx))
+    x = (W - target_w) // 2 if str(align) == "center" else int(W * float(zx))
     y = int(H * float(zy))
     x = max(0, min(x, W - target_w))
     y = max(0, min(y, H - target_h))
@@ -458,7 +464,7 @@ def rank_candidates(urls, *, product_url: str = "", caller=None, probe: int = 4)
 
 def compose_or_background(background: "str | Path", asset, *, zone: "tuple | None" = None,
                           product_url: str = "", mode: str = "", caller=None,
-                          out_path: "str | Path | None" = None) -> tuple:
+                          align: str = "", out_path: "str | Path | None" = None) -> tuple:
     """(path, mode) — the NAMED fallback the reviewer asked for.
 
     MEASURED on the Al Fouad banner: ground p5/median/p95 = 124/216/250, the white bottle body
@@ -478,7 +484,7 @@ def compose_or_background(background: "str | Path", asset, *, zone: "tuple | Non
         candidates = rank_candidates(candidates, product_url=product_url, caller=caller)
 
     pasted = composite_product(background, candidates, zone=zone, product_url=product_url,
-                               mode=mode)
+                               mode=mode, align=align, out_path=out_path)
     if pasted:
         # composite_product feathers as a last resort; a feathered PANEL is exactly the card the
         # reviewer measured, so treat "keyed cleanly" as the only composited state.

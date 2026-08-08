@@ -6,6 +6,8 @@ and, on fail, regenerates once then falls back to the faithful real-photo KenBur
 """
 from __future__ import annotations
 
+from reel.motion_contract import FRAME_IS_UNPRINTED
+
 from pathlib import Path
 
 from reel.schemas import ReelScene, Storyboard
@@ -179,7 +181,7 @@ def test_the_still_is_reachable_for_a_caller_who_wants_it(tmp_path, monkeypatch)
     res = comp.render_reel(_storyboard(), provider=_Rec("veo"), out_path=tmp_path / "o.mp4",
                            scale=0.25, fallback_provider=fb, qa_caller=_FailQA(),
                            qa_product_hint="Hair Growth", qa_reference_image=b"REF")
-    assert {p.split(" Absolutely no readable text")[0] for p, _ in fb.seen} == {"S0", "S1"}
+    assert {p.split(FRAME_IS_UNPRINTED)[0].rstrip() for p, _ in fb.seen} == {"S0", "S1"}
     assert res.fallback_used is True
 
 

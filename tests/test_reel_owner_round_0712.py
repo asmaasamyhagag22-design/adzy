@@ -62,10 +62,27 @@ def test_hitl_approved_plan_is_never_replaced_by_the_eval(monkeypatch, tmp_path)
         provider=None, out_path=tmp_path / "r.mp4",
         plan_override=plan.model_dump(), with_voiceover=False)
     assert result == {"ok": True}
-    # the APPROVED prompts render verbatim — nothing was swapped
-    assert [s.visual_prompt for s in captured["sb"].scenes] == \
-        ["APPROVED SHOT ONE", "APPROVED SHOT TWO"]
+    # THE APPROVED CREATIVE IS UNTOUCHED AND LEADS. Nothing was swapped, nothing reordered,
+    # nothing rewritten — which is the betrayal this test was written to catch.
+    prompts = [s.visual_prompt for s in captured["sb"].scenes]
+    assert [p.split("\n")[0] for p in prompts] == ["APPROVED SHOT ONE", "APPROVED SHOT TWO"]
     assert creative.scenes[0].voiceover == "بتجمع شهادات ومش لاقي فرصة؟"
+
+    # UPDATED 2026-08-01. This used to assert byte-equality, and byte-equality made the LOOK LOCK
+    # impossible to carry — an approved plan rendered with no shared lighting/grade sentence, so
+    # every shot of an owner-approved film was lit differently and no post pass could repair it
+    # (`brand/look.py`: the shadows are already in the pixels).
+    #
+    # "Verbatim" protects CREATIVE choices: what happens in the shot, how it moves, what is said.
+    # It has never meant "no technical constraint may be appended" — `compositor.py` already adds
+    # its no-readable-text ban to every prompt, approved or not, for the same reason. The look is
+    # that species. So the law is now stated as: the approved text leads and survives intact, and
+    # the ONLY thing that may follow it is the look clause.
+    from reel.creative import _LOOK_MARK
+    for original, rendered in zip(["APPROVED SHOT ONE", "APPROVED SHOT TWO"], prompts):
+        extra = rendered[len(original):]
+        assert not extra or extra.lstrip().startswith(_LOOK_MARK), \
+            f"an approved prompt gained something that is not the look lock: {extra[:80]!r}"
 
 
 def test_non_approved_render_routes_through_the_coherence_gate(monkeypatch, tmp_path):

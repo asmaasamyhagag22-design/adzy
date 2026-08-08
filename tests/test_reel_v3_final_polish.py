@@ -357,7 +357,19 @@ def test_a_free_scene_bans_readable_text_from_the_frame():
     from reel.creative import _motion_directive
     s = type("S", (), {"hero_product": False, "veo_prompt": "gym wide shot"})()
     d = _motion_directive(s)
-    assert "no readable text" in d.lower() or "no text" in d.lower(), d
+    # THE BAN MOVED, IT DID NOT GO (2026-08-06). It used to be stated here AND by the
+    # compositor — one rule, two wordings, in the same request to Veo. It now lives in exactly one
+    # place, `motion_contract.FRAME_IS_UNPRINTED`, which the compositor puts on EVERY prompt
+    # including retries and fallbacks. So the property this test guards is unchanged; what it
+    # asserts on is the constant rather than a duplicate.
+    from reel.motion_contract import FRAME_IS_UNPRINTED
+    assert "no readable text" not in d.lower(), (
+        "the ban is being stated twice in one prompt again: " + d)
+    assert "unprinted" in FRAME_IS_UNPRINTED.lower() and "signage" in FRAME_IS_UNPRINTED.lower()
+    import inspect
+    import reel.compositor as _c
+    assert "_NO_TEXT = FRAME_IS_UNPRINTED" in inspect.getsource(_c.render_reel), (
+        "the compositor no longer puts the ban on every prompt")
 
 
 def test_free_scenes_do_not_attach_product_refs(monkeypatch, tmp_path):

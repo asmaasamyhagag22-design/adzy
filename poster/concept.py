@@ -452,6 +452,40 @@ def build_creative_concept(
         + "- proof_points: 2-3 SHORT consumer-language points that support single_message (these "
         "become on-poster chips). Each must serve the message — drop anything unrelated. NOT a "
         "dump of internal/B2B product names.\n"
+        # THE CHIPS ARE AN ARGUMENT, NOT A SPEC SHEET.
+        #
+        # OWNER (2026-08-06): «الكلام اللي عالبوستر… محتاج يبقا له معنى أكتر، مش أي كلام جنب بعضه».
+        # MEASURED on the shipped NTI poster, and the two chips fail in two different ways:
+        #
+        #     headline  «زمان كنت بتسافرله. دلوقتي هو اللي جنبك.»
+        #     chip 1    «موجودين في معظم محافظات مصر»    <- the headline already said this
+        #     chip 2    «شهادات معتمدة من شركات عالمية»  <- a CATEGORY, not a fact
+        #
+        # Chip 1 spends a slot on information the reader already has; chip 2 could be printed on
+        # any training provider in the country. Meanwhile NTI's own profile carried «اعتماد المجلس
+        # الأعلى للجامعات», «شهادة Huawei Big Data Associate», «أول معمل متنقل في مصر لشهادة CCIE
+        # بالشراكة مع Cisco» and «تأسست 1983» — named, checkable, and unavailable to a competitor.
+        #
+        # The three rules below are the difference between two facts standing next to each other
+        # and two facts making a case. Nothing here is vertical-specific: "a different KIND of
+        # proof" and "the named over the categorical" hold for a pharmacy, a café or a bank.
+        + "PROOF THAT ARGUES (hard rules for proof_points — this is what makes a poster read as "
+        "an ad instead of an information panel):\n"
+        "  1. NEVER restate the headline. If the headline already tells the reader something, a "
+        "chip repeating it is a wasted slot — say the NEXT thing, the one that makes the headline "
+        "believable.\n"
+        "  2. Each chip is a DIFFERENT KIND of proof. Pick from: an AUTHORITY (who accredits, "
+        "certifies or partners), a NUMBER (years, scale, count, price, time), a NAMED SPECIFIC (a "
+        "real product, partner, place or programme by its actual name), or an ACCESS fact (where, "
+        "when, how fast, how to get it). Two chips of the same kind read as a list; two different "
+        "kinds read as a case.\n"
+        "  3. Prefer the NAMED over the categorical, always — the identity above gives you real "
+        "names. 'accredited by international companies' is what every competitor says; the actual "
+        "accrediting body, partner or certificate name is what only THIS brand can say. If the "
+        "identity does not contain a specific name for a point, drop that point rather than "
+        "writing its category.\n"
+        "  Together the chips must answer the one question the headline provokes in the reader "
+        "('really? why should I believe that?'). If they do not, they are decoration.\n"
         "BRAND-COHERENCE (HARD RULE — owner caught 'بطل مذاكرة' shipped for an education "
         "institute): the hook must NEVER mock, negate or tell people to stop the brand's own "
         "category or core activity — an education brand never disparages studying, a restaurant "

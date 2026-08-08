@@ -85,7 +85,11 @@ def test_vertical_mode_maps_brand_to_mode():
     # a luxury TONE makes a NON-beauty vertical elegant (e.g. a jeweller tagged generic 'ecommerce')
     assert _vertical_mode({"category": {"value": "ecommerce"},
                            "tone_of_voice": {"value": "luxury"}}) == "elegant"
-    assert _vertical_mode({"category": {"value": "clinic"}}) == "generic"
+    # A CLINIC IS A SERVICE (changed 2026-08-01). It used to fall through to "generic", and every
+    # mode including generic demands "a PERSON USING THE PRODUCT" — so a clinic, a pharmacy and a
+    # school all got an ad about someone applying something. The owner named the result on a real
+    # AlFouad reel: «جايب حد بيستعمل برودكت، فين السيناريو فين الماركت».
+    assert _vertical_mode({"category": {"value": "clinic"}}) == "service"
     # a haircare/skincare brand (often just 'ecommerce') is detected as BEAUTY from its offerings
     assert _vertical_mode({"category": {"value": "ecommerce"},
                            "offerings": [{"name": "Hair Care"}, {"name": "Face Care"},
@@ -226,20 +230,33 @@ def test_reel_says_what_the_brand_does_varies_scenes_and_paces_captions():
     assert "STRANGER TEST" in p and "WHAT IT DOES" in p
     assert "PRODUCT OR SERVICE" in p                          # the reel advertises a service, not only a product
     assert "SERVICE being delivered" in p                     # the benefit is shown in the service's real setting
-    # (2) per-scene background variety
-    assert "SCENE VARIETY" in p and "frozen wallpaper" in p
-    # (3) readable pacing + measured feeling
-    assert "LONG ENOUGH TO READ" in p and "needs >=3s" in p
+    # (2) per-scene shot variety. UPDATED 2026-08-01: this used to assert "SCENE VARIETY" +
+    # "frozen wallpaper", the wording that told the director to invent a DIFFERENT SETTING every
+    # scene. That is what produced the five unrelated worlds the owner rejected («فين السيناريو»).
+    # The owner's original complaint was a FROZEN COMPOSITION, and a wide/medium/macro of the same
+    # counter answers it without moving house — so the rule now varies the SHOT, not the address.
+    assert "SHOT VARIETY" in p and "never hold one locked composition" in p
+    assert "changing LOCATION every scene is the failure" in p
+    # (3) readable pacing + measured feeling. UPDATED 2026-08-01: the ">=3s" floor was folded
+    # into the 4-second one below — a captioned scene can no longer be shorter than any scene is,
+    # so the caption rule is now stated as the formula alone.
+    assert "LONG ENOUGH TO READ" in p and "words*0.4 + 1.5" in p
     assert "MEASURED" in p and "over-acted" in p
 
 
 def test_prompt_has_a_physics_logic_check_and_fast_cut_pacing():
     # Owner's "Logic Check": the director must verify every scene is physically possible before
-    # returning, and cut at a TikTok pace (2-4s), not linger.
+    # returning, and cut at a pace, not linger.
+    #
+    # UPDATED 2026-08-01: this used to assert "2-4" seconds. That number was never achievable —
+    # Veo's shortest billable clip is 4s, so every "2-second cut" was rendered as 4, PAID for as
+    # 4, and then trimmed. The pace now comes from the shot count and the CUT, not from asking
+    # for a length the runtime cannot produce.
     p = _system_prompt(5, "en", "generic")
     assert "PHYSICALLY POSSIBLE" in p
     assert "do NOT cram" in p                                    # one clear action per scene
-    assert "2-4" in p and "FAST TikTok cut" in p
+    assert "duration_s: 4-6" in p and "FOUR SECONDS IS THE FLOOR" in p
+    assert "Vary the lengths across the reel" in p               # never a metronome
 
 
 def test_featured_product_makes_the_whole_reel_one_product():

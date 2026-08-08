@@ -205,22 +205,57 @@ def _user_entries(brand_ref: str, *, store_dir: str = _STORE) -> list:
     return [e for e in (reg.get("entries") or []) if e.get("source") == "user"]
 
 
-def _with_user_competitors(brand_ref: str, peers: list, *, store_dir: str = _STORE) -> list:
-    """Re-hydrate the owner's own competitors into any peer set.
+def _approved_entries(brand_ref: str, *, store_dir: str = _STORE) -> list:
+    """Every entry the owner has NOT removed — whoever originally found it."""
+    try:
+        reg = load_registry(brand_ref, store_dir=store_dir)
+    except RegistryCorrupt:
+        return []
+    return [e for e in (reg.get("entries") or [])
+            if e.get("status", "approved") != "removed" and str(e.get("name") or "").strip()]
 
-    They must survive EVERY discovery outcome, and the failure mode is not hypothetical: measured
-    2026-07-25, all five registry files on this machine hold `entries: []`, which
-    `establish_or_diff` reads as "first run — trust this discovery", so a run that found nothing
-    would return an empty peer set and the competitor the owner typed would silently vanish from
-    her own SWOT. Discovery cannot produce these, so nothing else can bring them back."""
-    from .manual import competitor_from_user
+
+def _with_user_competitors(brand_ref: str, peers: list, *, store_dir: str = _STORE) -> list:
+    """Re-hydrate the APPROVED baseline into any peer set, from the registry itself.
+
+    The owner's own competitors must survive every discovery outcome, and the failure mode is not
+    hypothetical: measured 2026-07-25, all five registry files on this machine hold `entries: []`,
+    which `establish_or_diff` reads as "first run — trust this discovery", so a run that found
+    nothing returned an empty peer set and the competitor the owner typed silently vanished from
+    her own SWOT.
+
+    WIDENED 2026-08-01 FROM `source == "user"` TO EVERY APPROVED ENTRY, because the narrower
+    version made this module's central promise untrue. `approved_competitors` is a FILTER over the
+    live discovery, so an approved peer could only come back if that discovery found it AGAIN — the
+    approved baseline was never authoritative, the live pool was a hard gate on it. The docstring
+    said the opposite: "SWOT computes against the APPROVED baseline, never the raw live pool."
+
+    MEASURED on AlFouad the day this changed: the registry held three approved peers (Bloom
+    Pharmacy, Sallypharmacies, Egyptian Drug Store), discovery returned zero because the Google
+    project was billing-blocked, and the SWOT came out with peers=0 — so weaknesses=0 and
+    threats=1, because both of those quadrants exist only by comparison. Across all six stored
+    brands the same shape: strengths 4-11, weaknesses 1-2, threats 0-1.
+
+    The registry entry carries name + website, which is everything `competitor_from_user` needs —
+    it is named for its first caller, not for a restriction. A peer with a dead site still yields
+    `has_scrapable_site=False` and the matrix skips its cells rather than guessing them.
+
+    A REMOVED peer still never returns: `_approved_entries` excludes `status == "removed"`, which
+    is the guarantee (P6 #11b) this module exists to keep.
+    """
+    from .manual import _WHY_RESTORED, competitor_from_user
 
     out = list(peers or [])
     have = {_entry_of(_as_dict(p))["key"] for p in out}
-    for e in _user_entries(brand_ref, store_dir=store_dir):
+    for e in _approved_entries(brand_ref, store_dir=store_dir):
         if e.get("key") in have:
             continue
-        peer = competitor_from_user(e.get("name", ""), e.get("website", ""))
+        # SAY WHICH ONE IT IS. An entry the owner TYPED and one an earlier discovery FOUND are
+        # both approved and both belong here, but they are not the same claim, and the sentence
+        # ships to the client on the peer's selection record.
+        peer = competitor_from_user(
+            e.get("name", ""), e.get("website", ""),
+            why="" if e.get("source") == "user" else _WHY_RESTORED)
         if peer is not None:
             out.append(peer)
             have.add(e["key"])

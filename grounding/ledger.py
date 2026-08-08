@@ -490,6 +490,7 @@ class EvidenceLedger:
         research: Optional[dict] = None,
         deep_search: Optional[dict] = None,
         subject_judge: Optional[Any] = None,
+        exclude_fields: Optional[tuple] = None,
     ) -> "EvidenceLedger":
         """Build the ledger from a serialized BusinessProfile dict (+ optional
         web-sourced evidence). Robust to a full-run wrapper ({'profile': {...}}).
@@ -531,11 +532,18 @@ class EvidenceLedger:
                 entries.append(LedgerEntry(raw=str(raw), source_url=url or "",
                                            source_type=stype, confidence=conf))
 
-        def add_evidenced(ef: Any, stype: str) -> None:
+        def add_evidenced(ef: Any, stype: str, *, value: bool = True) -> None:
             """An EvidencedField dict: index its value AND every verbatim evidence quote
-            (the quote is the strongest match target — it's real scrape text)."""
+            (the quote is the strongest match target — it's real scrape text).
+
+            `value=False` indexes the QUOTES ONLY. The two halves of an EvidencedField are not
+            the same kind of thing: `value` is the model's restatement, `evidence[].quote` is
+            verbatim page text. Only the first can ground itself in a circle; the second is the
+            page, and dropping it would delete real proof to fix a fake one.
+            """
             if not isinstance(ef, dict):
-                add(_as_text(ef), "", stype)
+                if value:
+                    add(_as_text(ef), "", stype)
                 return
             conf = str(ef.get("confidence") or "unknown")
             ev = ef.get("evidence") or []
@@ -543,7 +551,8 @@ class EvidenceLedger:
             for item in ev:
                 if isinstance(item, dict):
                     url = item.get("page_url") or url
-            add(_as_text(ef.get("value")), url, stype, conf)
+            if value:
+                add(_as_text(ef.get("value")), url, stype, conf)
             for item in ev:
                 if isinstance(item, dict) and item.get("quote"):
                     add(item["quote"], item.get("page_url") or "", stype + ":quote", conf)
@@ -553,10 +562,33 @@ class EvidenceLedger:
             add_evidenced(p.get(f), f"profile:{f}")
 
         # List-of-EvidencedField fields.
+        #
+        # `exclude_fields` EXISTS TO BREAK A CIRCLE, and the circle was measured. `_gated` in
+        # `competitor/brand_signals.py` asks this ledger whether a value proposition is sourced —
+        # and the loop below indexes value_propositions (their values AND their quotes) as the
+        # EVIDENCE it will answer with. So every candidate grounded itself. Combined with
+        # `all([]) is True` for a line carrying no hard claim, the MEASURED reject rate on the
+        # strengths path was 0 of 148.
+        #
+        # This is the same defect the repo already found and deleted on the trends path
+        # (`brand_signals.py:248-261`: "it built the ledger FROM the candidate trend lines
+        # themselves … the gate's reject rate was STRUCTURALLY ZERO"). Rather than delete this one
+        # too, the owner chose to make it real: a caller that is about to JUDGE a field asks for a
+        # ledger built WITHOUT it, so the evidence is the page text, the offerings, the catalog and
+        # the web — never the claim restating itself.
+        #
+        # Default None = every field indexed = the exact behaviour every existing caller had.
+        #
+        # EXCLUSION IS OF THE CLAIM, NOT OF THE PAGE. The first version of this skipped the whole
+        # field and a test caught it immediately: "18kt gold and champagne diamonds" carries a
+        # NUMBER, its proof is its own verbatim evidence quote, and with the quote deleted the
+        # hard claim went unsourced and the gate correctly dropped a TRUE strength. Cutting a
+        # circle must not also cut the wire to the page — so the value goes and the quotes stay.
+        _skip = {str(f) for f in (exclude_fields or ())}
         for f in ("value_propositions", "audience_signals", "other_unique_insights",
                   "trust_signals", "service_areas", "existing_ctas"):
             for item in (p.get(f) or []):
-                add_evidenced(item, f"profile:{f}")
+                add_evidenced(item, f"profile:{f}", value=(f not in _skip))
 
         # Offerings (name/short_description/price_text + evidence quotes).
         for off in (p.get("offerings") or []):

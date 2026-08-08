@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 from reel.ffmpeg_tools import run_ffmpeg
+# ONE PLACE DECIDES HOW LONG THE CLOSE IS. The card's length and its overlap are part of the
+# delivered runtime, so they are owned by `reel/runtime.py` — a second literal here is how the
+# budget and the card drift apart, which is the arithmetic that made every 15-second reel 15.3-17.6.
+from reel.runtime import ENDCARD_S, ENDCARD_XFADE_S
 from reel.schemas import REEL_H, REEL_W
 from reel.textlayer import _FONTS_LINK
 
@@ -252,15 +256,25 @@ def _video_dims(path: "str | Path") -> "tuple[int, int] | None":
     return None
 
 
-def append_endcard_to_reel(profile: dict, video_path: str | Path, *, seconds: float = 2.6,
-                           fps: int = 30, width: int = 0, height: int = 0) -> bool:
+def append_endcard_to_reel(profile: dict, video_path: str | Path, *,
+                           seconds: float = ENDCARD_S, fps: int = 30,
+                           width: int = 0, height: int = 0,
+                           tail_audio: "str | Path | None" = None) -> bool:
     """Append a ~`seconds` brand end-card (gentle push-in + fade) to the reel, IN PLACE, with a
     short cross-fade from the last scene. Returns False (reel untouched) on failure — the
     CALLER stamps that outcome; nothing here may pretend it appended.
 
     The card is rendered at the REEL'S OWN probed dimensions, never a fixed canvas: the v2 Abu
     Auf reel measured 772x1372 while the card assumed 768x1366, xfade refused the mismatch, and
-    the reel shipped card-less behind a printed [ok]."""
+    the reel shipped card-less behind a printed [ok].
+
+    `tail_audio` is the sound bed the film was cut to, written long enough to cover this card.
+    Without it the card gets `anullsrc` and the reel's audio cross-fades INTO SILENCE — which is
+    why every delivered reel went quiet before its last frame (MEASURED: alfouad_run3 silent from
+    12.73s of 15.30s, nanocare_film from 10.40s of 16.69s). A commercial does the opposite: the
+    track lands ON the end frame. Defaults to `<reel>.bed.m4a`, which is exactly where
+    `reel/creative.py` writes it, so the common path needs no plumbing; still silent when there is
+    no bed, because inventing audio for a card is worse than a quiet one."""
     try:
         from reel.motion import _clip_duration, _has_audio
 
@@ -290,19 +304,25 @@ def append_endcard_to_reel(profile: dict, video_path: str | Path, *, seconds: fl
         if png is None:
             return False
 
-        # end-card -> a clip: slow push-in + fade-in
+        # end-card -> a clip: slow push-in. NO SECOND DISSOLVE.
+        #
+        # This carried `fade=t=in:st=0:d=0.4` on top of the 0.5s xfade below, so the logo arrived
+        # through TWO overlapping dissolves — 0.9s of the card's 1.8s spent not yet being visible.
+        # The mark smeared into view instead of landing, which is the opposite of what an end frame
+        # is for: the last thing a viewer sees should arrive on a beat and hold. The xfade IS the
+        # join; a card that also fades in is fading in twice.
         card = work / "_endcard.mp4"
         frames = int(seconds * fps)
         vf = (f"scale={width}:{height},zoompan=z='1.0+0.05*on/{frames}':d={frames}:"
               f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={width}x{height}:fps={fps},"
-              f"fade=t=in:st=0:d=0.4,format=yuv420p")
+              f"format=yuv420p")
         run_ffmpeg(["-loop", "1", "-i", str(png), "-t", f"{seconds:.2f}", "-vf", vf, "-r", str(fps),
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "medium", "-crf", "20", str(card)])
 
         # xfade the reel -> the end-card; the reel's AUDIO (Veo voiceover + ambience) must
         # SURVIVE the append — the silent card gets a padded track and the sound cross-fades
         # to silence over it (mapping only [v] here used to drop the whole voiceover).
-        t = 0.5
+        t = ENDCARD_XFADE_S
         main_dur = _clip_duration(video_path)
         off = max(0.0, main_dur - t)
         out = work / "_with_endcard.mp4"
@@ -311,13 +331,27 @@ def append_endcard_to_reel(profile: dict, video_path: str | Path, *, seconds: fl
         args = ["-i", str(video_path), "-i", str(card)]
         maps = ["-map", "[v]"]
         if _has_audio(video_path):
-            args += ["-f", "lavfi", "-t", f"{seconds:.2f}",
-                     "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+            # THE CARD'S AUDIO IS THE FILM'S LAST BAR, not silence. The bed was synthesized to
+            # cover `main_dur + seconds - t`, so its final `seconds` are exactly what belongs
+            # under the card; seeking to that offset keeps the music continuous across the join
+            # instead of cross-fading a track into nothing.
+            bed = Path(tail_audio) if tail_audio else video_path.with_suffix(".bed.m4a")
+            bed_dur = _clip_duration(bed) if bed.is_file() else 0.0
+            if bed.is_file() and bed_dur > main_dur + 0.05:
+                args += ["-ss", f"{max(0.0, bed_dur - seconds):.3f}", "-t", f"{seconds:.2f}",
+                         "-i", str(bed)]
+            else:
+                args += ["-f", "lavfi", "-t", f"{seconds:.2f}",
+                         "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
             # apad the reel's audio to EXACTLY the probed video length first: if the
             # AAC track runs a few ms short, acrossfade starves at the join and the
             # voiceover cuts abruptly instead of fading into the card.
+            # The fade lives in the GRAPH, not in an `-af` before an input — `-af` is an output
+            # option and would be applied to the wrong stream (or rejected). It runs on either
+            # branch: fading silence is a no-op, and one path is easier to trust than two.
             graph += (f";[0:a]apad=whole_dur={main_dur:.3f}[a0]"
-                      f";[a0][2:a]acrossfade=d={t}[aout]")
+                      f";[2:a]afade=t=out:st={max(0.0, seconds - 0.6):.2f}:d=0.6[a2]"
+                      f";[a0][a2]acrossfade=d={t}[aout]")
             maps += ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]
         run_ffmpeg(args + ["-filter_complex", graph] + maps
                    + ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),

@@ -915,6 +915,21 @@ class _DesignSpecResponse(BaseModel):
         "top_anchor", "center_editorial", "magazine_hero",
     ]
     headline_treatment: Literal["stacked_hero", "block", "highlight"]
+    # HOW THE CALL TO ACTION IS DRAWN — and it was the one composition decision the director was
+    # never allowed to make.
+    #
+    # MEASURED 2026-08-06: this field did not exist, so every LLM-designed poster fell through to
+    # `PosterDesignSpec.cta_style`'s default — `"pill"`. `poster/template.py` offers four real
+    # treatments and its own comment explains why the fourth matters: "A premium poster often HAS
+    # no button, and a system that can only draw buttons cannot make one." The system could only
+    # draw buttons. The other three were reachable only from the no-LLM fallback, which the full
+    # pipeline never takes. (Owner: «الزرار ده مش منطقي ينزل نفس الشكل مرة».)
+    #
+    # OPTIONAL, deliberately. Making it required means a model that skips the field fails
+    # VALIDATION — the whole design call dies and the pipeline drops to its no-LLM fallback,
+    # which is a far worse outcome than a missing button style. `None` lets the answer through
+    # and the per-run seed decides, which is exactly the degrade this was built for.
+    cta_style: Optional[Literal["pill", "block", "outline", "text_arrow"]] = None
     accent_word: Literal["last", "first", "none"]
     text_align: Literal["left", "center", "right"]
     scrim_strength: float
@@ -979,7 +994,7 @@ def build_design_spec(
     # Imported here (not at module top) to avoid any import-order coupling; template
     # imports only schemas, so there is no cycle.
     from poster.template import (
-        default_design_spec, _is_rtl, _LOGO_CORNER_BY_LAYOUT, _ZONE_BY_LAYOUT,
+        default_design_spec, _is_rtl, _CTA_STYLES, _LOGO_CORNER_BY_LAYOUT, _ZONE_BY_LAYOUT,
     )
     from poster.variation import design_variation_cue, variation_seed_int
 
@@ -1004,6 +1019,14 @@ def build_design_spec(
         "- headline_treatment: stacked_hero (a short punchy headline as a bold word-stack), "
         "block (a clean single line), or highlight (one key word sits in a brand-colored "
         "block — punchy/editorial)\n"
+        "- cta_style: HOW the call to action is drawn — pick from the brand's REGISTER, not by "
+        "habit. pill (a solid rounded button — loud, retail, direct-response); block (a "
+        "sharp-cornered slab — editorial, modern, reads as designed rather than clicked); "
+        "outline (the brand colour as a hairline border on transparent — quiet, premium); "
+        "text_arrow (NO button at all: the words with a rule under them and an arrow — what a "
+        "luxury or institutional poster actually does). A government institute, a heritage house "
+        "or a clinic rarely wears a loud button; a retail offer usually does. Do not default to "
+        "pill.\n"
         "- accent_word: which headline word takes the brand color (last/first/none)\n"
         "- text_align: left/center/right (Arabic/RTL reads right)\n"
         "- scrim_strength: 0..1 darkness behind the text for legibility (lower when the "
@@ -1084,7 +1107,15 @@ def build_design_spec(
     logo_xy = _valid_coords(getattr(resp, "logo_xy", None), 2)
     zone = _zone_from_box(text_box) if text_box else _ZONE_BY_LAYOUT.get(layout, "bottom")
 
+    # The director's own choice, with the per-run seed as the fallback so an older model that
+    # omits the field still VARIES instead of collapsing back to a pill on every poster.
+    _cta = str(getattr(resp, "cta_style", "") or "").strip()
+    if _cta not in _CTA_STYLES:
+        _seeded = default_design_spec(brief, density="full",
+                                      variation_seed=variation_seed_int(variation))
+        _cta = _seeded.cta_style
     return PosterDesignSpec(
+        cta_style=_cta,
         layout=layout,
         logo_corner=_LOGO_CORNER_BY_LAYOUT.get(layout, "top_left"),
         headline_treatment=resp.headline_treatment,

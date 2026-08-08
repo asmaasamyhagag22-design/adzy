@@ -167,8 +167,34 @@ def _cadence_for(category: str) -> int:
 
 
 def _brand_is_arabic(profile: dict[str, Any]) -> bool:
-    """True when the brand's REAL text is Arabic — so the calendar's copy and its last-resort
-    filler match the brand's language instead of defaulting to English."""
+    """True when this brand's AUDIENCE reads Arabic — asked of the resolver the reel and the
+    poster already ask, and only then falling back to counting glyphs.
+
+    MEASURED 2026-08-06 on the stored AlFouad Pharmacies record — an Egyptian pharmacy chain:
+
+        reel/poster (`audience_language_for`) -> Arabic / eg
+            ("the site declares an Arabic edition (hreflang)")
+        content calendar (this function)      -> English
+            12 of 12 topics: "Special Offers", "Bundles", "Vitamins"
+
+    Same brand, same evidence on disk, two answers depending on which surface asked — the exact
+    defect `info/STATE.md` records for the reel («نفس البراند، لغتين، حسب الباب») and closed there
+    by making the weaker calculator ask the stronger one. This was the last surface still counting
+    glyphs: the crawl reached AlFouad's ENGLISH edition, so `languages: ['en']` and the brand's own
+    stored text is Latin — the glyph count is answering "what did we happen to fetch", not "who is
+    this ad for". It matters beyond the calendar, because `poster/from_profile` can take a calendar
+    TOPIC as a headline, so an English topic leaks into an Arabic poster.
+
+    The glyph count stays as the fallback: with no audience evidence at all it is a real answer,
+    and it is the behaviour every previous run had.
+    """
+    try:
+        from reel.audience import audience_language_for
+        lang, _country, _why = audience_language_for(profile)
+        if lang:
+            return str(lang).strip().lower().startswith("ar")
+    except Exception:  # noqa: BLE001 — no resolver, no crash; count the glyphs like before
+        pass
     blob = " ".join(str(_val(profile.get(k)) or "") for k in ("name", "description", "tagline"))
     for o in (profile.get("offerings") or [])[:6]:
         blob += " " + str(_val(o.get("name") if isinstance(o, dict) else o) or "")

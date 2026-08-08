@@ -1,9 +1,19 @@
 """Voice-over track for the reel (OpenAI TTS).
 
-Turns the creative director's per-scene narration lines into ONE audio track timed
-to the scene durations: each line is synthesized, then padded with silence (or
-trimmed) to fill its scene, and the segments are concatenated so the narration
-lands in sync with the visuals. No key/SDK -> None (the reel just renders silent).
+Turns the creative director's per-scene narration lines into ONE audio track.
+
+CORRECTED 2026-08-01 — this paragraph described an implementation that is not here. It claimed
+"each line is synthesized, then padded with silence (or trimmed) to fill its scene, and the
+segments are concatenated so the narration lands in sync with the visuals". What the code does is
+ONE synthesis call over the whole joined script; `durations` is used at exactly one line, to take
+their SUM, and the resulting track is given a 250ms lead-in, an `atempo` capped at 1.12 if it runs
+long, and a pad to that total. There is no per-scene anchoring and no silence inserted at cut
+points — the narration is in sync with the FILM's length, not with each cut.
+
+Per-scene anchoring is the right fix and is deliberately not being done here: it changes the shape
+of the TTS call, multiplies calls per render, and costs money to verify. It is a ticket, not a
+line. What this note buys is that nobody reads the old paragraph and believes the sync already
+exists. No key/SDK -> None (the reel just renders silent).
 """
 from __future__ import annotations
 
@@ -301,7 +311,11 @@ def narration_lines(storyboard) -> list[str]:
     return out
 
 
-_ELEVENLABS_MODEL = "eleven_multilingual_v2"
+# eleven_v3 is the most expressive model this account can reach (measured against
+# `GET /v1/models`), and expression is the whole difference between a read and a performance —
+# the owner has rejected a reel for a flat voice before. multilingual_v2 stays the documented
+# fallback shape: `synth_voiceover(model=...)` still overrides.
+_ELEVENLABS_MODEL = "eleven_v3"
 # Native ElevenLabs library voice ids PER dialect region (owner-supplied, 2026-07-18). Keyed on the
 # canonical bucket from poster.locale.arabic_region_of so a Saudi brand narrates in a real Gulf voice
 # instead of an Egyptian one. Maghreb / unknown -> "" (no id): a neutral MSA read, never another

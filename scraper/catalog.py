@@ -72,6 +72,23 @@ def canonical_product_url(url: str) -> str:
     return u.rstrip("/")
 
 
+def _same_host_https(src: str, page_url: str) -> str:
+    """Upgrade an http:// image to https:// when its page proved the SAME HOST speaks https.
+
+    Al Fouad's og:image tag says `http://alfouadpharmacies.com/cdn/...` while the page it sits on
+    is served over https. Kept verbatim, that URL is blocked as mixed content the moment the
+    dashboard is served over https — the catalog would look populated and show broken images.
+
+    This is not a guess about the wider web: the ONLY evidence used is that this exact host just
+    served the page over https. Different host, or a page that is itself http -> untouched.
+    """
+    if not src.startswith("http://") or not page_url.startswith("https://"):
+        return src
+    host = src.split("://", 1)[1].split("/", 1)[0].lower()
+    page_host = page_url.split("://", 1)[1].split("/", 1)[0].lower()
+    return "https://" + src[len("http://"):] if host == page_host else src
+
+
 def _is_leaf(url: str) -> bool:
     try:
         from scraper.classify.page_type import is_leaf_detail
@@ -169,12 +186,36 @@ def build_catalog(manifest: Any, *, limit: int = DEFAULT_LIMIT) -> list[dict]:
     except Exception:  # noqa: BLE001
         return []
 
-    images: dict[str, str] = {}
+    # MEASURED (Al Fouad, 24/24 items with image_url=None, and the same on every other brand):
+    # `ImageOfInterest` has NO `url` field — the attribute is `src`. The old line read
+    # `getattr(img, "url", "")`, so the default silently made every image "missing", the join
+    # dict was empty on every site, and a store with a photo on every product page produced a
+    # catalog with none. A default on a getattr turns a WRONG NAME into AN EMPTY RESULT, which
+    # is why this survived: nothing ever failed.
+    #
+    # Role matters too. A product page's images include the site LOGO (its page_url is the
+    # product page), and first-wins would have pinned the store logo onto every product — a
+    # catalog that is populated and wrong, which is worse than the empty one it replaces.
+    #
+    # og:image leads, and that ordering was CHOSEN BY LOOKING, not assumed. Both candidates on
+    # the Al Fouad serum page are the right product: `content` is a hand holding the bottle,
+    # `og_image` is the clean packshot. og:image wins on two counts — it is the page's OWN
+    # declaration of what represents it (evidence, not a heuristic "first large image", which
+    # on this very page returned the LOGO for `hero`), and a packshot is what a product insert
+    # can actually composite. A lifestyle photo carries a person, who collides with whatever
+    # the reel already put on screen.
+    _ROLE_RANK = {"og_image": 0, "content": 1, "hero": 2, "logo": 9}
+    ranked: dict[str, tuple[int, str]] = {}
     for img in list(getattr(manifest, "images_of_interest", []) or []):
         page_url = canonical_product_url(getattr(img, "page_url", "") or "")
-        url = str(getattr(img, "url", "") or "")
-        if page_url and url and page_url not in images:
-            images[page_url] = url
+        src = _same_host_https(str(getattr(img, "src", "") or ""), page_url)
+        if not (page_url and src):
+            continue
+        role = getattr(getattr(img, "role", None), "value", None) or str(getattr(img, "role", ""))
+        rank = _ROLE_RANK.get(str(role).lower(), 5)
+        if page_url not in ranked or rank < ranked[page_url][0]:
+            ranked[page_url] = (rank, src)
+    images: dict[str, str] = {k: v for k, (_, v) in ranked.items()}
 
     out: list[dict] = []
     seen: set[str] = set()

@@ -41,13 +41,26 @@ def _homepage(url: str) -> str:
     return f"{parsed.scheme or 'https'}://{parsed.netloc}/"
 
 
-def competitor_from_user(name: str, website: str = "") -> Optional[CompetitorProfile]:
-    """Build a peer from what the owner typed. Returns None if it is unusable.
+_WHY_RESTORED = ("from the approved competitor registry — found by an earlier discovery run and "
+                 "kept by the owner; not re-scored on this run")
+
+
+def competitor_from_user(name: str, website: str = "",
+                         why: str = "") -> Optional[CompetitorProfile]:
+    """Build a peer from a name and a website. Returns None if it is unusable.
 
     A competitor with no website is still worth recording — the owner knows who they compete with
     even when that rival has no site — but it cannot be scraped, so `has_scrapable_site` is False
     and the comparison matrix will simply have no cells for it (which it already handles: UNKNOWN
-    cells are skipped, never guessed)."""
+    cells are skipped, never guessed).
+
+    `why` overrides the provenance line that ships to the client. It exists because this function
+    acquired a second caller on 2026-08-01: `registry._with_user_competitors` now re-hydrates the
+    whole APPROVED baseline, not only the entries the owner typed. Left at its default, a peer
+    that a discovery run FOUND was described in a client-facing SWOT as "added by the owner" —
+    true of the original caller, false of the new one, and exactly the failure class this repo
+    names "a true statement answering a different question". Pass `_WHY_RESTORED` for those.
+    """
     name = str(name or "").strip()
     if not name:
         return None
@@ -79,7 +92,7 @@ def competitor_from_user(name: str, website: str = "") -> Optional[CompetitorPro
         peer_fit_score=0.0,
         # Every sub-dimension stays None: nothing was measured, so nothing is claimed.
         breakdown=PeerFitBreakdown(total=0.0, basis="user_provided"),
-        why_selected=_WHY,
+        why_selected=(str(why).strip() or _WHY),
     )
     return CompetitorProfile(
         candidate=candidate,

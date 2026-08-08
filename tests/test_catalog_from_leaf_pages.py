@@ -32,8 +32,23 @@ class _Blk:
 
 
 class _Img:
-    def __init__(self, url, page_url):
-        self.url, self.page_url = url, page_url
+    """Shaped like the REAL `scraper.schemas.ImageOfInterest`, and asserted to be.
+
+    The first version of this double invented `self.url` — a field the model has never had (it is
+    `src`). Production read `getattr(img, "url", "")` and got "" for every image on every site, so
+    every catalog item shipped `image_url: None` while this test passed. A double that agrees with
+    the bug instead of with the schema is not a test; `test_the_double_matches_the_real_model`
+    below is what makes this one honest."""
+
+    def __init__(self, src, page_url, role="content"):
+        self.src, self.page_url, self.role = src, page_url, role
+
+
+def test_the_double_matches_the_real_model():
+    from scraper.schemas import ImageOfInterest
+    real = set(ImageOfInterest.model_fields)
+    assert {"src", "page_url", "role"} <= real
+    assert "url" not in real, "the double must track the model, not the other way round"
 
 
 class _Page:

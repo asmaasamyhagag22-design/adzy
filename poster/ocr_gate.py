@@ -126,6 +126,7 @@ def product_label_lines(*, asset, caller) -> List[str]:
 def stray_text_verdict(*, seen_lines, approved, brand_name: str = "",
                        product_name: str = "",
                        assets_composited: bool = False,
+                       logo_composited: bool = False,
                        product_label_lines: Optional[List[str]] = None) -> StrayTextVerdict:
     """Which rendered lines were never authorized? Empty `seen_lines` -> could-not-verify.
 
@@ -135,7 +136,21 @@ def stray_text_verdict(*, seen_lines, approved, brand_name: str = "",
     which is simply not a word the product's NAME contains. Both are correct by construction, and
     both would have failed a good poster. When the assets are composited the Latin on the page
     comes from those files, so Latin lines are not judged; the copy's own script still is, which
-    is where invented text actually appears."""
+    is where invented text actually appears.
+
+    `logo_composited`: THE SAME ARGUMENT, FOR THE ASSET EVERY POSTER HAS.
+
+    The exemption above was keyed to `_composite_after`, which is `bool(product_image)` — the
+    PRODUCT. But a brand mark is pasted from a real file too, and most wordmarks contain words.
+    MEASURED 2026-08-06 on the NTI poster: the pipeline composited NTI's own logo at
+    `pipeline.py:1059`, ran this gate on the same image at `:1090`, and flagged **"National
+    Telecommunication Institute"** — the sub-line printed inside the brand's own logo file. The
+    poster shipped `QA pass=False` and paid for a regeneration that could never satisfy it.
+
+    Authorising `brief.logo_text` would not have helped: it is `"NTI"`, the wordmark alone, and the
+    sub-line is not in it. The text is only knowable from the pixels we pasted — which is exactly
+    the case the product exemption already makes. So a composited LOGO earns it too, and a brand
+    with no product (an institute, a clinic, a service) stops failing forever on its own name."""
     v = StrayTextVerdict()
     lines = [str(x) for x in (seen_lines or []) if str(x).strip()]
     if not lines:
@@ -163,7 +178,7 @@ def stray_text_verdict(*, seen_lines, approved, brand_name: str = "",
         # On the product's own label, in ANY script — approved because it is on the asset.
         if label_tokens and _resembles_any(line, label_tokens):
             continue
-        if assets_composited and _is_latin_line(line):
+        if (assets_composited or logo_composited) and _is_latin_line(line):
             # Latin on a composited render comes from pixel-exact files, so it is not judged
             # HERE. Trying to separate real label words from invented ones by string distance
             # was measured to fail both ways: «LABORATOIRE» and «ULTRA-LONG UVA PROTECTION» are

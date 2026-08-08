@@ -50,10 +50,21 @@ def test_a_product_scene_still_bans_INVENTED_text():
 
 
 def test_a_scene_with_no_product_keeps_the_blanket_ban():
-    """A location or lifestyle shot has no label to protect, and generated text there is a defect."""
+    """A location or lifestyle shot has no label to protect, and generated text there is a defect.
+
+    THE BAN IS UNCHANGED; ITS WORDING IS NOT (2026-08-06). It used to read "no text, letters,
+    numbers, logos, watermarks or signage anywhere in the frame" — five stacked negations, which
+    is the form Google's own guidance calls weakest ("describe what you wish to exclude"
+    affirmatively). MEASURED on the live NTI run, where every scene contains a laptop: 21
+    seed-gate retries and 5 real-photo fallbacks across two renders, and EVERY rejection reason
+    was text. This prompt is where those rejections came from, so it now describes the frame it
+    wants instead of listing what it forbids.
+    """
     from reel.seed_gen import build_seed_prompt
     p = build_seed_prompt("a pharmacist walking through the shop").lower()
-    assert "no text, letters, numbers, logos" in p
+    assert "blank and unprinted" in p and "out of focus" in p
+    # and it is still the BLANKET form — a no-product scene protects no label
+    assert "the only text in the picture is the product's own label" not in p
 
 
 def test_the_default_is_unchanged():

@@ -1408,16 +1408,44 @@ def generate_poster(
                                      trend_context=trend_context)
     # THE CLAIM LINTER, on what will actually ship (reviewer: absolutes and operational
     # promises never went through the medical softener at all).
+    # AND IT ENFORCES. This block used to detect, log, record — and ship the copy unchanged.
+    # MEASURED 2026-08-02: a poster for a Uriage spot paste printed «علاج … مفعول فوري من بالليل
+    # للصبح» after this very linter had flagged BOTH words `rewrite_required`. A therapeutic claim
+    # and an immediacy promise on a pharmacy ad, detected and delivered. The audit then wrote
+    # `remediated: true` because the risk list was non-empty, so "handled" meant "seen".
+    #
+    # `enforce_claim_rules` returns the copy as it may actually ship, and `remediation` now records
+    # what was DONE. A dropped sentence is a shorter poster; a printed one is a client's problem.
     try:
-        from poster.copy_rules import claim_risks
-        _risks = []
+        from poster.copy_rules import enforce_claim_rules
+        _acts = []
         for _f in ("headline", "subheadline", "cta"):
-            for _r in claim_risks(getattr(concept, _f, "") or ""):
-                _risks.append(dict(_r, field=_f))
-        if _risks:
+            _before = getattr(concept, _f, "") or ""
+            _after, _done = enforce_claim_rules(_before)
+            if _done:
+                for _r in _done:
+                    _acts.append(dict(_r, field=_f))
+                setattr(concept, _f, _after)
+                log(f"[claims] {_f}: {_before!r} -> {_after!r}")
+        # The chips ship on the poster too, and they were never linted at all — three of the six
+        # copy surfaces on that Uriage render were proof chips.
+        _chips = list(getattr(concept, "proof_points", None) or [])
+        if _chips:
+            _kept = []
+            for _c in _chips:
+                _safe, _done = enforce_claim_rules(_c)
+                if _done:
+                    for _r in _done:
+                        _acts.append(dict(_r, field="proof_point"))
+                if _safe.strip():
+                    _kept.append(_safe)
+            if _kept != _chips:
+                log(f"[claims] chips: {len(_chips)} -> {len(_kept)}")
+                concept.proof_points = _kept
+        if _acts:
             log("[claims] " + "; ".join(
-                f"{r['field']}:{r['kind']}:{r['action']}({r['match']})" for r in _risks[:6]))
-            concept.remediation = list(concept.remediation or []) + _risks
+                f"{r['field']}:{r['kind']}:{r['action']}({r['match']})" for r in _acts[:6]))
+            concept.remediation = list(concept.remediation or []) + _acts
     except Exception:  # noqa: BLE001
         pass
 
@@ -1828,6 +1856,23 @@ def generate_poster(
                 "overall_pass": False,
                 "reason": (verdict.reason + " | " if verdict.reason else "")
                           + "malformed text is rendered in the frame"})
+            # LOCATED AND STILL WRONG IS ALSO NOT A PASS.
+            #
+            # The hybrid lane degrades to the paste when the drawn label cannot be CORNERED —
+            # "a drawn label nobody corrected is a garbled label", as the comment there says. It
+            # had no answer for the other half: a label that WAS cornered, WAS reprojected, and
+            # came out garbled anyway. Located was treated as correct.
+            #
+            # MEASURED 2026-08-02 on an Al Fouad poster for the Uriage Hyséac paste: the
+            # homography covered URIAGE, Hyséac and PÂTE SOS, and the line beneath the brand name
+            # shipped as «SAV TAERMALE» instead of «EAU THERMALE». On a registered pharmaceutical
+            # label that is not a typo, it is a different product. Same response as an
+            # unlocatable label: every later attempt uses the measured cut-and-paste, whose
+            # lettering is pixel-identical because it is the brand's own photograph.
+            if _use_hybrid and not _hybrid_degraded:
+                _hybrid_degraded = True
+                log("[hybrid] the reprojected label is still malformed -> falling back to the "
+                    "paste from the next attempt")
         from poster.vision_qa import product_count_ok
         _pc = product_count_ok(getattr(verdict, "product_count", 0),
                                product_named=bool(product_name))
@@ -1842,9 +1887,16 @@ def generate_poster(
         try:
             from poster.ocr_gate import product_label_lines, stray_text_verdict
             _seen = list(getattr(verdict, "text_lines", None) or [])
-            # Read the label ONCE per render, and only when a real asset was composited.
+            # Read the label ONCE per render, whenever a real asset is IN PLAY — pasted or drawn.
+            #
+            # This used to require `_composite_after`, i.e. the paste lane only, so on the HYBRID
+            # lane the gate was handed an empty list and could not know what the box actually
+            # says. That is the lane where the lettering is at risk: the model draws the pack and
+            # the real artwork is reprojected onto it. MEASURED: «SAV TAERMALE» for «EAU
+            # THERMALE» reached the client with the string gate unable to see anything wrong,
+            # because it had never been told the true line.
             _label_lines = (product_label_lines(asset=_primary_product_img, caller=qa_caller)
-                            if _composite_after and _primary_product_img else [])
+                            if _primary_product_img else [])
             _stray = stray_text_verdict(
                 seen_lines=_seen,
                 approved=[brief.headline or "", brief.subheadline or "", brief.cta_text or ""]
@@ -1852,6 +1904,13 @@ def generate_poster(
                 brand_name=brief.business_name or "",
                 product_name=product_name or "",
                 assets_composited=bool(_composite_after),
+                # THE LOGO IS A PASTED ASSET TOO, and most wordmarks contain words. MEASURED on
+                # NTI: its own logo's sub-line, "National Telecommunication Institute", came back
+                # as "text nobody authorized was rendered" — the pipeline composited it and then
+                # failed the poster for it. `_composite_after` is `bool(product_image)`, so a
+                # brand with no product (an institute, a clinic, a service) could never earn the
+                # exemption and failed forever on its own name.
+                logo_composited=bool(getattr(brief, "logo_url", "")),
                 # WHAT THE REAL BOX SAYS, read off the asset we pasted. Without this the gate
                 # rejected a correct poster three times for rendering the product's own Arabic
                 # label — the Latin exemption above could not cover it, and every failure cost

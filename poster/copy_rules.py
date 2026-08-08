@@ -164,3 +164,62 @@ def claim_risks(text: str) -> list:
         risks.append({"kind": "operational", "match": m.group(0),
                       "action": "verify_required"})
     return risks
+
+
+# ---------------------------------------------------------------------------------------------
+# ENFORCEMENT — because detection was never the missing half.
+#
+# MEASURED 2026-08-02 on a rendered Al Fouad poster for a Uriage spot paste. `claim_risks` did its
+# job: it flagged «علاج» (therapeutic, rewrite_required) and «فوري» (absolute, rewrite_required).
+# Its ONE production caller — `poster/pipeline.py`, under a comment reading "THE CLAIM LINTER, on
+# what will actually ship" — logged the risks, appended them to `concept.remediation`, and shipped
+# the copy unchanged. The poster went out reading:
+#
+#     «علاج يورياچ هيسياك الموضعي للحبوب. مفعول فوري من بالليل للصبح.»
+#
+# A therapeutic claim and an immediacy promise, on a PHARMACY ad, both flagged and both printed.
+# And the audit then recorded `remediated: true` — because `remediation` was non-empty. "Handled"
+# meant "detected". That is this repo's oldest defect standing in its most expensive place.
+#
+# WHY SENTENCE-LEVEL. The reviewer's rule stands and is the reason `claim_risks` refuses to patch:
+# «عربي مكسور أسوأ من رفض» — a noun form («علاج البقع») rewritten into a verb phrase breaks the
+# grammar. So nothing here edits inside a sentence it cannot safely edit: the verb forms go through
+# the existing softener, and a sentence still carrying an un-rewritable claim is DROPPED WHOLE.
+# Losing a line costs a supporting sentence; printing it costs the client a regulatory problem.
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!؟?])\s+|\n+")
+
+
+def enforce_claim_rules(text: str) -> tuple[str, list]:
+    """(safe_text, actions) — the copy as it may actually ship.
+
+    Order matters: soften first, because a sentence the softener fixes must not then be dropped
+    for the claim it no longer makes.
+
+    `actions` records what was DONE, not what was seen: {kind, match, action, field?} with action
+    in {softened, dropped}. An empty list means the text was already safe — which is why callers
+    can finally treat a non-empty list as "we changed something".
+    """
+    original = str(text or "")
+    if not original.strip():
+        return original, []
+
+    softened, did_soften = soften_therapeutic_claims(original)
+    actions: list = []
+    if did_soften:
+        actions.append({"kind": "therapeutic", "match": "verb form", "action": "softened"})
+
+    kept: list[str] = []
+    for sentence in _SENTENCE_SPLIT.split(softened):
+        if not sentence.strip():
+            continue
+        blocking = [r for r in claim_risks(sentence) if r.get("action") == "rewrite_required"]
+        if blocking:
+            for r in blocking:
+                actions.append({"kind": r["kind"], "match": r["match"], "action": "dropped"})
+            continue
+        kept.append(sentence.strip())
+
+    out = " ".join(kept).strip()
+    # EVERY sentence was unsafe. Returning "" is correct and deliberate: a blank subheadline is a
+    # missing line, and a poster can carry that. A poster carrying a therapeutic claim cannot.
+    return _norm(out), actions

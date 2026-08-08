@@ -72,8 +72,20 @@ def build_seed_prompt(veo_prompt: str, *, brand_name: str = "", dna_lines: str =
            "watermarks or logos anywhere else in the frame; the only text in the picture is the "
            "product's own label. "
            if product_named else
-           "ABSOLUTE RULES: no text, letters, numbers, logos, watermarks or signage anywhere "
-           "in the frame; ")
+           # PHRASED AS A DESCRIPTION, NOT A LIST OF NEGATIONS — the same correction made to
+           # the Veo prompt on 2026-08-06, applied to the prompt that was actually failing.
+           #
+           # Google's guidance is explicit: "describe what you wish to exclude"
+           # affirmatively. MEASURED on the live NTI run, where every scene contains a
+           # laptop: 21 seed-gate retries and 5 real-photo fallbacks across two renders, and
+           # every rejection reason was text — "garbled pseudo-text on the laptop screen",
+           # "readable text on the bag", "the mug features a garbled logo". The ban was
+           # handed to the model in the form the vendor calls weakest, and THIS is the
+           # prompt those rejections were coming from.
+           "ABSOLUTE RULES: every surface in the frame is blank and unprinted — plain "
+           "walls, unlabelled packaging, bare screens showing only a soft abstract glow, "
+           "clean mugs and unbranded clothing. Signage and printed matter stay outside the "
+           "frame or fall far out of focus; ")
         + "natural TRUE-TO-LIFE colours and warm realistic skin tones (no colour "
         "cast); ONE clear focal point, clean composition with natural headroom for vertical "
         "video; believable, professionally lit, ad-grade."
@@ -224,17 +236,29 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
         # Only a hero-product scene carries the real pack, so only it may show printed text —
         # everything else keeps the blanket ban (generated signage garbles).
         _is_product = bool(getattr(sc, "hero_product", False))
+        # THE LOOK LOCK, WHICH THIS FUNCTION HAS ACCEPTED AND DISCARDED SINCE IT WAS WRITTEN.
+        # `look` is a parameter on line 165 and, until 2026-08-01, appeared nowhere else in the
+        # body — so `build_seed_prompt`'s look block (see :80) was unreachable and every still in
+        # every film was generated with no shared camera/lighting/grade sentence. The guarding test
+        # called `build_seed_prompt` directly, which is why it stayed green through all of it.
+        #
+        # This is the seam that matters most for a film reading as one film: `brand/look.py` opens
+        # by saying no colour pass after the fact repairs a scene that was LIT differently — the
+        # shadows are already in the pixels. The grade downstream corrects a cast; only this
+        # prevents the mismatch.
         prompt = build_seed_prompt(getattr(sc, "veo_prompt", ""), brand_name=name,
                                    dna_lines=dna_lines, locale_line=locale_line,
                                    n_refs=(1 if ref else len(pool_refs)),
-                                   product_named=_is_product)
+                                   product_named=_is_product, look=look)
         seed_path: Optional[str] = None
         # calibration #2 (owner: the raw distant building photo read as "قطع خالص"): a third
         # attempt drops the photo conditioning entirely — a clean on-brief scene beats a
         # world-breaking raw photo — before the caller ever considers a fallback.
+        # The unconditioned attempt needs the look MORE than the others, not less: with no photo to
+        # anchor it, the look sentence is the only thing keeping this shot in the same film.
         prompt_plain = build_seed_prompt(getattr(sc, "veo_prompt", ""), brand_name=name,
                                          dna_lines=dna_lines, locale_line=locale_line,
-                                         n_refs=0, product_named=_is_product)
+                                         n_refs=0, product_named=_is_product, look=look)
         # Attempt plan: 1-2 conditioned on the scene photo (or the pool when there is none);
         # 3 unconditioned ("clean on-brief beats world-breaking"); 4 pool-conditioned brand-world
         # — the last chance to keep REAL brand identity in frame before the scene is dropped.
@@ -263,8 +287,12 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
                             else prompt_plain if attempt == 3
                             else prompt)
                 if not hero:
-                    a_prompt += ("\nABSOLUTELY NO readable text anywhere in the frame — no "
-                                 "labels, packaging text, logos, screens or signage.")
+                    # The retry's escalation, in the same affirmative form. Repeating a ban the
+                    # model already broke is not a request (`reel/retry_policy.py`); what changes
+                    # the picture is describing the surface we want instead.
+                    a_prompt += ("\nEvery surface in this frame is blank and unprinted: plain "
+                                 "walls, unlabelled packaging, screens dark or showing only a "
+                                 "soft abstract glow, plain mugs and unbranded clothing.")
                 attach = ([ref] if (ref and attempt < 3)
                           else pool_refs if (attempt in (1, 2) and not ref) or attempt == 4
                           else None)

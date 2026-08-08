@@ -534,6 +534,16 @@ _FULL_SHOW = ["logo", "kicker", "headline", "sub", "offerings", "cta", "contact"
 _MINIMAL_SHOW = ["logo", "headline", "cta"]
 
 
+# HOW THE CALL TO ACTION IS DRAWN. Four real treatments, not four skins of one:
+#   pill       a solid rounded button — loud, retail, what every poster used to get
+#   block      a sharp-cornered slab — editorial, modern, reads as designed rather than clicked
+#   outline    the brand colour as a hairline border on transparent — quiet, premium
+#   text_arrow no button at all: the words with a rule under them and an arrow
+# The last one is the point. A premium poster often HAS no button, and a system that can only
+# draw buttons cannot make one.
+_CTA_STYLES = ["pill", "block", "outline", "text_arrow"]
+
+
 def default_design_spec(
     brief: PosterBrief, density: str = "minimal", variation_seed: Optional[int] = None,
 ) -> PosterDesignSpec:
@@ -555,7 +565,11 @@ def default_design_spec(
     # identical across brands — not just the layout.
     _treatments = ["stacked_hero", "highlight"] if layout in _HERO_LAYOUTS else ["block", "highlight"]
     treatment = _treatments[(seed // 13) % len(_treatments)]
+    # Decorrelated again (// 29) so the button is not a passenger of the layout: two brands that
+    # happen to share a composition must not also share a button.
+    cta_style = _CTA_STYLES[(seed // 29) % len(_CTA_STYLES)]
     return PosterDesignSpec(
+        cta_style=cta_style,
         layout=layout,
         logo_corner=_LOGO_CORNER_BY_LAYOUT[layout],
         headline_treatment=treatment,
@@ -855,6 +869,7 @@ def render_poster_html(
     kicker_color = _legible_on_dark(accent_rgb)   # readable on the dark scrim
     cta_bg = accent                               # keep the brand color on the button
     cta_text = _readable_on(accent_rgb)           # white on a dark brand color, dark on a light one
+
     # Lockup-headline gradient (the DNA "internal gradient" treatment): the brand accent -> a
     # second vivid palette color, or a lighter shade of the accent when the palette has only one.
     _pal2 = [str(c) for c in ([brief.primary_color] + list(brief.palette_hex or []))
@@ -930,6 +945,38 @@ def render_poster_html(
     # default — never the boring system serif. The per-run variation seed (from the
     # spec) varies the pairing so the FONTS change between runs of the same brand.
     font_links, font_head, font_body = _fonts_head_and_stacks(brief, rtl, spec.variation_seed)
+    # THE BUTTON IS A DESIGN DECISION. This block used to be one hardcoded pill on every poster of
+    # every brand — the owner spotted it across four posters in a row. Each archetype is a real
+    # treatment with its own weight; `text_arrow` deliberately draws NO button, because a premium
+    # poster often has none and a renderer that can only draw buttons cannot make one.
+    _cta_style = getattr(spec, "cta_style", "pill") or "pill"
+    _cta_shadow = "box-shadow:0 16px 40px -10px rgba(0,0,0,.6);"
+    if _cta_style == "block":
+        cta_css = (f".cta{{display:inline-flex;align-items:center;gap:12px;background:{cta_bg};"
+                   f"color:{cta_text};padding:24px 56px;border-radius:6px;{_cta_shadow}}}"
+                   f".cta-text{{font-family:{font_body};font-weight:800;font-size:30px;"
+                   "letter-spacing:.04em;text-transform:uppercase;}")
+    elif _cta_style == "outline":
+        cta_css = (f".cta{{display:inline-flex;align-items:center;gap:12px;background:transparent;"
+                   f"color:{cta_bg};padding:20px 48px;border-radius:999px;"
+                   f"border:2.5px solid {cta_bg};}}"
+                   f".cta-text{{font-family:{font_body};font-weight:700;font-size:27px;"
+                   "letter-spacing:.02em;}")
+    elif _cta_style == "text_arrow":
+        # No plate, no fill. The words themselves, with a rule under them — so the CTA reads as
+        # part of the writing rather than a control pasted onto a photograph.
+        cta_css = (f".cta{{display:inline-flex;align-items:center;gap:14px;background:none;"
+                   f"color:{copy_ink};padding:6px 0 10px 0;border:0;"
+                   f"border-bottom:3px solid {cta_bg};}}"
+                   f".cta-text{{font-family:{font_body};font-weight:800;font-size:30px;"
+                   "letter-spacing:.01em;}"
+                   f".cta::after{{content:'\2190';font-size:26px;color:{cta_bg};font-weight:900;}}")
+    else:
+        cta_css = (f".cta{{display:inline-flex;align-items:center;gap:12px;background:{cta_bg};"
+                   f"color:{cta_text};padding:22px 52px;border-radius:999px;"
+                   f"border:1.5px solid rgba(255,255,255,.28);{_cta_shadow}}}"
+                   f".cta-text{{font-family:{font_body};font-weight:800;font-size:28px;"
+                   "text-transform:capitalize;letter-spacing:.01em;}")
 
     # Layout-driven CSS. FREE-FORM (spec.text_box set) places the cluster + logo at
     # continuous coords (unbounded compositions); else one of the 6 fixed archetypes.
@@ -1130,13 +1177,7 @@ def render_poster_html(
   /* A confident, high-contrast CTA button (art-critic: the pill was a tiny footnote). */
   /* CTA: a solid high-contrast button — a light hairline border + strong dark shadow so it
      pops on ANY background (QA: the chip read low-contrast over a busy scene). */
-  .cta {{
-    display:inline-flex; align-items:center; gap:12px;
-    background:{cta_bg}; color:{cta_text}; padding:22px 52px; border-radius:999px;
-    border:1.5px solid rgba(255,255,255,.28);
-    box-shadow:0 16px 40px -10px rgba(0,0,0,.6);
-  }}
-  .cta-text {{ font-family:{font_body}; font-weight:800; font-size:28px; text-transform:capitalize; letter-spacing:.01em; }}
+  {cta_css}
   .contact {{ font-family:{font_body}; font-size:18px; color:#cdd6df; margin-top:22px; }}
   .socials {{ font-family:{font_body}; font-size:18px; color:#aeb8c4; margin-top:12px; letter-spacing:.02em; }}
   /* layout-driven: text-block placement/scrim + brand-mark corner (per design spec) */

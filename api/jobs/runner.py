@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 # Pipeline imports — identical to what the CLI uses.
+from business_profile.build import _attach_catalog
 from business_profile.llm.caller import Caller, MockCaller, default_caller
 from business_profile.llm.embeddings import embed_texts
 from business_profile.llm.evidence_pack import build_evidence_pack
@@ -73,7 +74,9 @@ def run_pipeline_job(
     persist_to_disk: bool = True,
     caller_factory: Optional[Any] = None,  # for tests: callable returning a Caller
     scraper_fn: Optional[Any] = None,      # for tests: callable replacing scraper.scrape
-    output_root: str = "scrapes",
+    # "" = resolved by `scraper.config.scrapes_root()` inside `scrape()` — the webapp and the CLI
+    # must write to the SAME corpus, and a literal here is how they stop doing that.
+    output_root: str = "",
     use_rag: Optional[bool] = None,        # Pillar 2; default: on in prod, off when a test injects a caller
     embed_fn: Any = embed_texts,           # for tests: inject a fake embedder
 ) -> None:
@@ -121,6 +124,19 @@ def run_pipeline_job(
         emit(Stage.RULES, StageStatus.STARTED)
         t0 = time.monotonic()
         rules_profile = apply_rules(manifest, manifest_path=manifest_path)
+        # THE CATALOG, ON THE DASHBOARD PATH TOO.
+        #
+        # `business_profile.build` attaches it on both of ITS paths, and this runner is a third
+        # pipeline that never called it: `apply_rules` -> LLM -> `merge_profile` -> stored. So the
+        # CLI knew what the shop sells and the dashboard did not. MEASURED on a fresh Al Fouad
+        # scrape run from the dashboard this minute: the crawl reached 42 pages, 40 of them product
+        # pages, and `build_catalog` on that very manifest returns 24 priced items WITH images —
+        # while the stored brand said `catalog: []`. Nothing failed; a step simply was not wired
+        # into this caller, which is the defect class this whole day has been about.
+        #
+        # ONE place, not two: `merge_profile` starts with `deepcopy(rules_profile)`, so anything
+        # attached here survives the LLM merge, and the skip_llm branch returns this same object.
+        _attach_catalog(rules_profile, manifest)
         rules_ms = int((time.monotonic() - t0) * 1000)
         emit(
             Stage.RULES, StageStatus.DONE, duration_ms=rules_ms,

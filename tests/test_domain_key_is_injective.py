@@ -66,7 +66,10 @@ def test_the_frontend_computes_the_same_key():
     the server filed under another name — the collision bug wearing a different hat."""
     html = (Path(__file__).resolve().parents[1] / "frontend" / "index.html").read_text(
         encoding="utf-8")
-    fn_at = html.find("domainKeyFromUrl")
+    # THE DEFINITION, not the first mention. `html.find("domainKeyFromUrl")` landed on whichever
+    # CALL SITE happened to appear earliest in the file, so adding a caller above the definition
+    # made this test read someone else's function body and fail on code it never looked at.
+    fn_at = html.find("function domainKeyFromUrl")
     assert fn_at > 0, "the frontend no longer derives a domain key — update this test"
     body = html[fn_at:fn_at + 500]
     assert '"__"' in body or "'__'" in body, (

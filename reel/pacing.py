@@ -58,7 +58,14 @@ def split_for_pace(durations, max_shot_s: float = MAX_SHOT_S) -> List[float]:
         while piece < MIN_SHOT_S and parts > 2:
             parts -= 1
             piece = d / parts
-        out.extend([round(piece, 3)] * parts)
+        # ROUND THE BOUNDARIES, NOT THE PIECES. `[round(d/parts, 3)] * parts` rounds one number and
+        # then repeats the error: 5.0 into 3 came back as 1.667 x 3 = 5.001, and the caller
+        # (`cinematic.intra_scene_chain`) accumulates those to build trim windows — so the last
+        # shot asked ffmpeg for footage one millisecond past the end of the clip. Differencing
+        # rounded cumulative boundaries makes the sum exactly `d` by construction, for any parts.
+        bounds = [round(d * k / parts, 3) for k in range(parts + 1)]
+        bounds[-1] = round(d, 3)
+        out.extend([round(bounds[k + 1] - bounds[k], 3) for k in range(parts)])
     return out
 
 

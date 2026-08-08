@@ -148,7 +148,9 @@ def _revise_once(profile, brief, photos, args, result, creative, verdict, *, cal
             n_scenes=len(getattr(revised, "scenes", None) or []) or 5, scale=args.scale,
             language=args.language, include_logo=not args.no_logo, music_path=args.music,
             with_voiceover=not args.no_voiceover, featured_product=args.product_name,
-            plan_override=revised.model_dump(), photo_subjects=None)
+            plan_override=revised.model_dump(), photo_subjects=None,
+            max_seconds=args.max_seconds,
+            hero_product_url=str(getattr(args, "product", None) or ""))
     except Exception as exc:  # noqa: BLE001 — a failed revision keeps the film we already have
         print(f"     ! the revision could not render ({type(exc).__name__}); keeping the first cut",
               file=sys.stderr)
@@ -259,8 +261,12 @@ def _append_brand_endcard(profile: dict, reel_path, *, enabled: bool) -> None:
 # as four. Nothing downstream can recover the difference.
 _VEO_MIN_CLIP_S = 4.0
 
+# Imported rather than repeated: the insert's length is decided in the module that renders it, and
+# a second copy of the number here would drift the moment either side is tuned.
+from reel.insert_shot import INSERT_S as _INSERT_S  # noqa: E402
 
-def _scenes_for(max_seconds: float, requested: int) -> int:
+
+def _scenes_for(max_seconds: float, requested: int, *, has_insert: bool = False) -> int:
     """How many scenes a reel of this length can actually afford to ANIMATE.
 
     THE OWNER'S COMPLAINT, and it was arithmetic all along: «انا مش عايزه الفيديو غير Veo لقطات
@@ -273,8 +279,20 @@ def _scenes_for(max_seconds: float, requested: int) -> int:
     Deriving it costs nothing and makes the whole reel move: 20s / 4s = 5 clips, which the same
     $8 budget covers completely. Fewer, longer scenes also break the metronomic pacing the craft
     checks flag. An explicit --frames still wins when it is SMALLER — a caller may want a short
-    cut — it just cannot ask for more motion than the runtime can pay for."""
-    affordable = max(3, int(float(max_seconds or 20.0) // _VEO_MIN_CLIP_S))
+    cut — it just cannot ask for more motion than the runtime can pay for.
+
+    `has_insert` says the LAST beat is a rendered product insert (`reel/insert_shot.py`), which
+    buys back a whole scene: it costs no Veo seconds and is not bound by the 4-second minimum, so
+    a 15-second film is 3 generated shots plus it, rather than 3 shots and nothing to cut to.
+    """
+    # THE END CARD IS NOT THE SCENES' TO SPEND. `max_seconds` is the DELIVERED length and the
+    # branded close takes its share of it, so counting scenes against the whole number hands the
+    # generated shots time the card is already using. See `reel/runtime.py:picture_budget_s`.
+    from reel.runtime import picture_budget_s
+    budget_s = picture_budget_s(float(max_seconds or 20.0))
+    if has_insert:
+        budget_s = max(_VEO_MIN_CLIP_S, budget_s - _INSERT_S)
+    affordable = max(3, int(budget_s // _VEO_MIN_CLIP_S)) + (1 if has_insert else 0)
     return min(max(3, int(requested)), affordable)
 
 
@@ -302,7 +320,10 @@ def main() -> int:
                          "number of real photos the scrape found")
     ap.add_argument("--music", default=None, help="optional audio track to mux (mp3/m4a/wav)")
     ap.add_argument("--scale", type=float, default=1.0, help="resolution scale (0.5 = fast preview)")
-    ap.add_argument("--max-seconds", type=float, default=28.0, help="cap total reel length")
+    # 15 SECONDS IS THE FORMAT (owner, 2026-08-01: «الريل الطبيعي 15 ثانية»). It was 28, which is
+    # not a length any platform sells and not a length anyone watches — it is 7 scenes' worth of
+    # Veo minimum, so the film sprawled and the budget paid for the sprawl.
+    ap.add_argument("--max-seconds", type=float, default=15.0, help="cap total reel length")
     ap.add_argument("--no-logo", action="store_true", help="skip the logo overlay")
     # OFF by default (brief rule 3): a 35mm border on a 9:16 ad eats the vertical space the
     # product, the platform's safe zones and the kinetic captions all need.
@@ -338,6 +359,9 @@ def main() -> int:
                     help="a content_plan.json (from `python -m strategy`) to drive this reel.")
     ap.add_argument("--item", type=int, default=0,
                     help="with --from-plan: which calendar item index to render (default 0).")
+    ap.add_argument("--product", default=None,
+                    help="URL of ONE product page — the film is about THAT item (the insert cuts "
+                         "to its packshot, matched in the catalogue or fetched if absent)")
     ap.add_argument("--product-image", default=None,
                     help="FEATURE one product: use this real product image as the reel's footage "
                          "(the user picked it from the scraped catalogue) instead of the whole set.")
@@ -459,9 +483,16 @@ def main() -> int:
         # below passes `_scenes_for(...)`, so the moment the count started being derived the log
         # began reporting 10 for a 5-scene reel — a log that lies about the run it is describing,
         # which is the same class of defect this session has been closing all day.
-        _n = _scenes_for(args.max_seconds, args.frames)
+        # Whether the film can END ON THE PRODUCT is a fact about this brand's photos, so it is
+        # resolved here — before the scene count, which it changes — and not guessed later.
+        from reel.insert_shot import product_candidates
+        _hero = str(getattr(args, "product", None) or "")
+        _has_insert = bool(product_candidates(profile, hero_url=_hero))
+        _n = _scenes_for(args.max_seconds, args.frames, has_insert=_has_insert)
         print(f"[creative] Opus directing {_n} scenes from {len(photos)} real photos; "
-              f"provider={provider.name}", file=sys.stderr)
+              f"provider={provider.name}; last beat="
+              + ("a rendered product insert" if _has_insert
+                 else "generated (no real packshot to cut to)"), file=sys.stderr)
         plan_override = None
         if getattr(args, "plan_file", None):
             try:
@@ -481,6 +512,8 @@ def main() -> int:
                 featured_product=args.product_name,
                 plan_override=plan_override,
                 photo_subjects=photo_subjects or None,
+                max_seconds=args.max_seconds,
+                hero_product_url=_hero,
             )
         except Exception as exc:  # noqa: BLE001
             # البند 5 (spent-but-failed honesty): a failure mid-render may have ALREADY paid for

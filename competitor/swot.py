@@ -19,12 +19,15 @@ detail), which is what you show in the defense.
 
 from __future__ import annotations
 
+import logging
 import re as _re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
 from .matrix import ComparativeGapMatrix, DimensionGap, DIMENSIONS
 from .swot_priority import Priority, score_gap, score_opinion_item
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -61,6 +64,13 @@ class SWOTItem:
     # — the whole point of adding priorities — silently re-pointed every strategy at a different
     # factor. The id travels with the item instead.
     id: str = ""
+    # HOW MANY PEERS THIS CLAIM WAS ACTUALLY CHECKED AGAINST. `brand_signals` compares a value
+    # proposition against the peers' own page words and writes the verdict into `evidence`; the
+    # scorer knew nothing about it and stamped every such item «لم يُقارَن بأحد» ("was not compared
+    # with anyone") with `peers_measured: 0`. MEASURED on Al Fouad: one item read "no compared peer
+    # promises this (2 checked)" and, in the same object, said nobody was checked. The comparison
+    # happened; only the record disagreed with itself.
+    peers_compared: int = 0
 
 
 @dataclass
@@ -278,13 +288,42 @@ def unique_insight_texts(profile) -> List[str]:
     items = getattr(profile, "other_unique_insights", None)
     if items is None and isinstance(profile, dict):
         items = profile.get("other_unique_insights")
+    # PRODUCT CLAIMS ARE DROPPED HERE, because here is the only place they still CAN be.
+    # `is_product_level_claim` decides by looking at WHERE each supporting quote was found — a
+    # claim evidenced only on product detail pages describes a product, not the company. This
+    # function returned bare STRINGS, so the evidence, which is the entire discriminator, was
+    # destroyed at extraction and nothing downstream had anything left to judge with.
+    #
+    # MEASURED: the same filter already removed these from `value_propositions`, so one SWOT could
+    # drop "Carefully roasted macadamia nuts…" from one field and ship "Their dried apricots are
+    # processed without sulfur dioxide, retaining a natural dark colour" from this one, in the same
+    # Strengths column. Volume Qatar shipped "single-origin beans" and "in-house roasting" the same
+    # way. An adversarial audit called the result "arbitrary rather than principled", correctly.
+    #
+    # Conservative: no evidence -> kept. This never guesses a claim away.
+    try:
+        from .peer_words import is_product_level_claim
+    except Exception:  # noqa: BLE001 — no discriminator available -> keep everything
+        def is_product_level_claim(_x):
+            return False
     out: List[str] = []
+    dropped: List[str] = []
     for it in (items or []):
         v = getattr(it, "value", None)
         if v is None and isinstance(it, dict):
             v = it.get("value")
-        if isinstance(v, str) and v.strip():
-            out.append(v.strip())
+        if not (isinstance(v, str) and v.strip()):
+            continue
+        payload = it if isinstance(it, dict) else {
+            "value": v,
+            "evidence": [{"page_url": str(getattr(e, "page_url", "") or ""),
+                          "quote": str(getattr(e, "quote", "") or "")}
+                         for e in (getattr(it, "evidence", None) or [])]}
+        (dropped if is_product_level_claim(payload) else out).append(v.strip())
+    if dropped:
+        logger.info("[swot] %d unique insight(s) describe a PRODUCT, not the business — they "
+                    "belong to the catalog: %s", len(dropped),
+                    "; ".join(repr(d[:44]) for d in dropped))
     return out
 
 
@@ -477,7 +516,41 @@ def synthesize_swot(
             except Exception:  # noqa: BLE001
                 _judge = None
             _ledger = EvidenceLedger.from_profile(profile, subject_judge=_judge)
-            brand = strengths_from_profile(profile, _ledger)
+            # A SEPARATE LEDGER FOR JUDGING THE BRAND'S OWN CLAIMS, built WITHOUT them.
+            #
+            # `_gated` asks a ledger whether a value proposition is sourced, and the ordinary
+            # ledger indexes value_propositions and trust_signals AS evidence — so the answer was
+            # the claim repeating itself. MEASURED reject rate on this path: 0 of 148. The repo had
+            # already found and deleted the identical construction on the trends path; the owner's
+            # ruling here was to make it real instead of removing it, so the evidence a strength is
+            # judged against is now the page text, the offerings, the catalog and the web.
+            _self_judge_ledger = EvidenceLedger.from_profile(
+                profile, subject_judge=_judge,
+                exclude_fields=("value_propositions", "trust_signals"))
+            # THE PEERS' OWN WORDS, so a promise can be tested instead of transcribed.
+            #
+            # They ride in on the matrix columns: `lite_peer_dims` extracted them from HTML it had
+            # already downloaded (no extra request, no model), and `matrix._DIM_KEYS` now carries
+            # them through the projection that used to delete them. Without this the strengths
+            # producer cannot ask the only question that matters — does the competition promise
+            # this too? — and "Fast Delivery" ships as an advantage on a market where every rival
+            # says it.
+            _peers_words = []
+            try:
+                from competitor.peer_words import PeerWords
+                for col in (getattr(matrix, "competitors", None) or []):
+                    raw = (getattr(col, "values", None) or {}).get("peer_words")
+                    if isinstance(raw, dict):
+                        _peers_words.append((getattr(col, "name", ""), PeerWords(
+                            checked=True, reason="from the peer's page",
+                            categories=list(raw.get("categories") or []),
+                            headings=list(raw.get("headings") or []),
+                            badges=list(raw.get("badges") or []),
+                            promises=list(raw.get("promises") or []),
+                            languages=list(raw.get("languages") or []))))
+            except Exception:  # noqa: BLE001 — a peer read must never break the SWOT
+                _peers_words = []
+            brand = strengths_from_profile(profile, _self_judge_ledger, peers=_peers_words)
             rweak = weaknesses_from_readiness(profile, _ledger)
             # P-24: the gate's weaker mode, said out loud. `make_subject_judge(None)` -> None is
             # the documented offline degrade, and until now it happened in silence: the same items
@@ -623,7 +696,8 @@ def _prioritise(swot: SWOT, matrix: ComparativeGapMatrix, *, n_peers: int = 0) -
             item.priority = (
                 score_gap(gap) if gap is not None
                 else score_opinion_item(claim_strength=item.claim_strength,
-                                        kind="site_observation" if is_mechanic else "self_claim"))
+                                        kind="site_observation" if is_mechanic else "self_claim",
+                                        peers_compared=getattr(item, "peers_compared", 0)))
             if is_mechanic:
                 moved.append(item)
             elif item.priority.drop:

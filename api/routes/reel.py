@@ -93,11 +93,40 @@ def create_reel_from_profile(request: ReelFromProfileRequest) -> ReelFromProfile
 
         imgs = (profile.get("visual") or {}).get("content_images") or []
         photos = filter_usable_photos(imgs, max_keep=max(2, request.n_scenes + 2)) or imgs
+
+        # THE DASHBOARD WAS GETTING A DIFFERENT FILM FROM THE CLI. The browser posts a hardcoded
+        # `n_scenes: 5` and this route used it verbatim, so every dashboard reel was five generated
+        # shots — while `reel/__main__.py::_scenes_for` derives the count from the length the film
+        # is actually cut to and from whether the last beat is a RENDERED product insert (three
+        # generated shots + the insert, for a 15-second ad). One product, two shapes, decided by
+        # which door the caller came through.
+        #
+        # Derived here too, from the same function, so the dashboard ships the same film the CLI
+        # does. The request's `n_scenes` still WINS WHEN SMALLER — a caller may ask for a shorter
+        # cut; it just cannot ask for more motion than the runtime pays for.
+        try:
+            from reel.__main__ import _scenes_for
+            from reel.insert_shot import product_candidates
+            _n = _scenes_for(float(getattr(request, "max_seconds", 0) or 15.0),
+                             int(request.n_scenes),
+                             has_insert=bool(product_candidates(profile)))
+        except Exception:  # noqa: BLE001 — a derivation failure must not cost the render
+            _n = max(3, request.n_scenes)
+
         _res, creative = render_creative_reel(
             profile, brief, photos,
             provider=default_video_provider(), out_path=out,
-            n_scenes=max(3, request.n_scenes), language=request.language,
+            n_scenes=_n, language=request.language,
             with_voiceover=True,
+            # THE LENGTH THE FILM IS CUT TO, not just the number it counts scenes with. This route
+            # already derived `_n` from `max_seconds` and then never passed the length itself, so
+            # the dashboard picked the scene COUNT for fifteen seconds and delivered whatever the
+            # beat grid rounded up to. Same defect the `n_scenes` comment above describes, one
+            # layer down.
+            max_seconds=float(getattr(request, "max_seconds", 0) or 15.0),
+            # The pasted product link, carried the whole way down so the insert cuts to the item
+            # the owner named rather than to whichever catalogue entry ranked first.
+            hero_product_url=str(getattr(request, "hero_product_url", "") or ""),
         )
         mode = "creative"
     except Exception as gen_exc:  # noqa: BLE001

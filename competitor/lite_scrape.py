@@ -57,6 +57,21 @@ def _default_fetch(url: str) -> Optional[str]:
     return raw.decode("utf-8", errors="replace")
 
 
+def _peer_words(html: str) -> Optional[dict]:
+    """The peer's own vocabulary as a plain dict, or None. Never raises — a peer's page must not
+    be able to break a SWOT, and this is an enrichment on top of a function that already promises
+    exactly that."""
+    try:
+        from .peer_words import peer_words_from_html
+        pw = peer_words_from_html(html)
+        if not pw.checked:
+            return None
+        return {"categories": pw.categories, "headings": pw.headings, "badges": pw.badges,
+                "promises": pw.promises, "languages": pw.languages}
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def lite_peer_dims(url: str, *, fetch: Optional[Callable[[str], Optional[str]]] = None
                    ) -> Optional[dict]:
     """Homepage -> partial dims dict (or None). SSRF-guarded; never raises."""
@@ -111,6 +126,23 @@ def lite_peer_dims(url: str, *, fetch: Optional[Callable[[str], Optional[str]]] 
             # has already discarded share buttons ("share on Facebook" points at a dialog, not a
             # profile), so what survives here is accounts. Sorted for a stable stored row.
             "social_urls": sorted(social),
+            # WHAT THIS PEER PROMISES, from the page we already have in memory.
+            #
+            # MEASURED on zadnaeg.com: this function downloads 215,968 bytes, and everything above
+            # keeps 243 characters of the 3,501 characters of readable text — 6.9%. Inside the 94%
+            # it threw away were that peer's whole product map, their offers, and their promise
+            # strip. Meanwhile two lines up we report `offerings_count: None` and `bilingual: None`
+            # marked "LLM-stage only": announcing we do not know things we are holding.
+            #
+            # That gap is why the SWOT reads as transcription. `swot_priority.py` opens by quoting
+            # the rule — "strengths and weaknesses are only such in comparison to the competition"
+            # — and the comparison was impossible because nothing comparable was ever kept.
+            # "Fast Delivery" is a strength only if the rival is slow; MEASURED on Bloom Pharmacy,
+            # one of AlFouad's own registered peers, the rival's homepage says "FAST & FREE
+            # SHIPPING", "SECURE SHOPPING" and "CUSTOMER SUPPORT".
+            #
+            # Costs nothing: no extra request, no model, same bytes. Never raises.
+            "peer_words": _peer_words(html),
         }
     except Exception:  # noqa: BLE001 — a peer fetch failure must never break the SWOT
         return None

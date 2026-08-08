@@ -172,3 +172,34 @@ def test_adopting_never_overwrites_a_swot_the_owner_already_approved():
     brand = {"swot": {"strengths": [{"title": "hers"}]}, "has_swot": True, "swot_approved": True}
     patch = adopt_full_result(brand, _result())
     assert "swot" not in patch, "an approved SWOT was overwritten by an import"
+
+
+def test_the_ranking_survives_adoption():
+    """A CLI run adopted into the dashboard must keep its ids and its priorities.
+
+    MEASURED 2026-08-02: `_swot_from_raw` rebuilt four fields, so `adopt_full_result` — the whole
+    CLI→dashboard bridge — dropped every `id` and every `priority` on the way in. The ranking the
+    analysis had just computed was recomputed, serialized, and then discarded one step before the
+    screen; and `SWOTItem.id` exists precisely because TOWS used to derive S1/W2/O1 from list
+    POSITION, so losing it on adoption re-creates that bug one layer up. Three other callers
+    (strategy, plan) go through the same function.
+    """
+    from api.webapp_analysis import _swot_from_raw
+    raw = {"strengths": [{"text": "X", "citation": ["a"], "evidence": "e",
+                          "claim_strength": "validated", "id": "S1", "peers_compared": 2,
+                          "priority": {"importance": "high", "performance": "ahead",
+                                       "impact": "high", "probability": "unknown", "basis": "b",
+                                       "rank": 0.9, "focus": True, "drop": False,
+                                       "peers_measured": 2}}]}
+    item = _swot_from_raw(raw).strengths[0]
+    assert item.id == "S1", "the handle TOWS anchors on was lost"
+    assert item.priority is not None and item.priority.rank == 0.9
+    assert item.priority.focus is True and item.priority.peers_measured == 2
+    assert item.peers_compared == 2
+
+
+def test_a_row_with_no_priority_still_rebuilds():
+    """Older stored records predate the priority feature; adoption must not crash or invent one."""
+    from api.webapp_analysis import _swot_from_raw
+    item = _swot_from_raw({"strengths": [{"text": "X", "citation": [], "evidence": ""}]}).strengths[0]
+    assert item.priority is None and item.id == ""

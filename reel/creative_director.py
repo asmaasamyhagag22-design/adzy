@@ -190,6 +190,33 @@ def _image_parts(image_urls: list[str], *, max_images: int, max_side: int = 640)
 _ELEGANT_CATS = {"jewelry", "jewellery", "fashion", "accessories", "watches", "couture"}
 _FOOD_CATS = {"restaurant", "cafe", "bakery", "food", "fast_food", "patisserie", "coffee_shop"}
 _BEAUTY_CATS = {"beauty", "cosmetics", "cosmetic", "skincare", "haircare", "salon", "spa", "personal_care"}
+# A brand whose PRODUCT IS ITS SERVICE. Nothing here is a thing you take home and apply, so the
+# "person uses the product" spine every other mode is built on produces a category error: an ad
+# for a pharmacy CHAIN that is really a shampoo commercial.
+#
+# OWNER (2026-08-01), on exactly that: «جايب حد بيستعمل برودكت، فين السيناريو فين الماركت».
+# AlFouad is a pharmacy chain and the reel showed one person using one bottle. What it sells is
+# availability, authenticity, the pharmacist, the range, the delivery — the SERVICE.
+_SERVICE_CATS = {
+    "pharmacy", "pharmacies", "clinic", "clinics", "hospital", "medical", "dental", "lab",
+    "laboratory", "education", "school", "academy", "training", "institute", "university",
+    "agency", "consulting", "consultancy", "logistics", "delivery", "shipping", "bank",
+    "banking", "insurance", "finance", "fintech", "real_estate", "realestate", "travel",
+    "tourism", "hotel", "gym", "fitness", "veterinary", "legal", "law", "marketing",
+}
+# A RETAILER is the discriminator that matters, and it is the one that was missing. AlFouad's own
+# description reads "an online RETAILER of health and beauty products" — it sells other people's
+# brands, so its offer is access, authenticity and range. A skincare house with the same words in
+# its copy MAKES the bottle, and the bottle is the ad. Whoever owns the product owns the mode.
+_SERVICE_KEYWORDS = ("pharmac", "clinic", "hospital", "retailer", "reseller", "marketplace",
+                     "distributor", "stockist", "delivery service", "consultanc", "clinic",
+                     # A shop that STOCKS other people's goods is a service by the same rule that
+                     # makes a pharmacy one — its offer is the range and the availability, not any
+                     # single item. Added with the food test (2026-08-01) so a grocery RETAILER and
+                     # a snack BRAND land in different modes instead of both reading as "food".
+                     "supermarket", "grocer", "hypermarket",
+                     "سوبر ماركت", "بقال", "هايبر",
+                     "صيدلي", "عيادة", "مستشفى", "موزع", "تاجر", "متجر", "معمل", "مركز")
 _BEAUTY_KEYWORDS = ("skin", "hair", "face", "lip", "cosmetic", "cream", "serum", "cleanser", "mist",
                     " oil", "shampoo", "makeup", "lotion", "beauty", "salon", "fragrance", "perfume")
 
@@ -208,13 +235,75 @@ def _vertical_mode(profile: dict) -> str:
     else 'generic' — every mode now demands a PERSON using the product with real energy."""
     cat = _v(profile, "category").lower()
     tone = _v(profile, "tone_of_voice").lower()
+    # SERVICE FIRST. A pharmacy that stocks beauty brands trips every beauty keyword there is —
+    # "health and beauty products" is in its own description — and the beauty spine then writes a
+    # shampoo commercial for a pharmacy chain. Whoever OWNS the product owns the mode.
+    # SERVICE YIELDS TO FOOD. MEASURED 2026-08-02 after a fresh Abu Auf scrape: its category came
+    # back `retail` — which IS in `_SERVICE_CATS` and IS a true description — so a brand whose
+    # every offering is «تمر بالشيكولاتة» / «فشار بالكراميل» / «بروتين بار» / «بن برازيلي» was
+    # directed as a service. The note below already records this exact failure for `ecommerce`;
+    # `retail` is the same trap wearing another label. A shop that sells its OWN food is a food
+    # brand, and how it SELLS never outranks what the customer EATS.
+    if (cat in _SERVICE_CATS or _is_service(profile)) and not _is_food(profile):
+        return "service"
+    # FOOD BEFORE BEAUTY, and read off the brand's own words for the same reason SERVICE is.
+    #
+    # MEASURED 2026-08-01 on Abu Auf: its category is stored as `ecommerce` — which describes how
+    # it SELLS, not what the customer eats — so `_FOOD_CATS` (restaurant / cafe / bakery / …) never
+    # matched and a nuts-and-dried-fruit brand fell all the way through to `generic`. That is the
+    # mode whose own docstring says "every mode demands a PERSON using the product", i.e. exactly
+    # the shampoo-commercial shape the owner rejected for AlFouad, applied to a bag of almonds.
+    #
+    # Ahead of beauty because a food brand's copy is full of "natural", "fresh" and "care", which
+    # the beauty test reads as skincare.
+    if cat in _FOOD_CATS or _is_food(profile):
+        return "food"
     if cat in _BEAUTY_CATS or _is_beauty(profile):
         return "beauty"
     if tone == "luxury" or cat in _ELEGANT_CATS:
         return "elegant"
-    if cat in _FOOD_CATS:
-        return "food"
+    # CHECKED AFTER the product modes on purpose: a skincare BRAND that also happens to deliver
+    # is still selling the bottle. A pharmacy is not.
     return "generic"
+
+
+def _is_service(profile: dict) -> bool:
+    """A brand whose offer is a service, read off its own words rather than its category.
+
+    The category field cannot be trusted for this: AlFouad Pharmacies is stored as `ecommerce`
+    because it sells online, which describes its BUSINESS MODEL and says nothing about what the
+    customer is buying. Bilingual by necessity — the description is in the brand's own language."""
+    blob = " ".join(_v(profile, k) for k in ("description", "tagline", "name",
+                                             "value_proposition")).lower()
+    return any(k in blob for k in _SERVICE_KEYWORDS)
+
+
+# What a person EATS, in the brand's own words. Bilingual by necessity — the description is written
+# in the brand's language, not ours — and deliberately about the FOOD rather than the shop, so a
+# supermarket that merely stocks groceries stays a service while a snack brand is food.
+_FOOD_KEYWORDS = (
+    "snack", "nuts", "dried fruit", "roastery", "coffee", "chocolate", "confection", "bakery",
+    "pastry", "dessert", "sweets", "biscuit", "candy", "beverage", "juice", "dairy", "cheese",
+    # NOT "grocer" / "supermarket": a shop that STOCKS other people's food is a service, by the
+    # same rule that makes a pharmacy one — whoever owns the product owns the mode. Listing it
+    # here made "an online supermarket delivering groceries" resolve to food, which would brief a
+    # film about one item for a business whose offer is the range.
+    "honey", "spices", "edible", "recipe", "flavour", "flavor", "taste", "delicious",
+    "مكسرات", "ياميش", "تسالي", "مقرمشات", "حلويات", "شيكولاتة", "شوكولاتة", "قهوة", "بن",
+    "عصير", "مخبوزات", "معجنات", "توابل", "عسل", "أجبان", "ألبان", "وصفة", "طعم", "لذيذ",
+)
+
+
+def _is_food(profile: dict) -> bool:
+    """A brand whose product is EATEN, read off its own words rather than its category.
+
+    Same reasoning as `_is_service`, and the same measured cause: `category` records the business
+    model. Abu Auf — nuts, dried fruit, traditional sweets — is stored as `ecommerce`, so the
+    category-only test never fired and its reel was briefed as a generic product demo.
+    """
+    blob = " ".join(_v(profile, k) for k in ("description", "tagline", "name",
+                                             "value_proposition")).lower()
+    return any(k in blob for k in _FOOD_KEYWORDS)
 
 
 # Shared rule for EVERY mode: a real PERSON enters frame and USES the product, energetic/TikTok-native
@@ -254,11 +343,28 @@ _MOTION_GUIDANCE = {
         "with real energy and life." + _MOTION_TAIL
     ),
 }
+_MOTION_GUIDANCE["service"] = (
+    "- veo_prompt: a vivid, TikTok-native Veo 3.1 IMAGE-TO-VIDEO prompt where the BUSINESS ITSELF "
+    "is the hero, not one item off its shelf. This brand's product IS its service, so the film is "
+    "about the PLACE, the PEOPLE and the PROMISE: a pharmacist looking something up and handing it "
+    "over, a customer's relief at being told yes we have it, hands passing a branded bag across a "
+    "counter, a rider setting off, shelves that say range and order. A person must still move and "
+    "react in every second — but they are being SERVED, not applying a cream.\n"
+    "  DO NOT build the film around one product being used. An ad that shows a customer using a "
+    "single item is an ad for that item's maker, not for the business that stocked it — the "
+    "category error the owner named: «جايب حد بيستعمل برودكت، فين السيناريو فين الماركت».\n"
+    "  NEVER write a scene that depends on rendering this brand's OWN app, website, dashboard or "
+    "any specific on-screen interface. The video model cannot draw a real product's UI; it invents "
+    "a generic one, the gate rejects it as not-the-brand's, and no rewording fixes it — MEASURED, "
+    "a revision pass on exactly that note scored identically. Show the phone from behind, the "
+    "reaction to it, or the parcel that arrives because of it." + _MOTION_TAIL
+)
 _DELIVERY_EG = {
     "beauty": "'fresh and upbeat', 'confident glow', 'delighted reaction', 'warm friendly invitation'",
     "elegant": "'hushed reverence', 'quiet confidence', 'warm elegant invitation', 'proud heritage'",
     "food": "'intrigued, slow build', 'mouth-watering excitement', 'warm proud invitation'",
     "generic": "'confident and bold', 'upbeat and energetic', 'warm proud invitation'",
+    "service": "'reassured relief', 'trusted and calm', 'warm proud invitation', 'quiet authority'",
 }
 
 
@@ -295,6 +401,60 @@ def _locale_primer(profile: dict) -> str:
         return ""
 
 
+# ONE SITUATION, COVERED — the shot grammar every commercial is cut from, and the one thing this
+# director was never told.
+#
+# OWNER (2026-08-01), on a finished reel: «مش حلو خالص، جايب حد بيستعمل برودكت، فين السيناريو فين
+# الماركت؟ فيه حاجة مش لوجيك تماماً».
+#
+# The illogic was the shot design. A 15-second ad is ONE moment photographed from several angles —
+# wide, medium, close, insert — and the cuts read as an EDIT because every shot is the same world
+# seen differently. This pipeline generated N independent scenes, each inventing its own room, its
+# own light and its own person, and then hoped they cut together. `reel/continuity.py` chains the
+# last frame forward to patch that, but chaining is a repair; coverage is a design.
+#
+# It also makes the video model's job EASIER rather than harder: the same set, the same wardrobe
+# and the same face, three times, instead of three unrelated worlds it has to invent from scratch.
+# THE ARC, and it goes ahead of the coverage rule because it decides what is being covered.
+#
+# MEASURED against the reference spot the owner supplied (NanoCare Liposomal Iron, 2026-08-03).
+# Its ten seconds are: a woman with her hand on her head, tired — the product on a lit plinth —
+# the same woman, upright and smiling. Three beats and a TURN between them. What we were writing
+# instead was three true angles on one moment with no change in it. Coverage without a story is
+# a lookbook, and the product beat means nothing if it is not the hinge between two halves.
+_ARC_RULE = (
+    "THE FILM MUST TURN. Before the coverage below, decide the CHANGE this film shows:\n"
+    "  * OPEN on the problem as the customer actually lives it — a real, ordinary, physical "
+    "moment of the thing this brand fixes. Not sadness as a mood; a specific difficulty, shown.\n"
+    "  * The PRODUCT BEAT is the hinge: a cut to the item alone. We render it from the brand's "
+    "own photograph, so write it as a held shot and never describe its label.\n"
+    "  * CLOSE on the same person AFTER: same room, same clothes, same light, difficulty gone. "
+    "The viewer must be able to name what changed.\n"
+    "A reel whose last shot could have been its first has not sold anything.\n"
+)
+
+
+_COVERAGE_RULE = (
+    _ARC_RULE
+    + "SHOOT ONE SITUATION, COVERED — this is the single most important instruction here.\n"
+    "Do NOT write separate scenes in separate places. Choose ONE moment — one location, one "
+    "person (or one pair), one continuous action that takes about fifteen seconds in real life — "
+    "and COVER it the way a commercial is shot:\n"
+    "  * an ESTABLISHING wide that says where we are and who this is;\n"
+    "  * a MEDIUM that carries the action and the face;\n"
+    "  * a CLOSE or macro on the detail that matters — hands, a reaction, the thing being given;\n"
+    "  * and, where the story needs it, an INSERT: a tight cut to the object itself.\n"
+    "Every scene must be recognisably THE SAME PLACE, THE SAME PERSON and THE SAME WARDROBE, "
+    "described consistently in every veo_prompt — the same room named the same way, the same "
+    "clothing, the same light and time of day. A viewer must never wonder where they are.\n"
+    "The scenes are ANGLES ON ONE MOMENT, not chapters of a journey. A reel that opens in a "
+    "bathroom, cuts to a park and ends in a kitchen is three fragments, not an ad — it is exactly "
+    "what the owner meant by «فين السيناريو».\n"
+    "The AD SPINE below still applies in full; it tells you WHAT each angle must communicate. "
+    "Serve it from inside the one situation you chose.\n\n"
+)
+
+
 def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
                    featured: Optional[str] = None, compliance: str = "",
                    product_photo_anchored: bool = False, register: str = "",
@@ -314,15 +474,35 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
                    + str(trend_context).strip() + "\n\n")
                   if str(trend_context or "").strip() else "")
     if featured and product_photo_anchored:
-        # ONE picked product WITH its real photo anchoring the pool: SHOTS of the SAME item.
+        # ONE picked product WITH its real photo. THIS BRIEF PREDATED AXIS 1 AND CONTRADICTED IT.
+        # It used to say "EVERY scene is the SAME product… macro detail, in-hand pickup, real
+        # in-use application" — it asked the video model for four angles of a labelled pack, which
+        # is exactly what the owner banned on 2026-08-02 («ممنوع منعاً باتاً تطلبي من Veo إنه يظهر
+        # المنتج») after three live runs returned «SAV TAERMALE» for «EAU THERMALE» and «IODERMA»
+        # for BIODERMA, at $2.40 each.
+        #
+        # MEASURED on her Vichy link, 2026-08-08: the director marked hero_product on ALL FOUR
+        # scenes, and `creative._is_product_beat` composites every such scene as an insert — so the
+        # "reel" was four motionless push-ins and ZERO generated footage, one message after she
+        # asked for the opposite: «انا عايزاه كله يبقا veo».
+        #
+        # The film is now about the PERSON and the RESULT — what a video model is actually good at
+        # — and the product appears once, in a beat we composite from the brand's own photograph.
         featured_line = (
-            f"FEATURED PRODUCT: {featured}. This reel advertises ONLY this product — EVERY scene is "
-            "the SAME product (REAL PHOTO index 0), varied by SHOT and ACTION (macro detail, in-hand "
-            "pickup, real in-use application, satisfied result), NEVER a different product.\n\n")
-        image_rule = "- image_index: ALWAYS 0 — the SAME featured product; vary the shot/action, not the product.\n"
-        seq_rule = ("Anchor EVERY scene on the ONE featured product (index 0); vary the SHOT and the "
-                    "ACTION, not the item — a fast sequence of different angles/uses of the SAME product.")
-        check_seq = "on the SAME featured product with varied shots"
+            f"FEATURED PRODUCT: {featured}\n"
+            "This reel advertises ONLY this product, and it does so WITHOUT EVER FILMING IT. The "
+            "video model cannot hold a real label (measured: it garbles registered brand names), "
+            "so the product is composited in post from the brand's own photograph.\n"
+            "Write the film about the PERSON: the problem they live with, the moment it turns, the "
+            "result they can see — real human moments, shot for real.\n"
+            "EXACTLY ONE scene — the LAST — is the product beat (hero_product: true). EVERY other "
+            "scene MUST be hero_product: false, with no product, no packaging and no readable text "
+            "anywhere in frame.\n\n")
+        image_rule = ("- image_index: the real photo that fits THIS scene's human moment; the "
+                      "product's own photo belongs to the last beat only.\n")
+        seq_rule = ("Build a story around the ONE featured product without showing it until the "
+                    "end: problem, turn, result, then the product held clean for the pay-off.")
+        check_seq = "one product beat at the end, human moments before it"
     elif featured:
         # A picked product/offering with NO dedicated photo (a course, a service): the MESSAGE
         # stays locked on it, but the visuals move through DIFFERENT real brand photos — the
@@ -398,6 +578,7 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         "palette and world.\n"
         "The AD SPINE below is WHAT each scene must communicate; the strategy above is HOW the story "
         "moves and feels. Every scene serves both at once.\n\n"
+        + _COVERAGE_RULE
         + "You are given a business's identity and its REAL photos (you can see them). Design a "
         f"{n_scenes}-scene reel that ADVERTISES this brand with the proven AD SPINE — the scenes MUST "
         "follow it in order:\n"
@@ -451,17 +632,26 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         " or reacting to it. NEVER a slow zoom or a static pan over a still. " + seq_rule + " (The "
         "final CTA scene is the ONE exception: a clean, held hero composition with only a subtle "
         "settle is fine there; every earlier scene must carry real energetic motion.)\n\n"
-        "SCENE VARIETY (owner: 'the background must NOT stay behind me the whole reel'): EVERY scene is "
-        "a DIFFERENT setting, angle and moment — a fast SEQUENCE of distinct shots. NEVER hold ONE "
-        "backdrop behind the person for the whole reel. If only one real photo exists, still CHANGE the "
-        "framing, distance, action and implied location each scene so each reads as a NEW shot, never a "
-        "frozen wallpaper.\n\n"
+        # SHOT VARIETY, NOT LOCATION VARIETY. The owner's 2026-07-12 note ('the background must NOT
+        # stay behind me the whole reel') was encoded as "EVERY scene a DIFFERENT setting", and that
+        # instruction is what produced the five unrelated worlds she rejected on 2026-08-01. What she
+        # rejected then was a FROZEN FRAME, not a consistent location — a wide, a medium and a macro
+        # of the same counter are four different pictures. Coverage satisfies the old note and the
+        # new one at once; the two rules used to contradict each other in the same prompt.
+        "SHOT VARIETY (owner: 'the background must NOT stay behind me the whole reel'): every scene "
+        "is a DIFFERENT SHOT — a different distance, angle, height and action. What must NOT repeat "
+        "is the FRAMING, not the place: never hold one locked composition behind the person for the "
+        "whole reel. Change shot size (wide → medium → close → macro), change the camera's side of "
+        "the action, change what is in the foreground. Staying in ONE location while the SHOT changes "
+        "every time is exactly right; changing LOCATION every scene is the failure this rule used to "
+        "cause.\n\n"
         "ONE CONTINUOUS SCENARIO (owner 2026-07-12: 'الريل مش سيناريو' — a montage is a FAILED reel): "
-        "the reel tells ONE story with the SAME protagonist(s) and the same coherent world from hook "
-        "to CTA. Each veo_prompt CONTINUES the story — restate the recurring person by the same "
+        "the reel tells ONE story with the SAME protagonist(s) in the SAME place from hook to CTA. "
+        "Each veo_prompt CONTINUES the same minute — restate the recurring person by the same "
         "description ('the same woman in her 30s with curly hair, now ...') and keep wardrobe, "
-        "lighting mood and world consistent. Distinct shots, one thread: hook (the pain) → the brand's "
-        "answer → it working in real life → the transformation → CTA.\n\n"
+        "location, lighting and time of day identical. The arc (pain → the brand's answer → it "
+        "working → the turn → CTA) plays out INSIDE that one situation; it is a change in the "
+        "person's FACE and ACTION, not a change of address.\n\n"
         "SCREENS & MARKS (hard): any screen/monitor/phone display inside a scene shows ABSTRACT "
         "glowing graphics or blurred UI with NO readable text or numbers (video models render junk "
         "pseudo-text — the exact failure the poster gate rejects). EXCEPTION for a screen/app product: "
@@ -484,8 +674,11 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         + "- SUBJECT: a SPECIFIC person + the exact product (say 'a woman in her 30s with natural curly "
         "hair', never just 'a person'); the product stays EXACTLY as in the real photo.\n"
         "- STYLE: pick and state ONE — realistic, cinematic, or hand-held UGC.\n"
-        "- CAMERA: an EXPLICIT move — Macro close-up, tracking shot, hand-held, a quick dolly-in, or a "
-        "whip-pan (this gives life, not a boring zoom).\n"
+        "- CAMERA: name the SHOT SIZE FIRST, then an EXPLICIT move — 'wide establishing shot, slow "
+        "push in', 'medium shot, hand-held', 'Macro close-up, quick dolly-in', 'tracking shot', a "
+        "whip-pan (this gives life, not a boring zoom). The shot "
+        "size must be DIFFERENT from the scene before it; that alternation IS the coverage, and it is "
+        "what makes the cut read as an edit instead of a channel change. Never a boring zoom.\n"
         "- LIGHTING: state it — soft natural light, soft diffused light, or high-contrast studio light.\n"
         "- MOTION: real action in every second; ONE CLEAR action per scene — do NOT cram many details "
         "into one scene.\n"
@@ -517,9 +710,18 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         "a 2-4 word key-benefit / proof word (e.g. '85% get hired', 'Job-ready in 9 months'); the "
         "LAST scene a 2-4 word CTA that reads the SAME as its spoken voiceover CTA line. A purely "
         "visual scene MAY leave on_screen_text empty, but do NOT leave the reel mostly text-free.\n"
-        "- duration_s: 2-4 — a FAST TikTok cut for a caption-free scene; a CAPTIONED scene needs >=3s "
-        "(>= words*0.4 + 1.5) so it can be READ (owner: 'the text goes by too fast'). If a caption "
-        "would need more than ~7 words, SPLIT it into two scenes rather than speeding it up.\n"
+        # THE RUNTIME'S MINIMUM, STATED AT THE SOURCE. This asked for 2-4 seconds while the video
+        # model's shortest billable clip is 4, so a "2-second cut" was rendered as 4 seconds, paid
+        # for as 4, and then trimmed — the film ran long, the budget ran short, and the scene
+        # count that `_scenes_for` derives from a 4-second clip did not match the plan it was
+        # counting. Asking for what the runtime can actually cut is free; the last beat is a
+        # RENDERED product insert and is the one shot allowed to be shorter.
+        "- duration_s: 4-6. FOUR SECONDS IS THE FLOOR — the video model cannot render a shorter "
+        "shot, so a 2-second scene is a 4-second bill and a broken edit. Vary the lengths across "
+        "the reel (4, 5, 6) rather than cutting every scene to the same beat. A CAPTIONED scene "
+        "needs >= words*0.4 + 1.5 seconds so it can be READ (owner: 'the text goes by too fast'). "
+        "If a caption would need more than ~7 words, SPLIT it into two scenes rather than "
+        "speeding it up.\n"
         # hero_product IS THE MOTION SWITCH (v3): true -> the brand's REAL product references are
         # attached to that scene's still AND the motion contract pins the pack while the camera
         # moves; false -> no product refs and a hard no-readable-text ban. So the flag must mark
@@ -552,8 +754,9 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         "PHYSICALLY POSSIBLE in reality? no impossible action (a sealed pump cannot be pressed, a "
         "closed bottle cannot pour, no magic); (b) the STRANGER TEST — the reel NAMES the brand, says "
         "WHAT IT DOES (the category), NAMES the specific product OR service, states >=1 real benefit, "
-        "and ends on the CTA — using ONLY identity facts; AND every scene is a DIFFERENT setting (no "
-        "single backdrop held the whole reel); (c) most "
+        "and ends on the CTA — using ONLY identity facts; AND every scene is a DIFFERENT SHOT of the "
+        "ONE situation (a new size/angle/action each time, never the same locked composition twice) "
+        "while the PLACE, PERSON and WARDROBE stay the same throughout; (c) most "
         "scenes show a real PERSON using/reacting to the product with visible motion (not a camera "
         "move over a still) " + check_seq + ". If ANY of these fails, REWRITE that scene before "
         "returning.\n\n"
@@ -562,7 +765,10 @@ def _system_prompt(n_scenes: int, language: str, mode: str = "generic",
         '{"concept":"...","hook":"...","music_mood":"...","cta":"...","language":"' + language + '",'
         '"dialect":"...","sound_design":"...","brand_unique_claim":"...",'
         '"scenes":[{"image_index":0,"veo_prompt":"...","voiceover":"...","voiceover_delivery":"...",'
-        '"on_screen_text":"...","duration_s":3,"hero_product":true,"product_overlay":"",'
+        # 5, NOT 3. The rule three hundred lines up says "FOUR SECONDS IS THE FLOOR" and this
+        # skeleton — the last thing the model reads before it answers, and the thing it copies —
+        # showed it a 3. A worked example outranks a rule every time.
+        '"on_screen_text":"...","duration_s":5,"hero_product":true,"product_overlay":"",'
         '"caption_role":"name","sfx":"","sound_mood":"..."}]}'
     )
 
@@ -700,7 +906,11 @@ def design_creative_reel(
             voiceover=str(getattr(s, "voiceover", "")).strip(),
             voiceover_delivery=str(getattr(s, "voiceover_delivery", "")).strip(),
             on_screen_text=str(getattr(s, "on_screen_text", "")).strip(),
-            duration_s=float(getattr(s, "duration_s", 4.0) or 4.0),
+            # A PROMPT IS A REQUEST; A CLAMP IS A GUARANTEE. The floor is stated in the brief and
+            # shown in the skeleton, and neither is binding — the model can still answer 2. Below
+            # the video model's own minimum the shot is bought at 4s anyway and its tail freezes,
+            # so the floor belongs here, where it cannot be ignored.
+            duration_s=min(8.0, max(4.0, float(getattr(s, "duration_s", 5.0) or 5.0))),
             hero_product=bool(getattr(s, "hero_product", False)),
             product_overlay=str(getattr(s, "product_overlay", "")).strip(),
             caption_role=str(getattr(s, "caption_role", "")).strip(),

@@ -38,7 +38,38 @@ DEFAULT_VEO_MODEL = "veo-3.1-generate-001"
 _VEO_DURATIONS = (4, 6, 8)
 
 
-def _videos_config(types, dur):
+def _reference_images(types, refs):
+    """Google's INGREDIENTS-TO-VIDEO payload: the people/objects that must stay the same shot to
+    shot. `refs` is a list of `(bytes, mime)`; returns None when there is nothing to pass.
+
+    THE PROBLEM IT IS FOR. Veo re-invents a person from the prompt every clip, so a film's
+    protagonist drifts between shots — measured on the NTI reel, where the woman in shot 1 is not
+    the woman in shot 4. Google documents exactly one mechanism for this: "Provide reference images
+    of a scene, character, object, or style to maintain a consistent aesthetic across multiple
+    shots." The SDK exposes two kinds and we use ASSET — STYLE is a look reference, not an identity.
+
+    HONEST SCOPE. The measured cause of NTI's drift was NOT this: three of its four scenes fell
+    back to REAL stock photos as seeds (the seed gate rejected every generated still on text), so
+    three different women were seeded on purpose. That is fixed at the seed prompt. This is the
+    second line of defence — it keeps the identity when the seeds ARE consistent and Veo is the
+    thing that would otherwise drift.
+    """
+    out = []
+    for item in (refs or []):
+        try:
+            data, mime = item
+            if not data:
+                continue
+            out.append(types.VideoGenerationReferenceImage(
+                image=types.Image(image_bytes=data, mime_type=mime or "image/jpeg"),
+                reference_type=types.VideoGenerationReferenceType.ASSET,
+            ))
+        except Exception:  # noqa: BLE001 — one unusable reference never costs the render
+            continue
+    return out or None
+
+
+def _videos_config(types, dur, reference_images=None):
     """Veo config. person_generation='ALLOW_ADULT' so Veo actually RENDERS the PERSON the creative-
     director prompt asks for (a hand/model using the product) — without it Veo suppresses people and
     falls back to a camera-only move over the still (the 'static zoom' the owner saw). Falls back to
@@ -55,7 +86,23 @@ def _videos_config(types, dur):
     assumed — and the try/except keeps older builds working."""
     from reel.motion_contract import MOTION_NEGATIVE
     base = dict(aspect_ratio=DEFAULT_ASPECT, number_of_videos=1, duration_seconds=dur)
-    for kw in ({"person_generation": "ALLOW_ADULT", "negative_prompt": MOTION_NEGATIVE[:2000]},
+    # ASK FOR 1080p. `GenerateVideosConfig.resolution` defaults to None (checked against the
+    # installed SDK, not assumed), which means Veo's own default — 720p. Every clip was therefore
+    # generated at 720x1280 and then scaled up to the 1080x1920 canvas the compositor, the text
+    # layer and the delivery envelope all work in, so the whole film has been running one upscale
+    # behind its own format. It is also why `cinematic.py`'s reframe ladder had to cap at 1.48x:
+    # punching into an already-upscaled frame softens twice.
+    #
+    # Ordered fallback, same discipline as the fields below it — an SDK build or a model that
+    # rejects `resolution` keeps rendering at the old default rather than failing the run.
+    # The identity references ride the RICHEST config only. If this SDK build or this model does
+    # not know the field, the very next fallback drops them rather than the whole render.
+    _refs = {"reference_images": reference_images} if reference_images else {}
+    for kw in ({"person_generation": "ALLOW_ADULT", "negative_prompt": MOTION_NEGATIVE[:2000],
+                "resolution": "1080p", **_refs},
+               {"person_generation": "ALLOW_ADULT", "negative_prompt": MOTION_NEGATIVE[:2000],
+                "resolution": "1080p"},
+               {"person_generation": "ALLOW_ADULT", "negative_prompt": MOTION_NEGATIVE[:2000]},
                {"person_generation": "ALLOW_ADULT"},
                {}):
         try:
@@ -329,14 +376,31 @@ class VeoProvider:
     ) -> Path:
         from google.genai import types
 
-        dur = min(_VEO_DURATIONS, key=lambda v: abs(v - duration_s))   # snap to 4/6/8
+        # BUY COVERAGE, CUT WHAT THE EDIT WANTS — the shape every commercial is shot in.
+        #
+        # This was `min(_VEO_DURATIONS, key=lambda v: abs(v - duration_s))` — the NEAREST allowed
+        # length — so a 5-second scene bought a 4-second clip and the edit had to make 5 seconds out
+        # of 4. MEASURED 2026-08-01 on `[4.0, 5.0, 6.0, 5.5]`: the rendered scene is still the right
+        # LENGTH (the compositor's `-t` and the overlay see to that), but its last second contains
+        # **11% identical consecutive frames** against 0% in every fully-bought scene, and the third
+        # shot of `intra_scene_chain` gets 0.67s of footage instead of 1.67s — 40% of what the pace
+        # was designed around. With ceil the freeze measures 0%.
+        #
+        # Ceiling costs real money on scenes that are not already 4/6/8 (a 4,5,6,5 reel buys 22s
+        # instead of 20s, +22% of the Veo bill for that render) and that is the honest trade: what
+        # we were saving, we were paying for in a frozen tail and a truncated cut.
+        dur = min([v for v in _VEO_DURATIONS if v >= duration_s] or [max(_VEO_DURATIONS)])
 
         # SPEND GUARD (2026-07-14): Veo is the single most expensive Google-AI op — meter it and
         # refuse (BEFORE any client/network work) if this month's metered renders would breach the
         # cap (VERTEX_MONTHLY_CAP_USD), so no reel burns credit invisibly. SpendRefused propagates
         # up as a clear render failure.
         from vertex_spend import guard_video, record
-        est_usd = guard_video(dur, detail=Path(out_path).name, model=self.model)
+        # `reserve_usd` — what the scenes still to come already owe. A RETRY passes the
+        # base cost of every unshot scene so it cannot take their footage; a first attempt
+        # passes 0. See the measured NTI run in `vertex_spend.guard_video`.
+        est_usd = guard_video(dur, detail=Path(out_path).name, model=self.model,
+                              reserve_usd=float(getattr(self, 'reserve_usd', 0.0) or 0.0))
         print(f"[veo][spend] est ${est_usd:.2f} for {dur}s ({Path(out_path).name})", file=sys.stderr)
 
         client = self._client()
@@ -346,15 +410,45 @@ class VeoProvider:
         from reel.motion_contract import apply_motion_contract
         moving_prompt = apply_motion_contract(str(prompt or ""))
 
-        def _submit(image_obj):
+        # WHO MUST STAY THE SAME PERSON, shot to shot. Built once per call so the retry below can
+        # drop them without rebuilding anything else.
+        _refs = _reference_images(types, getattr(self, "identity_refs", None))
+        if _refs:
+            # Google's guide is explicit that the prompt has to POINT AT the references —
+            # "Using the provided images for the detective, the woman, and the office setting,
+            # create a medium shot of…". A reference nobody mentions is a reference the model is
+            # free to ignore.
+            moving_prompt = ("Using the provided reference image(s) for the person, keep the SAME "
+                             "individual — same face, hair and wardrobe — as the shot continues. "
+                             + moving_prompt)
+
+        def _submit(image_obj, refs=_refs):
             kwargs = dict(
                 model=self.model,
                 prompt=moving_prompt,
-                config=_videos_config(types, dur),
+                config=_videos_config(types, dur, reference_images=refs),
             )
             if image_obj is not None:
                 kwargs["image"] = image_obj           # image-to-video seed
             return client.models.generate_videos(**kwargs)
+
+        def _submit_with_ref_fallback(image_obj):
+            """Ask with the identity references; if the SERVER refuses the combination, ask again
+            without them.
+
+            `_videos_config`'s try/except only catches the pydantic constructor rejecting a field —
+            it cannot see a 400 from the API, and image-to-video plus ingredients-to-video may well
+            be mutually exclusive modes on a given model. A refused request generates nothing, so
+            the retry costs one round-trip and no money; losing the whole clip would cost both.
+            """
+            if not _refs:
+                return _submit(image_obj, refs=None)
+            try:
+                return _submit(image_obj, refs=_refs)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[veo] identity references refused ({type(exc).__name__}); "
+                      f"re-submitting without them", file=sys.stderr)
+                return _submit(image_obj, refs=None)
 
         # GROUNDING (#4): seed from the brand's real scraped photo when available,
         # so the footage resembles the actual brand. Never let it break a render —
@@ -395,7 +489,7 @@ class VeoProvider:
                 + (f" (reference {str(reference_image)[:80]} could not be loaded)"
                    if reference_image else " (no reference image at all)")
                 + ". Generate the still first, or let the caller fall back to Ken Burns.")
-        operation = _submit(image_obj)
+        operation = _submit_with_ref_fallback(image_obj)
 
         waited = 0
         while not getattr(operation, "done", False):

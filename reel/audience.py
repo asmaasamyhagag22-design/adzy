@@ -81,7 +81,56 @@ def _country_code(profile: dict) -> str:
         return m.group(1)
     # ...and the `.com.eg` / `.co.uk` shape the pattern above deliberately steps over.
     m = re.search(r"https?://[^/]*\.(?:com|co|org|net)\.([a-z]{2})(?:[/:]|$)", url)
-    return m.group(1) if m else ""
+    if m:
+        return m.group(1)
+
+    # LAST, THE RESOLVER THAT ACTUALLY READS THE EVIDENCE — and the reason this function was
+    # answering the wrong question for the dashboard.
+    #
+    # Everything above is a lookup: a `country` field, a name, a ccTLD. `poster.locale.country_of`
+    # reads the profile's own evidence — the phone numbers, the addresses, the currency — and it is
+    # the resolver the poster and the seed casting already trust.
+    #
+    # MEASURED 2026-08-01 on AlFouad, and it is exactly the defect the owner reported in July
+    # («دار الفوائد صيدلية في مصر وعندها عربي — عملت إنجليزي ليه؟»): the CLI's saved profile carries
+    # `country: "eg"` and resolved to Arabic, while the SAME BRAND stored by the dashboard has no
+    # `country` field, a `.com` domain, `languages: ['en']` — and resolved to ENGLISH. Two country
+    # resolvers in one codebase, and the thinner one decided what language the ad was spoken in.
+    # `country_of` returns "Egypt" for BOTH.
+    try:
+        from poster.locale import country_of
+        named_country = str(country_of(profile) or "").strip().lower()
+        for k, v in named.items():
+            if k in named_country:
+                return v
+    except Exception:  # noqa: BLE001 — an unknown market falls through to the script evidence
+        pass
+    return ""
+
+
+def _dominant_language(entries: Any) -> str:
+    """The two-letter code the crawl measured MOST of, or "".
+
+    Handles both shapes the pipeline stores. A live extraction carries `LanguageEntry`-like
+    objects/dicts with a `proportion`; the webapp's saved records flatten them to bare strings, and
+    those keep their order because `detect_languages` emits `counter.most_common()`. So: rank by
+    proportion when it survived, otherwise trust the order — never "the first one that isn't
+    English", which is what this replaced.
+    """
+    best_code, best_share, first = "", -1.0, ""
+    for e in (entries or []):
+        if isinstance(e, dict):
+            code, share = str(e.get("code") or "").lower()[:2], float(e.get("proportion") or 0.0)
+        else:
+            code = str(getattr(e, "code", None) or e or "").lower()[:2]
+            share = float(getattr(e, "proportion", 0.0) or 0.0)
+        if not code:
+            continue
+        first = first or code
+        if share > best_share:
+            best_code, best_share = code, share
+    # All-zero proportions means they were flattened away — the list order is the ranking.
+    return best_code if best_share > 0 else first
 
 
 def audience_language_for(profile: dict) -> tuple:
@@ -112,11 +161,25 @@ def audience_language_for(profile: dict) -> tuple:
     if _AR.search(blob):
         return "Arabic", country, "the brand writes about itself in Arabic"
 
-    crawled = [str(x).lower()[:2] for x in ((profile or {}).get("languages") or [])]
-    non_en_crawled = [c for c in crawled if c and c != "en"]
-    if non_en_crawled:
-        lang = _LANG_NAME.get(non_en_crawled[0], non_en_crawled[0])
-        return lang, country, f"the crawl found {lang} pages"
+    # 4) WHAT THE CRAWL MEASURED — the DOMINANT language, not merely a language that is present.
+    #
+    # This used to take the first NON-ENGLISH code in the list, which inverted the one piece of
+    # evidence the rung actually has. `scraper/language.detect_languages` builds its entries with
+    # `counter.most_common()`, so the list is RANKED BY PROPORTION and carries a `proportion` on
+    # every entry; taking "the first thing that isn't English" throws that ranking away and lets a
+    # single Arabic page outvote an entire English site.
+    #
+    # MEASURED 2026-08-06 on the stored Volume Cafe record (Doha): `languages: ['en', 'ar']` — so
+    # English dominates — resolved to **Arabic**, and that answer reached the reel, the poster and
+    # (once the calendar was aligned) the content plan. `process.md` had already measured this
+    # brand independently and written down the opposite conclusion: en @ 100%, and *"hl='ar' would
+    # have been wrong — the site is English"*. The system was overruling its own measurement.
+    #
+    # Every other stored brand is decided on a higher rung and is byte-identical.
+    dominant = _dominant_language((profile or {}).get("languages") or [])
+    if dominant:
+        lang = _LANG_NAME.get(dominant, dominant)
+        return lang, country, f"the crawl measured {lang} as the site's dominant language"
 
     return "English", country, "no declaration, no known market, and nothing but English found"
 

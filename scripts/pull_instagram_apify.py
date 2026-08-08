@@ -18,6 +18,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 _ACTOR = "apify~instagram-scraper"
 _RUN_SYNC = f"https://api.apify.com/v2/acts/{_ACTOR}/run-sync-get-dataset-items"
@@ -28,24 +29,72 @@ class IgSignal:
     source_url: str
     text: str
     signal_kind: str = "post"
+    # THE NUMBER THE WHOLE FEATURE NEEDED, and it was on disk the entire time.
+    #
+    # `social_intel/performance.py` reads five attributes off a signal; this carried three. So
+    # `_brand`'s `ranked` list was empty for every input, `measured` was False, `checked` was
+    # False, and `social_performance_for` COULD NOT return anything else no matter what was
+    # pulled. Meanwhile `runs/social_snapshots/*.json` holds 15 posts with `likesCount` for four
+    # brands, and `media_plan/maturity.py` has been reading that exact key successfully.
+    #
+    # None means UNMEASURED and must stay None — see the note in `signals_from_apify_items`.
+    like_count: Optional[int] = None
+    comment_count: Optional[int] = None
+    posted_at: Optional[str] = None
+    # Which brand this row belongs to, and whether it is the subject. Without these,
+    # `performance.py:146` filed the brand's OWN posts under `peers` and the lessons layer
+    # described them as "a competitor's top post".
+    brand_ref: str = ""
+    is_own_brand: bool = True
 
 
-def signals_from_apify_items(items: list) -> list[IgSignal]:
+def _engagement(value) -> Optional[int]:
+    """A count, or None for "we could not measure it" — never 0.
+
+    `int(x or 0)` is the defect, not the fix. Apify emits -1 when a post's like count is hidden
+    and omits the key entirely on a limited response; coercing either to 0 turns "unmeasured" into
+    "this content gets zero likes", which is the same absence-read-as-a-value shape the whole
+    module exists to correct. `top_performers` already splits ranked from unranked honestly — it
+    just needs to be told the truth.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    v = int(value)
+    return v if v >= 0 else None
+
+
+def signals_from_apify_items(items: list, *, is_own_brand: bool = True,
+                             brand_ref: str = "") -> list[IgSignal]:
     """Apify instagram-scraper rows -> extractor signals. Captions become 'post' signals,
     latestComments become 'comment' signals. Author names are DROPPED (never persisted);
-    empty texts skipped. Pure + hermetic."""
+    empty texts skipped. Pure + hermetic.
+
+    `is_own_brand` / `brand_ref` label the rows so the ranker can separate the subject from a
+    competitor. Defaults describe the only caller that exists today (the subject's own snapshot).
+    """
     out: list[IgSignal] = []
     for it in (items or []):
         if not isinstance(it, dict):
             continue
         url = str(it.get("url") or it.get("shortCode") or "")
+        ref = str(brand_ref or it.get("ownerUsername") or "").strip()
         cap = str(it.get("caption") or "").strip()
         if cap:
-            out.append(IgSignal(source_url=url, text=cap[:1000], signal_kind="post"))
+            out.append(IgSignal(
+                source_url=url, text=cap[:1000], signal_kind="post",
+                like_count=_engagement(it.get("likesCount")),
+                comment_count=_engagement(it.get("commentsCount")),
+                posted_at=str(it.get("timestamp") or "") or None,
+                brand_ref=ref, is_own_brand=bool(is_own_brand)))
         for c in (it.get("latestComments") or []):
             txt = str((c or {}).get("text") or "").strip()
             if txt:
-                out.append(IgSignal(source_url=url, text=txt[:500], signal_kind="comment"))
+                # A COMMENT INHERITS NOTHING. Its parent post's like count measures the post;
+                # attaching it here would rank a commenter's sentence as if it were the brand's
+                # content. `top_performers` filters to published posts anyway, and leaving this
+                # None keeps that filter honest rather than redundant.
+                out.append(IgSignal(source_url=url, text=txt[:500], signal_kind="comment",
+                                    brand_ref=ref, is_own_brand=bool(is_own_brand)))
     return out
 
 

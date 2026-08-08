@@ -208,9 +208,31 @@ _DOM_WALKER_JS = r"""
 
         // De-duplicate: if my text equals my parent's just-recorded text,
         // skip me. This avoids capturing a <span> inside an <a> twice.
+        //
+        // ...but the TAG is meaning, and the walker runs in document order, so the WRAPPER is
+        // always recorded first and the semantic child is always the one dropped. Measured on
+        // an Al Fouad product page: the page has a visible <h1> carrying the product name, the
+        // walker returned 174 blocks and ZERO h1 — the name survived only as `tag=div`, because
+        // the theme wraps it as <div><h1>name</h1></div>. Downstream, `catalog._name_from_page`
+        // reads h1/h2/h3/title only, so it never saw the product name and fell through to a
+        // "Frequently Bought Together" carousel heading: 24 catalog items named after the WRONG
+        // product. The evidence was collected, serialized, and unreadable.
+        //
+        // A wrapper whose text is EXACTLY its child's text adds nothing but nesting. When the
+        // child is a heading and the recorded parent is not, UPGRADE the record in place rather
+        // than dropping the child: same block count, same text, the tag that carries meaning.
+        // One-directional on purpose — <h1><span>x</span></h1> still keeps the h1.
         if (out.length > 0) {
             const last = out[out.length - 1];
-            if (last.text === text) continue;
+            if (last.text === text) {
+                const isHeading = /^H[1-6]$/.test(el.tagName);
+                const wasHeading = /^h[1-6]$/.test(last.tag);
+                if (!isHeading || wasHeading) continue;
+                last.tag = el.tagName.toLowerCase();
+                last.selector = buildSelector(el);
+                last.section = sectionFor(el);
+                continue;
+            }
         }
 
         const absY = rect.top + viewportTopAbs;

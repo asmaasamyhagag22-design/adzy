@@ -9,10 +9,11 @@ Endpoints (verified against the current Places API New, field masks required):
 Field-mask rules: for search the paths are prefixed with `places.`; for Place
 Details they are NOT prefixed. Reviews are capped at 5 per place by Google.
 
-The API key is read from the environment (GOOGLE_MAPS_API_KEY by default). The
-key is never logged and never placed in a URL query string for the Places calls
-(it goes in the X-Goog-Api-Key header). You must supply your own key with the
-Places API (New) and Geocoding API enabled and billing configured.
+The API key is read from the environment (GOOGLE_MAPS_API_KEY by default). We never
+log it and never put it in a URL query string (it goes in the X-Goog-Api-Key header)
+— but GOOGLE ECHOES IT BACK in some error bodies, so every error message this module
+raises is passed through `_redact_secrets` first. You must supply your own key with
+the Places API (New) and Geocoding API enabled and billing configured.
 
 Requires: requests  (pip install requests)
 """
@@ -20,6 +21,7 @@ Requires: requests  (pip install requests)
 from __future__ import annotations
 
 import os
+import re
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -30,6 +32,27 @@ from .models import Candidate, Review
 
 _PLACES_BASE = "https://places.googleapis.com/v1"
 _GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+
+# WE never log the key — but GOOGLE ECHOES IT BACK. A suspended-key 403 body reads
+#     "Permission denied: Consumer 'api_key:AIza…' has been suspended."
+# and that body went straight into the PlacesError message, so the module docstring's
+# promise ("the key is never logged") was true about our code and false about our errors.
+# Any caller that logged the exception wrote a live credential to disk. Redact where the
+# message is BUILT, so every consumer inherits the guarantee instead of re-implementing it.
+_SECRET_RE = re.compile(
+    r"(AIza[0-9A-Za-z_\-]{10,})"           # Google API keys
+    r"|(?<=api_key[:=])\s*[^\s'\"&]+"      # anything Google labels as the key
+    r"|(?<=[?&]key=)[^\s&'\"]+",           # a key that reached a query string
+)
+
+
+def _redact_secrets(text: str) -> str:
+    """Replace anything that looks like an API key with a marker.
+
+    Redaction is deliberately over-broad: a false positive costs one unreadable token in a
+    log line, a false negative costs a leaked credential.
+    """
+    return _SECRET_RE.sub("[REDACTED]", text or "")
 
 # Fields requested from search calls (Basic + a little Atmosphere). Keep this lean
 # to control billing — every extra SKU-tier field costs more.
@@ -122,8 +145,10 @@ class PlacesClient:
             if resp.status_code in (429, 500, 502, 503, 504) and attempt < self.max_retries - 1:
                 time.sleep(1.5 * (attempt + 1))
                 continue
-            raise PlacesError(f"{resp.status_code} from {url}: {resp.text[:300]}")
-        raise PlacesError(f"exhausted retries for {url}")
+            raise PlacesError(
+                f"{resp.status_code} from {_redact_secrets(url)}: "
+                f"{_redact_secrets(resp.text)[:300]}")
+        raise PlacesError(f"exhausted retries for {_redact_secrets(url)}")
 
     def _get(self, url: str, params: dict, field_mask: Optional[str]) -> dict:
         headers = {"X-Goog-Api-Key": self.api_key}
@@ -136,8 +161,10 @@ class PlacesClient:
             if resp.status_code in (429, 500, 502, 503, 504) and attempt < self.max_retries - 1:
                 time.sleep(1.5 * (attempt + 1))
                 continue
-            raise PlacesError(f"{resp.status_code} from {url}: {resp.text[:300]}")
-        raise PlacesError(f"exhausted retries for {url}")
+            raise PlacesError(
+                f"{resp.status_code} from {_redact_secrets(url)}: "
+                f"{_redact_secrets(resp.text)[:300]}")
+        raise PlacesError(f"exhausted retries for {_redact_secrets(url)}")
 
     # ----------------------------------------------------------------- geocode
     def geocode_via_places(self, query: str) -> Optional[Tuple[float, float]]:

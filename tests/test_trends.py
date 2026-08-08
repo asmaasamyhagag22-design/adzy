@@ -136,7 +136,15 @@ def test_tech_feeds_only_for_tech_brands():
 def test_serper_trend_source_builds_a_vertical_query_and_is_offline_safe(monkeypatch):
     from trends.sources import SerperTrendSource
     src = SerperTrendSource(["ecommerce", "rings", "earrings", "necklaces"])
-    assert src._query() == "rings earrings necklaces trends 2026"   # drops the generic 'ecommerce'
+    q = src._query()
+    assert q.startswith("rings earrings necklaces")       # drops the generic 'ecommerce'
+    # UPDATED 2026-08-02. This asserted the seed was "trends", which made the whole thing a
+    # SHOPPING query — MEASURED, 6/6 of Abu Auf's returned URLs were retailer category pages and
+    # the SWOT shipped them as opportunities, Carrefour (a channel that stocks Abu Auf) among them.
+    # The seed now asks a market question and the shopping surface is excluded at the query.
+    assert "market trends report" in q
+    assert "2026" in q
+    assert "-buy" in q and "-shop" in q
     # No provider configured / any failure -> [] (never raises).
     import competitor.search_providers as sp
     monkeypatch.setattr(sp, "get_default_search_provider", lambda: None)
