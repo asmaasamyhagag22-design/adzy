@@ -671,7 +671,24 @@ def render_creative_reel(
         qa_caller = None
     qa_ref = None
     if featured_product and qa_caller is not None:
-        seed_url = storyboard.content_images[0] if storyboard.content_images else None
+        # THE REFERENCE MUST BE THE PRODUCT, not the first photo in the reel. `content_images[0]`
+        # is whatever the curator ranked first — an interior, a counter, a member of staff. Asking
+        # a vision model "is this the product?" against a picture of the shop is a check that can
+        # only answer a different question, and it passed everything.
+        #
+        # When the owner pastes a product link we now hold its actual packshot, so the fidelity
+        # check compares the film against the bottle. Without a link the old seed still stands:
+        # a weak reference beats no QA at all.
+        seed_url = None
+        if hero_product_url:
+            try:
+                from .insert_shot import hero_product_facts
+                _imgs = hero_product_facts(profile, hero_product_url).get("images") or []
+                seed_url = _imgs[0] if _imgs else None
+            except Exception:  # noqa: BLE001
+                seed_url = None
+        if not seed_url:
+            seed_url = storyboard.content_images[0] if storyboard.content_images else None
         if seed_url:
             try:
                 from reel.video_provider import _load_reference_image

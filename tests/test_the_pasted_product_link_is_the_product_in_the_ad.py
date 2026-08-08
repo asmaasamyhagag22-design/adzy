@@ -204,3 +204,25 @@ def test_an_explicit_product_name_still_wins_over_the_link(monkeypatch):
     except Exception:  # noqa: BLE001
         pass
     assert seen.get("featured_product") == "اسم اختاره العميل"
+
+
+def test_the_product_fidelity_check_compares_against_the_product():
+    """`qa_reference_image` used to be `content_images[0]` — whatever the curator ranked first,
+    which for a pharmacy is an interior or a counter. "Is this the product?" answered against a
+    photo of the shop is a true statement about a different question, and it passed everything.
+    With a pasted link the packshot itself is available, so the check has something to check."""
+    import inspect
+
+    import reel.creative as creative
+    # COMMENTS STRIPPED FIRST. The explanatory comment above this code quotes `content_images[0]`
+    # by name, so a raw text search finds the prose before the statement and reports the ordering
+    # backwards — a test measuring what the code SAYS about itself instead of what it does.
+    src = ast.unparse(ast.parse(inspect.getsource(creative.render_creative_reel)))
+    at = src.find("qa_ref = None")
+    assert at > 0
+    hero_at = src.find("hero_product_facts", at)
+    seed_at = src.find("content_images[0]", at)
+    assert hero_at > 0, "the fidelity reference is chosen without the pasted product's packshot"
+    assert seed_at > 0, "the no-link fallback disappeared — a weak reference beats no QA at all"
+    assert hero_at < seed_at, (
+        "the packshot must be preferred over the first content image, not the other way round")
