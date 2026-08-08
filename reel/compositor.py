@@ -85,6 +85,28 @@ def _escalate(reason: str) -> str:
 _SWEEP_S = 0.35
 
 
+# The vendor errors that no retry and no fallback can fix. Matched on the error TEXT because the
+# providers here raise a single client-error type for everything — a status code is not available
+# as a field, and treating them all as transient is what let a quoted model id degrade a whole
+# film. Deliberately narrow: anything unrecognised stays transient, so a new vendor message costs
+# a fallback and not a refusal.
+_PERMANENT_PROVIDER_ERRORS = (
+    "invalid_argument",        # a malformed model id, region, or request shape
+    "invalid endpoint name",   # the exact 2026-08-08 failure: quotes inside the model id
+    "permission_denied",       # the key cannot call this model at all
+    "not_found",               # the model does not exist in this project or region
+    "unauthenticated",         # no usable credential
+    "api key not valid",
+    "billing",                 # the project cannot pay for the call
+)
+
+
+def _is_permanent_provider_error(exc: BaseException) -> bool:
+    """True when re-running this exact call would fail identically, forever."""
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(m in text for m in _PERMANENT_PROVIDER_ERRORS)
+
+
 def _crossfade(clips: list, out: Path, *, fps: int, dur: float) -> bool:
     """Chain the clips with a white light sweep. True on success, False to fall back to concat.
 
@@ -321,6 +343,24 @@ def render_reel(
                 fallback_used = True
                 raw = fb.generate(scene.visual_prompt + _NO_TEXT, **gen_kwargs)
             except Exception as exc:                       # noqa: BLE001
+                # A MISCONFIGURATION IS NOT A SCENE FAILURE. MEASURED 2026-08-08: the model id
+                # reached Vertex with literal quote characters in it, so every scene returned
+                # `400 INVALID_ARGUMENT — Invalid Endpoint name`. The reel degraded to KenBurns
+                # four times in a row and would have shipped as a film the owner never asked for,
+                # after paying for four seed images to feed a generator that was never reachable.
+                #
+                # A per-scene fallback answers "this shot failed"; it cannot answer "this provider
+                # is not configured", because that failure is identical for every scene and will
+                # never come right on the next one. So a permanent argument/permission error stops
+                # the run on the FIRST scene, loudly, with the vendor's own words. Transient
+                # failures (429, 503, timeouts, a bad frame) keep the fallback they were written
+                # for — those really are per-scene and really do come right.
+                if _is_permanent_provider_error(exc):
+                    raise RuntimeError(
+                        f"the video provider '{provider.name}' is misconfigured — scene {i} was "
+                        f"refused before any video was generated, and every other scene would be "
+                        f"refused the same way. Nothing was billed. Fix the configuration rather "
+                        f"than shipping a degraded film: {type(exc).__name__}: {exc}") from exc
                 # A provider failure on ONE scene must not kill the whole reel.
                 # Regenerate just this scene with the fallback (real-photo KenBurns
                 # -> palette gradient). Observable in the log so a degraded reel is
