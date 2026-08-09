@@ -96,8 +96,13 @@ def _feather(im, radius_frac: float = 0.06):
 def _corners_are_cut(im) -> bool:
     """True when the surviving pixels form a cut-out rather than a rectangle.
 
-    Measured on the bounding box of what the key KEPT: if three of its four corners are still
-    opaque, the ground was not removed — it was framed."""
+    A RECTANGULAR PRODUCT IS NOT A CARD. Corners alone cannot tell them apart: a carton, a box or
+    a boxed set legitimately fills its own bounding box, and judging on corners rejected twelve
+    real cases. What separates a card from a cut-out is SIZE — a card is the ORIGINAL FRAME with
+    an interior band removed, so its bounding box is still almost the whole image, while a real
+    cut-out sits well inside the frame with the ground gone from around it.
+
+    So: still the frame AND still cornered = the ground was framed, not removed."""
     try:
         a = im.getchannel("A")
         box = a.getbbox()
@@ -113,7 +118,8 @@ def _corners_are_cut(im) -> bool:
                (x0 + inset, y1 - inset), (x1 - inset, y1 - inset))
         px = a.load()
         opaque = sum(1 for (x, y) in pts if px[x, y] > 8)
-        return opaque <= 2
+        fills_frame = (w * h) / float(max(1, im.size[0] * im.size[1])) >= 0.92
+        return not (fills_frame and opaque >= 3)
     except Exception:  # noqa: BLE001 — an unmeasurable cut-out is not a proven one
         return False
 

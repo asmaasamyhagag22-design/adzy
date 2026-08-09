@@ -46,10 +46,25 @@ def test_a_studio_shot_with_a_gradient_ground_is_keyed_or_refused(tmp_path):
     if out is None:
         return                                     # refusing is honest
     res = Image.open(out).convert("RGB")
-    # no hard rectangle: the pasted region's corners must not be the shot's grey ground
+    # NO HARD RECTANGLE: the pasted region's corners must not be the shot's grey GROUND.
+    #
+    # NARROWED 2026-08-09, and the reason matters. `_studio_shot` paints its ground a gradient
+    # around (220, 220, 222) and its bottle a flat (245, 244, 248) — twenty-five levels apart, both
+    # light neutrals. The old band (195..250, near-neutral) covered BOTH, so it could not tell the
+    # ground from the product.
+    #
+    # That never showed while the keyer refused this asset: with a fixed tolerance of 42 the fill
+    # ate the bottle whole (MEASURED: 0.0% survived at every tolerance from 32 up, 17.1% at 24), so
+    # `composite_product` pasted nothing and the test took its `out is None` exit. It was passing
+    # because the system FAILED, not because it succeeded — the tolerance search made the paste
+    # happen for the first time and the bottle's own colour tripped the card check.
+    #
+    # So the band is the GROUND's, tightly. A card corner is the ground; the product is not a
+    # defect wherever it lands.
+    ground = (220, 220, 222)
     for fx, fy in ((0.53, 0.35), (0.90, 0.35), (0.53, 0.76), (0.90, 0.76)):
         px = res.getpixel((int(1080 * fx), int(1350 * fy)))
-        assert not (195 <= px[0] <= 250 and abs(px[0] - px[1]) < 6), (
+        assert not all(abs(px[i] - ground[i]) <= 12 for i in range(3)), (
             f"the studio ground shipped as a card corner at {(fx, fy)}: {px}")
 
 
