@@ -93,6 +93,31 @@ def _feather(im, radius_frac: float = 0.06):
     return out
 
 
+def _corners_are_cut(im) -> bool:
+    """True when the surviving pixels form a cut-out rather than a rectangle.
+
+    Measured on the bounding box of what the key KEPT: if three of its four corners are still
+    opaque, the ground was not removed — it was framed."""
+    try:
+        a = im.getchannel("A")
+        box = a.getbbox()
+        if not box:
+            return False
+        x0, y0, x1, y1 = box
+        w, h = x1 - x0, y1 - y0
+        if w < 8 or h < 8:
+            return False
+        # Sample just inside each corner: exactly ON the edge is noisy after a flood fill.
+        inset = max(2, min(w, h) // 25)
+        pts = ((x0 + inset, y0 + inset), (x1 - inset, y0 + inset),
+               (x0 + inset, y1 - inset), (x1 - inset, y1 - inset))
+        px = a.load()
+        opaque = sum(1 for (x, y) in pts if px[x, y] > 8)
+        return opaque <= 2
+    except Exception:  # noqa: BLE001 — an unmeasurable cut-out is not a proven one
+        return False
+
+
 def _key_studio_background(im):
     """Key the asset's own studio background to alpha — or say it cannot be done.
 
@@ -119,37 +144,57 @@ def _key_studio_background(im):
         cols = sorted(px[x, y][:3] for (x, y) in border[:: max(1, len(border) // 400)])
         ref = cols[len(cols) // 2]
 
-        def _near_ref(c, tol=42):
-            return (abs(c[0] - ref[0]) <= tol and abs(c[1] - ref[1]) <= tol
-                    and abs(c[2] - ref[2]) <= tol)
-
-        # busy border = photographic scene -> keying would eat the subject; refuse instead
-        matching = sum(1 for (x, y) in border[:: max(1, len(border) // 400)]
-                       if _near_ref(px[x, y][:3]))
-        total = len(border[:: max(1, len(border) // 400)])
-        if matching / max(1, total) < 0.85:
-            return None
-
-        # border-connected flood fill on the reference tone
-        out = im.copy()
-        opx = out.load()
-        seen = bytearray(w * h)
-        stack = [(x, y) for (x, y) in border if _near_ref(px[x, y][:3])]
-        for (x, y) in stack:
-            seen[y * w + x] = 1
-        while stack:
-            x, y = stack.pop()
-            r, g, b, a = opx[x, y]
-            opx[x, y] = (r, g, b, 0)
-            for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
-                if 0 <= nx < w and 0 <= ny < h and not seen[ny * w + nx] \
-                        and _near_ref(px[nx, ny][:3]):
-                    seen[ny * w + nx] = 1
-                    stack.append((nx, ny))
-        kept = out.getchannel("A").getextrema()[1]
-        if kept == 0:
-            return None                     # keying erased everything — not a usable asset
-        return out
+        # NO SINGLE TOLERANCE SERVES EVERY PHOTOGRAPH. MEASURED on nine real packshots from one
+        # store, keying each at three tolerances and counting what survived as product:
+        #
+        #     Vichy spray   tol 30: nothing keyed   tol 42: refused   tol 60: 20%  <- needs LOOSE
+        #     494.webp      tol 30: 46%             tol 42: 19%       tol 60: 2.2% <- needs TIGHT
+        #     L'Oreal serum tol 30: 21%             tol 42: 6.1%      tol 60: 3.1% <- needs TIGHT
+        #
+        # A constant cannot satisfy those three. Too tight and a grey vignette survives as a card
+        # around the bottle; too loose and the fill walks into the product and eats it, leaving a
+        # chewed cut-out that still has non-zero alpha — which the old `kept == 0` check passed.
+        # The fixed 42 was calibrated for a studio WHITE plate and refused three of the eight
+        # opaque shots outright, so they shipped with no product at all.
+        #
+        # So the ANSWER decides, not the setting: try the most aggressive key first and step back
+        # until one leaves a plausible amount of product. Loosest-first is deliberate — it removes
+        # as much ground as possible, and the area floor is what stops it from removing the subject.
+        best = None
+        for tol in (72, 60, 52, 42, 32, 24):
+            out = im.copy()
+            opx = out.load()
+            seen = bytearray(w * h)
+            stack = [(x, y) for (x, y) in border
+                     if all(abs(px[x, y][i] - ref[i]) <= tol for i in range(3))]
+            for (x, y) in stack:
+                seen[y * w + x] = 1
+            while stack:
+                x, y = stack.pop()
+                r, g, bl, _ = opx[x, y]
+                opx[x, y] = (r, g, bl, 0)
+                for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                    if 0 <= nx < w and 0 <= ny < h and not seen[ny * w + nx]                             and all(abs(px[nx, ny][i] - ref[i]) <= tol for i in range(3)):
+                        seen[ny * w + nx] = 1
+                        stack.append((nx, ny))
+            hist = out.getchannel("A").histogram()
+            frac = sum(c for lvl, c in enumerate(hist) if lvl > 8) / float(max(1, w * h))
+            # Below 4% the fill ate the product; above 97% it removed nothing and pasting this is
+            # pasting a rectangle. Between them it is a real cut-out.
+            # AREA IS NOT ENOUGH — A CARD HAS A PLAUSIBLE AREA TOO. A gradient ground can run wider
+            # than any single tolerance, so the fill strips the middle and leaves the corners: a
+            # rectangle of studio grey with the product inside it, which is exactly the pasted
+            # panel the reviewer measured («البانل الملزوق باين كمستطيل»). A real cut-out has
+            # TRANSPARENT CORNERS in its own bounding box; a card does not. Checked here so a
+            # looser tolerance gets its turn instead of the card shipping.
+            if 0.04 <= frac <= 0.97 and _corners_are_cut(out):
+                logger.info("[product] keyed at tolerance %d — %.0f%% of the frame is product",
+                            tol, frac * 100)
+                best = out
+                break
+        if best is None:
+            logger.info("[product] no tolerance left a usable cut-out — refusing to paste a card")
+        return best
     except Exception:  # noqa: BLE001
         return None
 

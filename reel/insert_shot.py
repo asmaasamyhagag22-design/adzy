@@ -102,10 +102,15 @@ def product_candidates(profile: Optional[dict], limit: int = 4,
     # page URL so the hero is the packshot the store photographed, not a guess from the same page.
     # An unmatched link is not an error and not silently ignored either — the catalogue order
     # stands and the caller can see the hero did not resolve.
+    # THE NAMED PRODUCT, kept as its own list so the ranker below cannot mix it back in with the
+    # candidates it is supposed to lead.
+    hero: list[str] = []
     if hero_url:
         for u in (hero_product_facts(profile, hero_url).get("images") or []):
+            u = str(u or "").strip()
             if u and u not in urls:
                 urls.append(u)
+                hero.append(u)
     for item in (profile.get("catalog") or []):
         u = str((item.get("image_url") if isinstance(item, dict) else "") or "").strip()
         if u and u not in urls:
@@ -120,10 +125,29 @@ def product_candidates(profile: Optional[dict], limit: int = 4,
         return []
     try:
         from poster.product_composite import rank_candidates
-        ranked = rank_candidates(urls)
+        # THE HERO IS NOT A CANDIDATE — IT IS THE ANSWER. MEASURED on the shipped Vichy reel: the
+        # link resolved, the packshot was placed first, and then this ranker re-sorted the WHOLE
+        # list. `rank_candidates` scores by FILENAME, and the storefront named the Vichy shot
+        # `1_10.webp` while the catalogue entries carry descriptive names, so the one image the
+        # owner asked for scored last. The film's own critic caught the result and the reel shipped
+        # anyway: «the film builds a story for one brand's product (Vichy) then inexplicably cuts to
+        # a completely different, unrelated product (ACM)».
+        #
+        # Ranking is for CHOOSING when nobody has chosen. Once the caller names the product, the
+        # only job left is ordering the fallbacks behind it.
+        if hero:
+            ranked = hero + [u for u in rank_candidates([u for u in urls if u not in hero])
+                             if u not in hero]
+        else:
+            ranked = rank_candidates(urls)
     except Exception:  # noqa: BLE001 — a ranking failure must not cost the insert
         ranked = urls
-    return [str(u) for u in ranked][:max(1, int(limit))]
+    out = [str(u) for u in ranked][:max(1, int(limit))]
+    if hero and (not out or out[0] != hero[0]):
+        # Belt and braces: whatever happened above, a named product leads or the caller is told.
+        logger.info("[insert] the named product was displaced by ranking — restoring it to the lead")
+        out = [str(hero[0])] + [u for u in out if u != hero[0]]
+    return out[:max(1, int(limit))]
 
 
 # A PRODUCT IS SHAPED LIKE A PRODUCT, and a web banner is not — which is the only difference the

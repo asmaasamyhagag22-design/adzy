@@ -403,6 +403,37 @@ def render_creative_reel(
         if not crep.ok:
             logger.info("reel coherence (final): issues=%s", crep.issues)
 
+    # THE PLAN IS WRITTEN TO DISK BEFORE A SINGLE FRAME IS BOUGHT.
+    #
+    # MEASURED 2026-08-08, asked to reconstruct how a delivered reel was made: the four veo_prompts,
+    # the voice-over, the concept and the per-scene decisions existed nowhere. Not in the audit
+    # (`coverage`, `scene_qa`, `gates` only), not in the log, not in any file. The film shipped and
+    # the recipe was gone — so the owner could not review the words before they were filmed, and
+    # nobody could answer why one scene came back with a white bottle instead of a brown one.
+    #
+    # "Produced, used, discarded" is worse than this repo's usual "produced, serialized, never
+    # read": there is nothing to read. Written HERE, before rendering, so a crash mid-render still
+    # leaves the plan that caused it.
+    try:
+        import json as _json
+        _plan_path = Path(out_path).with_suffix(".plan.json")
+        _plan_path.parent.mkdir(parents=True, exist_ok=True)
+        _plan_path.write_text(_json.dumps({
+            "featured_product": featured_product or "",
+            "hero_product_url": hero_product_url or "",
+            "product_ad": bool(_product_ad),
+            "language": language or "",
+            "n_scenes": int(n_scenes),
+            "max_seconds": float(max_seconds),
+            "plan_source": "user-approved override" if plan_override else "creative director",
+            "seed_images": [],   # filled by the compositor, which is where seeds are generated
+            "plan": creative.model_dump() if hasattr(creative, "model_dump") else None,
+        }, ensure_ascii=False, indent=1), encoding="utf-8")
+        logger.info("[reel] plan written to %s (%d scene(s))",
+                    _plan_path.name, len(getattr(creative, "scenes", []) or []))
+    except Exception:  # noqa: BLE001 — losing the record must not cost the film
+        logger.exception("[reel] the plan could not be written — this render will not be reproducible")
+
     # GROUNDING GATE (2026-07-12 — closes the reel's LAST ungated copy surface; the owner's
     # pre-EXECUTE check found the creative path audit-only): the spoken voiceover, hook, cta
     # and any caption now pass the shared drop-to-grounded policy — a line carrying an
