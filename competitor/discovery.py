@@ -17,6 +17,7 @@ chunk and they consume `PeerMatchResult`.
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import List, Optional
 
@@ -24,7 +25,9 @@ from .models import CompetitorProfile, MatchCriteria, PeerMatchResult
 from .peer_match import (
     TARGET_PEERS, select_peers, tokenize, passes_hard_filters, expand_bilingual,
 )
-from .places_client import PlacesClient
+from .places_client import PlacesClient, _redact_secrets
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -42,13 +45,34 @@ CATEGORY_TYPE_MAP = {
     # Extra type strings that don't exist in Places are harmless in a filter set.
     "restaurant": ["restaurant", "cafe", "bakery", "bar", "meal_takeaway",
                    "meal_delivery", "food", "fast_food_restaurant"],
+    "cafe": ["cafe", "coffee_shop", "bakery", "restaurant", "meal_takeaway", "food"],
     "clinic": ["doctor", "dentist", "dental_clinic", "medical_clinic", "medical_center",
                "hospital", "physiotherapist", "spa", "beauty_salon", "skin_care_clinic",
                "wellness_center", "chiropractor"],
+    "hospital": ["hospital", "doctor", "medical_center", "medical_clinic", "dental_clinic",
+                 "physiotherapist", "wellness_center"],
     "skincare": ["beauty_salon", "skin_care_clinic", "spa", "cosmetics_store",
                  "hair_care", "wellness_center", "doctor", "medical_clinic"],
+    # P-82 (D-8): the map used to cover only 4 verticals, so EVERY other real BusinessCategory
+    # (retail/ecommerce/beauty/fitness/automotive/…) had place_types=[] and the coarse category
+    # sanity-filter silently passed ALL place types. (It also had a phantom "skincare" key that is
+    # not even a BusinessCategory value, while the real "beauty" had none.) These entries give the
+    # common consumer verticals a universal coarse filter; fine relevance still comes from the
+    # offerings text query + sub_vertical score. B2B/agency/government stay unmapped by design
+    # (weak Places typing) and continue to rely on the text query.
     "education": ["school", "primary_school", "secondary_school", "university",
                   "preschool", "tutoring_center", "library"],
+    "beauty": ["beauty_salon", "hair_care", "hair_salon", "nail_salon", "spa",
+               "skin_care_clinic", "cosmetics_store", "wellness_center", "barber_shop"],
+    "retail": ["store", "clothing_store", "shoe_store", "department_store", "shopping_mall",
+               "supermarket", "convenience_store", "electronics_store", "furniture_store",
+               "jewelry_store", "book_store", "market", "grocery_store"],
+    "ecommerce": ["store", "clothing_store", "shoe_store", "department_store", "electronics_store",
+                  "furniture_store", "jewelry_store", "supermarket", "market"],
+    "fitness": ["gym", "fitness_center", "sports_complex", "yoga_studio", "sports_club"],
+    "automotive": ["car_dealer", "car_repair", "car_wash", "auto_parts_store", "gas_station"],
+    "real_estate": ["real_estate_agency"],
+    "hospitality": ["hotel", "lodging", "resort_hotel", "motel", "guest_house", "bed_and_breakfast"],
 }
 
 
@@ -77,6 +101,30 @@ def build_match_criteria(profile, *,
     offering_text = " ".join(n for n in (_offering_name(o) for o in offerings) if n)
     offering_text = (offering_text + " " + category_str).strip()
     offering_keywords = expand_bilingual(list(dict.fromkeys(tokenize(offering_text))))
+    # The brand's OWN name words are useless in every downstream consumer — searching Places for
+    # "Volume Catering" can only return Volume. Two of the three seeds this profile issued carried
+    # it (MEASURED, 2026-07-21).
+    #
+    # `brand_identity_tokens` rather than `tokenize(name)`: nanocare's profile name is the ENGLISH
+    # "Nano Care Therapeutics" while its products are Arabic ("نانو كير ليبوسومال حديد"), so a
+    # name-only comparison stripped nothing and the query still went out as
+    # 'ecommerce نانو كير ليبوسومال فيتامين'. That helper already infers brand words from OFFERING
+    # FREQUENCY — a token riding most offerings is the brand, in whatever alphabet — which is the
+    # same cross-script gap solved once for trend seeds. One guard, not two.
+    _brand: set = set()
+    try:
+        from trends.engine import brand_identity_tokens
+        _brand = {b.lower() for b in brand_identity_tokens(
+            profile if isinstance(profile, dict) else {})}
+    except Exception:  # noqa: BLE001
+        _brand = set()
+    _brand |= {t.lower() for t in tokenize(str(_get(profile, "name", default="") or ""))}
+    # Also the GLUED form of any two adjacent brand tokens ("نانو"+"كير" -> "نانوكير"), which the
+    # scraper emits as a single word on some product names and which slipped through otherwise.
+    _brand |= {a + b for a in list(_brand) for b in list(_brand) if a != b}
+    _brand -= {category_str.lower()}          # the category is never a brand word (D-8, "X Cafe")
+    if _brand:
+        offering_keywords = [k for k in offering_keywords if k.lower() not in _brand]
 
     # --- audience tier + confidence ---
     audience_tier = _normalize_tier(_get(profile, "audience_type", default=None))
@@ -86,10 +134,10 @@ def build_match_criteria(profile, *,
     languages = _get(profile, "languages", default=[]) or []
     languages = [str(l).lower()[:2] for l in languages]
 
-    # --- location: prefer explicit lat/lng, else None (orchestrator geocodes) ---
+    # --- location: prefer explicit lat/lng, else an address the geocoder can resolve ---
     lat = _get(profile, "lat", default=None)
     lng = _get(profile, "lng", default=None)
-    address = _get(profile, "physical_address", default=None)
+    address = _subject_address(profile)
 
     # --- online-only heuristic: no address and no coords. Override if you have
     #     a real flag on the profile. ---
@@ -135,6 +183,67 @@ def _get(obj, name, default=None):
         return inner if inner is not None else default
     inner = getattr(val, "value", None)
     return inner if inner is not None else val
+
+
+def build_text_query(crit) -> str:
+    """The Places text query — CATEGORY first, brand name never.
+
+    MEASURED (Volume Qatar re-run, 2026-07-21): this was
+    `offering_keywords[:6] + [category]`, so the query went out as
+    `'tomato basil soup baked salmon with cafe'` — dish words in document order with the category
+    pushed to the end. The market-first ordering had reached `market_definition.query_seeds` and
+    stopped one function short of here. Same rule, one place later: the category opens the query,
+    a few offering terms follow for precision. The brand's own name is already stripped from
+    `offering_keywords` in `build_match_criteria` (searching for "Volume Catering" can only find
+    Volume).
+    """
+    terms = []
+    if crit.category:
+        terms.append(str(crit.category))
+    for t in (crit.offering_keywords or []):
+        t = str(t or "").strip()
+        if t and t.lower() not in {x.lower() for x in terms}:
+            terms.append(t)
+        if len(terms) >= 5:
+            break
+    return " ".join(terms).strip() or str(crit.category or "")
+
+
+def _subject_address(profile) -> str:
+    """The brand's location as a geocodable string — read from the fields that ACTUALLY exist.
+
+    MEASURED (2026-07-21, all 22 saved profiles): none carries `physical_address`/`lat`/`lng`, the
+    fields this module used to read; they are not on `business_profile/schemas.py`. The evidence
+    lives in `locations` (2/22), `contact_channels.physical_addresses`, and above all
+    `service_areas` (13/22). Because of that, `is_online_only` was True for EVERY brand and the
+    implemented geocode→nearby search below never ran once — a Doha café was searched with no
+    coordinates and no location bias.
+
+    Most specific source first. `service_areas` are joined (specific → general: "Qanat Quartier,
+    The Pearl Qatar, Qatar") because a lone micro-district often fails to geocode while the same
+    string with its city and country resolves.
+    """
+    def _text(v) -> str:
+        if isinstance(v, dict):
+            v = v.get("value") or v.get("address") or v.get("formatted_address") or ""
+        return " ".join(str(v or "").split())
+
+    p = profile or {}
+    if isinstance(p, dict) and isinstance(p.get("profile"), dict):
+        p = p["profile"]
+
+    for loc in (_get(p, "locations", default=[]) or []):
+        addr = _text(loc)
+        if addr:
+            return addr
+    cc = _get(p, "contact_channels", default={}) or {}
+    for addr in (_get(cc, "physical_addresses", default=[]) or []):
+        addr = _text(addr)
+        if addr:
+            return addr
+    areas = [_text(a) for a in (_get(p, "service_areas", default=[]) or [])]
+    areas = [a for a in areas if a]
+    return ", ".join(dict.fromkeys(areas)) if areas else ""
 
 
 def _offering_name(o) -> str:
@@ -206,8 +315,7 @@ def discover_competitors(
     # be typed medical_clinic, skin_care_clinic, or beauty_salon), so a hard type
     # filter at retrieval would drop real peers. Type sanity is handled by the
     # (generous) hard-filter family + the sub_vertical score instead.
-    q_terms = list(crit.offering_keywords[:6]) + ([crit.category] if crit.category else [])
-    text_query = " ".join(t for t in q_terms if t).strip() or crit.category
+    text_query = build_text_query(crit)
 
     # U8b DISCOVERY v2 (2026-07-12): the MarketDefinition's BILINGUAL query_seeds widen
     # retrieval — the single offerings-query is usually English-only, so Arabic-named local
@@ -497,5 +605,22 @@ def find_subject_places(profile, client, *, max_results: int = 8):
             if len(core) >= 4 and all(core in n for n in cores):
                 return max(named, key=lambda c: c.review_count or 0)
         return None
-    except Exception:  # noqa: BLE001 — a lookup failure must never break the SWOT
+    except Exception as exc:  # noqa: BLE001 — a lookup failure must never break the SWOT
+        # "PLACES REFUSED US" AND "THIS BRAND HAS NO LISTING" ARE DIFFERENT FACTS, and this
+        # `return None` made them the same one. The consequence was not cosmetic: Threats is empty
+        # for every brand on this path, this function's own docstring names itself "the measured
+        # root cause", and a whole investigation concluded the branch was dead in the CODE.
+        #
+        # MEASURED 2026-08-02, calling it directly:
+        #     403 Permission denied: Consumer 'api_key:…' has been suspended
+        # The key is suspended — the same Google account problem that stopped Veo and Gemini. There
+        # was never anything wrong with this branch, and nobody could tell, because a refusal and
+        # an absence both arrived here as None.
+        #
+        # Logged, not raised: the contract that a lookup failure must not break a SWOT stands.
+        # REDACTED, because Google echoes the API KEY back inside the 403 body — logging the
+        # failure verbatim would write a live credential into logs/ on every empty SWOT.
+        logger.warning("[places] subject lookup failed (%s: %s) — the Threats quadrant will be "
+                       "empty for a REASON, not for lack of a listing",
+                       type(exc).__name__, _redact_secrets(str(exc))[:200])
         return None

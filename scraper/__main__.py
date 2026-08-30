@@ -27,7 +27,9 @@ console = Console()
 @app.command()
 def main(
     url: str = typer.Argument(..., help="Business website URL (https:// optional)"),
-    output_dir: str = typer.Option("scrapes", "--output-dir", "-o", help="Root directory for scrape outputs"),
+    # "" = whatever `scraper.config.scrapes_root()` resolves (BASEERA_SCRAPES_DIR, else "scrapes").
+    # A literal here would freeze the default before `.env` is read and quietly split the corpus.
+    output_dir: str = typer.Option("", "--output-dir", "-o", help="Root directory for scrape outputs"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logging"),
 ):
     """Scrape one URL."""

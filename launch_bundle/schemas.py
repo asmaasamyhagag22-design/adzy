@@ -105,4 +105,7 @@ class LaunchBundle(BaseModel):
     prerequisites: PrereqChecklist
     approval: ApprovalDraft
     ads_export_path: Optional[str] = None                # Ads-Manager import CSV (xlsx when openpyxl present)
+    # 2.1 (LB-MPV2-GAP): the strategist layers the War Room shows — test cells, reality
+    # check, counter-strategy — now travel WITH the export instead of silently dropping.
+    media_plan_v2: Optional[dict] = None
     assets_dir: Optional[str] = None

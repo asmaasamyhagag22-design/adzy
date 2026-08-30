@@ -2,8 +2,98 @@
 
 **The single source of truth for this project.** Replaces the historical
 change-log. Read this before acting in this repo. Last full revision: 2026-07-04.
-Test suite: **1618 passed, 2 skipped, 0 failed** (2026-07-15, re-derived live; grew from
+Test suite: **1635 passed, 2 skipped, 0 failed** (2026-07-15, re-derived live, 66s; grew from
 880 as each audit fix below shipped with its hermetic regression tests).
+
+**D-8 UNIVERSALITY — "it has to work for any country" (2026-07-15, IN PROGRESS).**
+Volume Cafe (Doha, a real client deliverable) exposed it: `upcoming_season` returned **"موسم الصيف
+والسواحل / Summer & coast season"** — Egypt's North-Coast BEACH season — for a Qatari café. Not
+merely inapplicable: **inverted** (a 45 °C Gulf summer drives people INDOORS; Egypt's is the peak).
+That violates **D-8, an OWNER DIRECTIVE** (`docs/INTERFACES.md:22`): *"the system is universal across
+verticals/languages/**countries** … CONFIG keyed by the profile's universal signal, always with a
+universal default … a vertical hack in core logic is forbidden."*
+
+**THE FAILURE CLASS, now at four instances — "a true statement that answers a different question
+than the one asked":** ① the 42 ("not checked" written as "verified") · ② trends ("Rising interest"
+from an `else` branch) · ③ **seasons** — `trends/seasons.py:9` *"Universal by construction … no
+**vertical** logic"*: true, and defending the WRONG AXIS while country logic sits hardcoded in the
+same file · ④ **trends `gl`/`hl`** — the citation TRACES (real URL, real article) while the claim
+("a signal for YOUR market") does not, because the search asked about a different market.
+*Honest caveat on ③: seasons.py is not hiding it — `:1` says "Egyptian marketing-season calendar"
+and the call site's own comment (`dashboard/build.py:182`) says "an Egyptian marketing season". The
+code KNEW, wrote it down in both places, and shipped it universally anyway. The primary sin is the
+CALL SITE, not the docstring.*
+
+**SHIPPED so far (all zero-spend, RED-first per fix):**
+- `trends/sources.py` — `SerperTrendSource(keywords, *, gl, hl)` now passes the brand's market to
+  the SERP. Before, `prov.search(q, num=…)` sent **neither**, so Serper served its **US/English
+  default** and the dashboard labelled the result *"إشارات السوق الحيّة · Live market signals"*.
+  `hl` is **not** derived from `gl` — "the country is Arab ⇒ search in Arabic" is
+  `strategy/builder.py:154`'s bug with the arrow reversed. Both default to `""` ⇒ omitted ⇒
+  byte-identical to the old request. The false *"FREE, keyless public APIs"* docstring (`:1`) is
+  fixed — Serper is paid, keyed and FIRST.
+- `poster/locale.py` — `country_code()` ("Qatar" → `"qa"`) **derived from `CCTLD_COUNTRY` at import**
+  (no second table — `poster/art_director.py:582` already is one, and two tables drift). `.uk`→`gb`
+  is the only ccTLD≠ISO mismatch in all 62 keys. `"the USA/Canada"` (`:51`) resolves to `""` — a +1
+  phone genuinely cannot say which country. Plus `search_locale(profile) -> (gl, hl)`.
+- `competitor/full_run.py` + `api/routes/swot.py` — both resolve the market from the profile.
+
+**MEASURED, and both refuted something we believed:**
+1. **The SERP's noise floor is 66 %.** Identical query, nothing changed, minutes apart ⇒ 66 % of
+   URLs differ. A first A/B "measured" 79 % churn from `gl`; the control showed that was ~all
+   noise. **Any n=1 trend snapshot is mostly noise** — including every trend list this product has
+   ever rendered. (`outputs/_gl_control.json`)
+2. **`gl` is necessary but NOT sufficient.** Queries with market words in the TEXT went **0 → 4**
+   Qatar/Gulf hosts when `gl=qa` was added; new angles with `gl=qa` and no market words returned
+   **0**. `gl` re-ranks — it does not conjure local sources for a globally-written topic. The market
+   must be in the query **and** in `gl`. (`outputs/_gl_ab.json`)
+
+**A REAL SCRAPE CLOSED THE HONESTY GAP** (owner: *"اسكراب حقيقي علشان تبقا النتيج صح"*).
+`scrapes/volumeqatar_com_20260715_112727/` (10 pages, robots-allowed, free) + a $0.019 profile build
+⇒ `country_of` resolved **"Qatar"** from the brand's OWN `service_areas: ["Qanat Quartier", "Pearl
+Qatar"]` (quote + page_url), and `languages` measured **en @ 100 %** ⇒ `search_locale = ("qa","en")`.
+The market is no longer asserted by a human. *(`hl="ar"` would have been wrong — the site is English.)*
+
+**FOUND, NOT YET FIXED (tickets, evidence-backed):**
+- **T-KW-SALIENCE — the auto trend query is nonsense for this brand.** Left alone the pipeline
+  searches **`"cafe baked salmon trends 2026"`**: `keywords_from_profile` splits OFFERING NAMES into
+  words and `_query()` takes the **first three**, so a brand whose own title is *"Volume Cafe –
+  Specialty Coffee"* never mentions coffee (it sits ~40th). Vertical-calibrated by accident: for a
+  jeweller, offering names ARE the category (rings/earrings); for a café they are menu items.
+- **T-PHONE-CIRCULAR — an assumed country code read back as evidence of the country.**
+  `scraper/extractors/contact.py:47` `_HOME_MARKET_REGION = "EG"` is the fallback when
+  `region_from_site` finds no signal (generic TLD, no `/xx-yy` path). `country_of` step 3 then reads
+  that `+20` and concludes **"Egypt"** — *the evidence is the assumption*. Same shape as the circular
+  trends gate deleted in P1. **PROVEN, not theoretical:** `scrapes/nahdionline_com_20260704_102759`
+  (Al Nahdi, **Saudi**) stores `e164=+20920024673` for the Saudi unified number `920024673`, and
+  `search_locale` on it returns **`("eg","ar")`** — a Saudi brand would search Egypt's SERP.
+  Bounded: only numbers valid in BOTH countries collide (Qatari 8-digit locals are rejected, not
+  fabricated), and `contact.py:44-46` already DOCUMENTS this exact residual. `PhoneRecord`
+  (`scraper/schemas.py:162`) carries no signalled-vs-assumed flag, so nothing downstream can tell.
+  Note the EG fallback is load-bearing for the corpus — most of the 14-URL grid is `.com`.
+- **THE BENCHMARK NEVER TESTED THE COUNTRY AXIS.** All 14 graded URLs serve Egypt. D-8 says the grid
+  stays *"multi-**vertical**"* — it says nothing about multi-country. So universality is measured on
+  the vertical axis and **never on the country axis**, which is exactly how the Egypt coupling
+  survived every gate. (Ad-hoc scrapes do include `aztech_sa`, `outletpharmacyonline_sa`, `ulta_com`
+  — but nothing non-Egyptian is *graded*.)
+- **The country-assumption sweep (~20 sites)** — `dashboard/build.py:464` renders **"كل مصر ·
+  nationwide"** to a Doha brand · `media_plan/config.py:67` prices every KPI in **EGP** ·
+  `reel/render3/director.py:269` `return loc or "Egypt"` · `strategy/builder.py:154` any-Arabic ⇒
+  Egyptian (**the bug D5 already killed in the reel, still live in the calendar**) ·
+  `reel/voiceover.py:202` `ar-EG-SalmaNeural` · `reel/render3/prompts.py:62,101` hardcoded "Egyptian"
+  casting · no **QAR** in the currency regexes.
+  ⚠ **`process.md:861`'s "no hardcoded Egypt [in the reel]" is an OVERSTATEMENT of a real, bounded
+  fix** — D5 covered `_culture_line` in `reel/art_director` + `reel/generate`, exactly and only.
+  ⚠ **Do NOT "clean" the ~20 hits for "Cairo" in `reel/textlayer.py` / `endcard.py` /
+  `poster/template.py`** — that is the **Google Font named Cairo**; removing it breaks Arabic
+  rendering everywhere.
+
+**STILL OPEN:** the seasons country axis (config keyed by `country_of`, **universal default =
+EMPTY**, Egypt the one ratified table — owner ruling: *the DATE is universal, the MARKETING MEANING
+is not*) · the visibility edits (**two** are needed: `advisor/advisor.py:2` says it *"mirrors"*
+`dashboard/build.py:_honesty_surface`, and the advisor's `Gap`s reach only the launch bundle — an
+advisor-only gap would never reach the client) · the Volume Cafe market angle re-run
+(`outputs/volume_cafe_trends.json` is marked **WIP / DO NOT SEND**).
 
 **THE FAIL-OPEN SWEEP (P6, 2026-07-15) — the most valuable audit in this project's history.**
 A repo-wide audit of every gate/validator asked one question: *what happens when it CANNOT
@@ -2263,6 +2353,1363 @@ Packages: `scraper/`, `business_profile/`, `grounding/`, `competitor/`, `brand/`
 
 ---
 
+## 8.5 — 2026-07-18/19: الداشبورد الموحّدة + الوكالة الآلية (uncommitted mega-session)
+
+**U1 — War Room ثم الداشبورد الموحّدة اللافندر:** `dashboard/war_room.py` — 10 صفحات full-viewport
+(قيادة+بطاقة براند+posture · سوق · SWOT/TOWS/voice · ذكاء · خلايا · خزنة · خدمات تفاعلية HITL ·
+استوديو · تقويم · ذمة+honesty)، هوية لافندر `#CDB4E4`/`#A98BD0`، RTL. Routing: `/dashboard`=الموحّدة،
+`/classic`=القديم، `/war_room` alias. اللاندنج بنفس الهوية + السلوجن الرسمي (ع/EN toggle):
+"ذكاءٌ يُؤسَّس على الحقيقة.. لِيَخلُقَ يقيناً." / "Grounded in truth. Engineered for certainty."
+**قاعدة مالكة:** ممنوع "صفر هلوسة"/إطلاقات في أي سطح client-facing — النظام يعالج ويستبعد، لا يمنع.
+
+**U2–U5 — الشاحنات الأربعة (ads_intel/marketing_intel/media_plan_v2):**
+- ش2 حقائق حتمية: `ads_intel/facts.py`+`config.py` — Winner=نشط≥30ي (env)، إجهاد=3 نسخ في 7ي
+  (collation 120-char NFKC)، CTA سلم حتمي (لينك>نص، ""=مجهول). AdPresence+winners_30d/fatigue/top_*.
+- ش3 وضع المنافس: `marketing_intel` mode="competitor" + kind=message_angle + `from_ads.py`؛
+  نفس موات الاقتباس الحرفي (كود). CLI: `scripts/extract_competitor_intel.py`.
+- ش4 الهجوم المضاد: `media_plan_v2/engine.py` — `_counter_cell` (منافس صورة→Reel، فيديو→ثابت،
+  سعر→جودتنا)، `counter_basis` "أب القرار"، لا CPL منافس مخترع (rationale فقط).
+- ش1 السحب التكيفي: `ads_intel/live.py` (transport+pagination fail-closed) + `pull_ledger.py`
+  (META_MONTHLY_CALL_CAP=500) + `orchestrator.py` (batch 20، ثقة 3عروض|5آلام|1فائز، سقف 200،
+  autopull_enabled=token∧¬NO_SPEND∧¬DISABLED∧¬pytest) موصول في `full_run` + `competitor_intel` بالنتيجة.
+
+**2026-07-19 مساءً — إصلاحات استخدام المالكة (6) + كل المفتوح:**
+- صلة الإعلانات: `search_type=KEYWORD_EXACT_PHRASE` + بوابة صلة متعددة الإشارات في
+  `ads_intel/relevance.py` (chokepoint واحد: `ads_from_snapshot(only_competitor=True)`) + عدّاد
+  `filtered_out` يظهر chip بالرادار.
+- منافسو التعليم: `web_discovery._judge_system_prompt(category)` — قائمة DROP ديناميكية تستثني نوع
+  البراند نفسه (تعليم يحتفظ بالمعاهد، برمجيات بالأدوات)؛ باقي الفئات بايت-ثابتة. بوابة identity
+  تتخفف لـREACH بهوية رفيعة.
+- برومبت البوستر: العقد الحرفي خرج من برومبت الصورة (OCR فقط)؛ سياج BEGIN TEXT/END TEXT يحمل
+  الكوبي فقط؛ compliance_for وصلت للـoneshot (CS-02 residual مقفول).
+- bidi: `unicode-bidi:plaintext`+`dir=auto` (داشبورد+لوج اللاندنج). أدلة: لينك دائماً — fallback
+  لموقع البراند للادّعاءات الموثّقة فقط + default source_url في `grounding/ledger.py` brand-tier.
+- كروت الخدمات: unquote عند المنبع + dedup/merge بمفتاح مطبَّع (نانوكير 10 نص مكسور→6 نظيفة) +
+  grid auto-fill. بطاقة البراند في p1.
+- التسليمات: `launch_bundle` يشحن media_plan_v2 (+test_cells.csv) — LB-MPV2-GAP مقفول؛ CS-121
+  الكالندر بقى ياخد compliance sheet (شكل items مقبول + موصّل للحزمة)؛ CS-14 تحييد P-72 في
+  concept؛ CS-26/29/30 صياغات بلا إطلاق.
+- الترند: CS-63 dedup URL مطبَّع، CS-44 salience بالتكرار، إفصاح ضوضاء الـSERP (قياس 07-15) على p2؛
+  Serper بقى له عدّاد+سقف (SERPER_MONTHLY_CALL_CAP=500، fail-closed) في المزوّد نفسه.
+- سلامة اختبارات: `two_phase_route_decision` دالة إنتاج مختبَرة (CS-54/70)؛ اختبار سلوكي للريجستري
+  (CS-91)؛ رسالة مفيدة لـmeasure_oneshot_poster (CS-116).
+- CS-158: ACCEPT_LANGUAGE بقى env-overridable (SCRAPER_ACCEPT_LANGUAGE) + إفصاح — القياس تذكرة.
+- print_pack: الأكسنت وردي→لافندر (خلفية الطباعة البيضا مقصودة).
+
+---
+
+## 8.6 — 2026-07-20: البرفكت من الجذور (ذوق الريل · منطق البوستر · عزل اللوجو · أرقامها)
+
+توجيه المالكة: "مفيش ذوق ولا وجهة نظر [في الريل] · البوستر بيحط علبة الدوا في أي مكان بلا منطق ·
+اللوجو اعمله isolation صح · اهتم بالتفاصيل ومبدأ إننا شغالين على أي URL".
+
+**حُكم المالكة الحاكم (غيّر التصميم):** *"الذوق ليس له Ground Truth — مستحيل تختبره. لكن
+Strategy يمكن."* + *"لجنة 3 خبراء = 4 نداءات LLM؛ هل ده أحسن ولا بس أغلى؟ ناقد واحد يكفي."*
+⇒ اتلغت لجنة الـWorkflow المخططة، والبوابة بقت **بنيوية تُقاس بالكود**، مش حكم ذوق.
+
+- **استراتيجية الريل (`reel/creative_director.py` + `reel/coherence.py`):** ثلاث التزامات تُقرَّر
+  **قبل** أي مشهد: `creative_pov` (الإحساس الواحد) · `narrative_arc` (≥3 مراحل مرتّبة — القصة اللي
+  الـPOV ما يقولهاش، بحكمها) · `visual_motif` (خيط بصري). كل مشهد يعلن `arc_beat`.
+  `coherence_lint` يرفض بالكود: POV فاضي/عام (فلتر كلمات تسويقية عامة ع/EN) · قوس <3 مراحل أو مكرر
+  · مشهد بلا beat معلن · مشاهد ما بتمشيش القوس بالترتيب من أوله لآخره · **موتيف ما بيتكررش فعلاً**
+  (لازم توكناته في ≥2 برومبت مشهد — ده اللي بيفرّق بين موتيف وأمنية). `require_strategy=True` وقت
+  التأليف فقط، فالخطط المعتمدة قبل العقد تفضل تعدي (استشاري).
+- **منطق وضع المنتج (`poster/oneshot._props_rules` + `poster/concept._placement_rule` +
+  `poster/vision_qa`):** خمس قواعد فيزياء + قرار مكان يتاخد مع الفكرة (نفس النداء = صفر تكلفة زيادة)
+  ويتنقل حرفياً للرندر + معيار `placement_logical` في الناقد البصري = فشل قابل لإعادة الرندر.
+  **تصحيح المالكة (D-8):** القاعدة مش "على سطح" — ده صح لعلبة وغلط للجزمة (الأرض) والعربية (الطريق)
+  والكنبة (الأوضة) والمبنى؛ الصيغة العالمية = **دعامة طبيعية تناسب فئة المنتج نفسها**.
+- **عزل اللوجو (`reel/image_quality.white_key_logo`):** flood-fill من الحواف بدل الـsoft ramp —
+  الخلفية المتصلة بالحواف alpha 0 **كامل** ("شيل خالص مش تطفية")، والأبيض الداخلي محفوظ (غير متصل).
+  **مقيس على لوجو نانوكير الحقيقي: 84.5% شفاف تمام، 0.00% نص-شفاف، العلامة سليمة.**
+  + تفضيل الفيكتور (`scraper/inline_svg_logo`): لوجو أساسي JPEG (شفافية مستحيلة) + مرشح inline-svg
+  بثقة ≥0.3 ⇒ يُجرَّب الفيكتور أولاً بنفس بوابة الحبر. **نانوكير: مرشحاه بلوكات مصمتة 100% ⇒ اترفضوا
+  صح، فضل الـJPEG + الـflood-fill.** كمان: `resolve_raw_homepage` بيقرا `home.html` زي
+  `00_homepage.html` — الاسم الجديد كان بيعطّل الإثراء بصمت في كل سكرايب حديث.
+- **أرقامها تُحسب (`media_plan/builder._apply_owner_budget`):** ميزانيتها الشهرية بقت `test_budget`
+  فعلياً، متقسّمة بحصص الأهداف (المجموع = رقمها بالظبط، بدون كسر مخترع)، ومعاها `budget_note` بيقول
+  الحساب. أقل من **أرضية التعلّم** (3×التكلفة المستهدفة×المجموعات) = رفض معلن مش قبول صامت ولا كراش.
+  **بق مسكه الاختبار:** `model_copy` ما بيعيدش التحقق ⇒ الميزانية تحت الأرضية كانت هتعدي بصمت؛
+  الحل `model_validate`. الديك بيقرا `_plan_test_budget` (مجموع كل الأهداف) و p1 بيقول "من رقمك ✓".
+- **قاعدة "كل داتا = ملف" (`trends/artifact.py`):** `outputs/<slug>_trends.json` = العناصر +
+  `_meta` (البذور، gl/hl، العدد، إفصاح الضوضاء المقيس، وسبب الفراغ لو فاضي). الملفات المعاد بناؤها
+  من تحليل قديم بتتوسم `backfilled_from` وبتقول السوق **غير مسجّل** — مش "غير محدد" (نفس فخ D-8:
+  جملة صحيحة بتجاوب على سؤال تاني).
+- **الكاش:** `Cache-Control: no-store` كان **موجود أصلاً** على كل رد ديناميكي ⇒ سبب "الميزات مش
+  بتظهر" كان **عملية السيرفر الشغالة أقدم من الكود**، مش الهيدر. اتضاف اختبار حماية للهيدر.
+
+**فحص الربط بالداشبورد (سؤال المالكة "انت ربط كل التعديلات بالداشبورد صح؟") — لقى 3 فجوات حقيقية:**
+1. **إثراء اللوجو ما كانش شغال خالص على مسار الداشبورد**: `enrich_profile_logo` بيشتغل على ملف،
+   وبيتنده من CLI الـ`business_profile` بس؛ لكن الداشبورد بيحلل عبر `competitor/full_run.py` اللي
+   بيسيب البروفايل جوه الـresult ⇒ كل براند من الداشبورد كان بيتخطى الإثراء بصمت. الحل:
+   `enrich_logo_in_profile_dict` (نسخة in-memory، والملف بقى بيفوّض ليها) متندهة من full_run.
+2. **بريف الـHITL ما كانش بيعرض الاستراتيجية**: البوابة بتفرض POV/قوس/موتيف، لكن الشاشة اللي
+   بتوافق منها ما كانتش بتعرضهم ⇒ موافقة على ~$11 من غير ما تشوفي الحاجة الوحيدة اللي اتغيّرت.
+   الحل: `_reel_brief_lines` بيبدأ بوجهة النظر/القوس/الموتيف وكل مشهد بيتوسم بمرحلته.
+3. **ملف الترندات ما كانش موصول من الصفحة**: اتضاف سطر في صفحة السوق بالاسم والعدد الكامل.
+
+**الاستوديو بيعرض شغل قديم (owner، NTI 2026-07-20):** التحليل اتعاد النهاردة 12:24 والبوستر/الريل
+من 12 يوليو — إعادة التحليل بتبني الاستراتيجية وما بتلمسش الإبداع، فشغل مُتجاوَز فضل يقدّم نفسه
+كأنه الحالي. + "مش سامحلي أجنيريت": مفيش أي قفل في الكود — بانل الـHITL بيفتح **تحت حدود الشاشة**
+فالضغط يبان كأنه ما عملش حاجة. الحل (٣ حتت):
+- `_staleness_note`: أي إبداع أقدم من `<slug>_result.json` بيتوسم على الصفحة نفسها بعمره بالأيام
+  ("قديم — اتعمل قبل التحليل الحالي بـ8 يوم"). قاعدة عالمية، نفس فئة الخطأ بتاعة الادعاء بلا مصدر.
+- `archive_creative` + `POST /studio/reset` + زر "🧹 ابدأ من جديد": بينقل البوستر/الريل/الخطط لـ
+  `outputs/_archive/<slug>/<timestamp>/` — **أرشفة مش مسح** (رندر مدفوع ~$11 لازم يفضل استرجاعه
+  ممكن)، وملفات التحليل ما بتتلمسش.
+- البانل بقى `scrollIntoView` عند الفتح.
+
+**إعلانات ميتا اشتغلت (2026-07-20) — وكشفت بقّين صامتين:**
+- **`.env` مش متحمّل في نقاط الدخول**: المالكة أكّدت هويتها، ولّدت توكن شغّال، حطته في `.env` —
+  والسحب قال "META_ADS_TOKEN is not set". `.env` كان بيتحمّل في 3 أماكن مالهاش علاقة بالتحليل، فـ
+  `autopull_enabled()` بيقرا بيئة فاضية ⇒ ذكاء إعلانات المنافسين كان هيفضل فاضي **للأبد بلا أي خطأ**
+  وبشكل مطابق للحقيقة ("المنافس مش بيعلن") — أخطر نوع فشل في المشروع. الحل: `config_env.load_env`
+  مشترك، متندَه من كل نقطة دخول بتقرا اعتماد. **الاختبار سلوكي مش نصي** (جربت grep الأول وعدّى غلط
+  لأن `full_run` عنده helper اسمه `_load_env` — نفس المصادفة اللي هترجّع البق).
+- **البحث بالعبارة الحرفية بيصفّر الأسماء المركّبة**: مقيس حي (EG/ACTIVE): "Vodafone" حرفي 5 /
+  غير مرتّب 5، لكن **"Vodafone Egypt" حرفي 0 وغير مرتّب 1** — البراند بيختفي بالكامل. الحل: صفحة
+  أولى فاضية ⇒ توسيع **مرة واحدة** لـUNORDERED، وبوابة الصلة الموجودة بترمي الغرباء. كلمة واحدة =
+  مفيش إعادة (نفس البحث). **إثبات حي: السحب اتحول من 0 لـ1.**
+- أداة `scripts/verify_meta_token.py`: بتترجم رفض ميتا لحاجة واحدة تتصلح، وبتقيس عمر التوكن
+  (توكن الـExplorer = ساعتين) و`--long-lived` بيبدّله بـ60 يوم **ويكتبه في .env** (مش في الشاشة).
+
+السويت: 1957 → **2039** أخضر، صفر إنفاق (مكتبة إعلانات ميتا مجانية)، صفر commit.
+
+## 8.7 — 2026-07-21: تشغيلة فوليوم قطر (أول براند غير مصري) — سجل المشاكل بالتفصيل
+
+**الطلب:** سكراب `volumeqatar.com/food menu/` + تشغيل المشروع كله **ما عدا الريل** + فولدر لكل موقع.
+**النتيجة:** كل حاجة اتسلّمت (سويت 2080 خضراء)، والتشغيلة دي لوحدها كشفت **٧ باجات** — ستة منها
+كانت هتخرّب أي تسليم لعميل، وواحد كان بيخفي نفسه بشكل مطابق للحقيقة.
+
+### المشكلة ١ — كل موديلات الصور ميتة في المشروع (البوستر فشل كلياً)
+- **العَرَض:** `[X] poster failed: ClientError 404 NOT_FOUND ... imagen-4.0-generate-001`.
+- **التشخيص:** فحص حي لسبع موديلات على `radiant-octane-501919-v1`: **كلها 404** — كل الـImagen
+  و`gemini-3-pro-image-preview` (اللي `.env` مثبّتها في `ONESHOT_IMAGE_MODEL`). الشغّالة الوحيدة:
+  **`gemini-2.5-flash-image` (نانو بنانا)**. ملاحظة تشخيصية: أول فحص عملته كان على
+  `us-central1` وده كان غلط مني — موديلات الـoneshot بتتحل على `location="global"` بس.
+- **الجذر:** موديل واحد ثابت = نقطة فشل مفردة؛ الـ404 (موديل اتشال) كان بيتعامل زي أي خطأ.
+- **الحل:** `poster/oneshot._MODEL_CHAIN` + `_is_missing_model` — الموديل المضبوط يتجرب **أولاً**،
+  و404 **ما يتعادش على نفس الموديل** (فرق جوهري عن 429 اللي هو نوبة مؤقتة وبيتعاد فعلاً).
+
+### المشكلة ٢ — اللوجو بيتحط فوق العنوان (البوستر غير صالح)
+- **العَرَض:** "Feed your mind" اتقرت "eed your mind"؛ والناقد البصري نفسه كتب: *"the brand logo is
+  garbled and overlaps with the headline, making it completely unusable"*.
+- **الجذر:** الركن كان بيتحدد من **اتجاه القراءة** بس، من غير ما يبص الركن فيه إيه.
+- **محاولة أولى ناقصة:** خليته يختار بين الركنين الفوقانيين — وفضلت تقع، لأن **عنوان بعرض الصفحة
+  بياخد الاتنين**. الاختيار بين ركنين وحشين برضه بيقع على النص.
+- **الحل النهائي:** قياس **الأربع أركان** بطاقة الحواف. **معايرة على الرندر الحقيقي:**
+  عنوان = 22.9 · خلفية صورة عادية = 7.3 · نسيج خفيف = 1.8 ⇒ عتبة نص مطلقة 12.0 + نسبة 1.6،
+  فالعتبة لوحدها ما بتحركش اللوجو على صورة مزدحمة، والنسبة لوحدها بتقلب اللاي-آوت على نسيج عادي.
+
+### المشكلة ٣ — البوستر **المرفوض** بيدهس البوستر الكويس (الأخطر بصرياً)
+- **العَرَض:** الملف المسلَّم فيه "speciaity coffee coffee" و"Mall of Maqur".
+- **المفارقة:** بوابة النص **رفضت** الرندر ده فعلاً (fidelity 0.667 < 1.0) — ومع ذلك اتكتب على
+  الملف النهائي، لأن الـcanonical sink (اللي اتعمل أصلاً لعلاج "فشل وهو موجود") كان بيتحدّث من
+  **كل** محاولة ساعة ما تتولد، قبل أي بوابة.
+- **الحل:** `_refresh_canonical(..., passed=)`. رندر ما عدّاش البوابات يُنشر **فقط** لو مفيش أي
+  تسليم قبله (وعد البند ١ محفوظ: التايم-آوت يسيب حاجة معروضة)، لكنه **أبداً** ما يستبدل تسليم قائم.
+
+### المشكلة ٤ — الناقد بيرسّب أي براند إنجليزي (D-8، محور اللغة)
+- **العَرَض:** بوستر نضيف (دقة 1.0، تقييم 8/10) مرفوض بـ*"The poster uses Latin script, which
+  violates the pass criteria"*.
+- **الجذر:** تعليمة الحقل كانت لغوية-واعية، لكن سطر `overall_pass` كان بيطلب "no Latin in the copy"
+  **لكل براند في الدنيا**. قاعدة صح لبراند عربي، متطبّقة على سؤال مش بتاعها.
+- **الحل:** `_pass_criteria(arabic)` — النص العربي يحتفظ بالقاعدة، وغير العربي بيتقاله صراحة إن
+  الحروف اللاتينية **صحيحة** وما تتحسبش ضده.
+
+### المشكلة ٥ — الناقد بيرفض لوجو العميل نفسه
+- **العَرَض:** ٣ رندرات متتالية مرفوضة بـ"the brand logo is completely garbled and illegible".
+- **التشخيص:** نزّلت `wp-logo-BOOK.png` من موقع البراند وعرضته على خلفية داكنة: **لوجو مقصود
+  حروفه متداخلة** (V من ورق كتاب + OLUME متشابكة). التركيب عندنا **بكسل-مطابق** (الملف RGBA شفاف
+  أصلاً ⇒ `white_key_logo` سابه بايت-ثابت، 77.5% شفافية زي ما هي).
+- **الجذر:** `logo_ok` اتعمل عشان يمسك **الموديل** وهو بيعيد رسم لوجو ويبوّظه. لما بنركّب الأصل
+  الحقيقي حتمياً، الفشل ده **مستحيل بالبناء** — والحكم على شكل الحروف بقى بيرفض تصميم العميل.
+- **الحل:** `logo_composited=True` ⇒ المعيار يبقى **الوضوح** (تباين/قص/تغطية) مش شكل الحروف، وبيتشال
+  من ضرب `overall_pass` (بـ`_recompute_pass`، الحكم لسه بيتحسب في الكود مش من الموديل).
+
+### المشكلة ٦ — العملة بترجع "جنيه" لما البلد مش متعرفة (D-8، محور البلد)
+- **العَرَض:** براند قطري ممكن ياخد أرقامه بالجنيه المصري.
+- **الجذر:** `currency or "جنيه"` في `reality_check` (نص الإفصاح) و`war_room` (مرتين).
+- **ملاحظة على الاختبار:** أول اختبار كتبته فحص حقل `currency` بس و**عدّى** — التسريب كان في
+  **نص الإفصاح**. وسّعت الفحص للنص والملاحظات فطلع أحمر.
+- **الحل:** `"بعملتك المحلية"` + `_deck_currency` — بلد مجهولة = **مفيش كلمة عملة**، مش عملة تانية.
+
+### المشكلة ٧ — ملف الفولدر بيتسلّم قديم (باج في اللي لسه كاتبه)
+- **العَرَض:** اختبار السويت الكاملة رسب بشكل متقطع.
+- **الجذر:** `shutil.copy2` بينسخ الـmtime، فملف اتعدّل في **نفس جزء الثانية** بيتقارن كأنه "محدَّث"
+  ⇒ العميل ياخد النسخة القديمة. تحسين شكله سليم وبيشحن بيانات قديمة بصمت.
+- **الحل:** الملفات الصغيرة (<5MB) تتنسخ **دايماً**؛ المقارنة للفيديو الكبير بس.
+
+### ما اشتغل صح من أول مرة (محور البلد — الاختبار الحقيقي)
+`country_of` = Qatar · `search_locale` = `qa/en` · الترندات قطرية فعلاً ("Qatar Catering Services
+Market Size") · زر الطوارئ **بالريال القطري** · الكاستينج خليجي · 14 صنف من المنيو.
+**الأسعار:** غير موجودة على الموقع أصلاً (صفر ذكر لـQAR في 85 ألف حرف) — استخراج صح مش فقدان.
+
+### فجوات مفتوحة في التسليمة (مش باجات — نواقص معلنة)
+- **منافس واحد بس** (LEE-TOP Catering) لمنطقة فيها مقاهي كتير. غالباً لأن الدخول كان من **صفحة
+  المنيو** ⇒ التصنيف "catering" وبذور البحث بقت أصناف أكل ("tomato","basil","soup") مش سوق.
+  **مقترح:** التشغيل على الدومين الجذر بدل صفحة داخلية.
+- **التهديدات في SWOT = صفر** — تحليل المخاطر فاضي في حزمة هتتنافس بيها.
+
+## 8.8 — 2026-07-21: منافس واحد وصفر تهديدات — الحل من الجذر (٦ بنود)
+
+سلسلة سبب **واحدة** ورا العرضين، اتكشفت بتلات تحقيقات متوازية. الأرقام قياسات مش تقديرات.
+
+### ١) الكود كان بيقرا حقول غير موجودة (أخطر واحد)
+`competitor/discovery.py` كان بيقرا `physical_address`/`lat`/`lng` — **مش في الاسكيما أصلاً**.
+**مقيس على كل الكوربوس: صفر من ٢٢ بروفايل فيه الحقول دي.** يعني `is_online_only=True` في **١٠٠٪**
+من التشغيلات، وفرع الجيوكود المكتمل (`:274-300`) **ما اشتغلش ولا مرة في الإنتاج** — كل براند محلي
+اتبحثله بلا إحداثيات ولا تحيّز مكاني. `_subject_address` بيقرا `locations` ⟶
+`contact_channels.physical_addresses` ⟶ `service_areas`. **النتيجة: صفر ⟶ ١٤ من ٢٢.**
+
+### ٢) السوق قبل المنيو
+`market_definition.py` كان `for svc in subs[:5] or ([category] ...)` — التصنيف يُستخدم **فقط لو
+مفيش عروض**. المقهى دخل من صفحة المنيو فـ"العروض" بقت أطباق، والاستعلام بقى
+`'Volume Catering Qanat Quartier'` (اتنين من تلاتة باسم البراند نفسه). نانوكير كانت بتدوّر على
+**SKU بتاعها هي**. الحل: ترتيب ثلاث طبقات (تصنيف ⟶ متكرر-عبر-العروض/مُعزَّز-عبر-حقلين ⟶ نسخة منتج)
++ حارس اسم البراند + مكان قابل للبحث. **رتّبنا ما حذفناش، فكل الاختبارات القايمة عدّت بلا تعديل.**
+وصلّحنا إن `cafe` كانت **بتتشال** كـ"كلمة براند" لأن الاسم "Volume Cafe" — كسر فئة كاملة
+("X Pharmacy"، "Y Jewelry").
+
+### ٣) LOCAL كان محبوس على محرك واحد
+`router.py` كان بيرجّع Places لوحده و`thin_peer_set` محسوب ومهمَل. الدليل: **منافسي نانوكير الأربعة
+كلهم من الويب** (Places رجّع صفر). دلوقتي البركة الرفيعة بتوسّع بنفس دمج HYBRID الموجود؛ النتيجة
+الكافية ما بتتغيّرش.
+
+### ٤) البركة الصغيرة كانت بتضخّم الدرجة
+بمرشح واحد وسيط المراجعات = مراجعاته هو ⟹ `size_similarity=1.0` مجاناً ⟹ شركة كاترينج عدّت كقرين
+مقهى بـ0.73. (وهنا **رابع حقل وهمي**: `review_count` — فالاحتياطي هو المسار الوحيد اللي بيشتغل.)
+بركة أقل من ٣ ⟹ الدرجة تُسقَط بدل ما تتحوّل لثقة.
+
+### ٥) تهديدات مشتقة وموسومة — **والتصميم اتصحّح بواسطة اختبار قايم**
+أول تنفيذ حوّل **ضعف في موقعك** لتهديد، فوقع `test_scraped_behind_standalone_emits_no_phantom_threat`
+فوراً. الاختبار كان صح: **التهديد خارجي والضعف داخلي — ده تعريف SWOT مش تفضيل**. شِلت المولّد ده
+تماماً؛ الاشتقاق بقى من أدلة **خارجية** بس (إشارات سوق + نضج البراند)، وكل بند بياخد
+`claim_strength="directional_not_validated"` (السلّم الموجود، مش حقل جديد) وبيقول في نصه إنه استنتاج.
+كمان: `_TREND_THREAT_KEYS` ١٦ كلمة إنجليزي، فترند "Qatar Catering Market Size" بقى **فرصة** تلقائياً.
+
+### ٦) اللي النظام بيعترف بيه لنفسه بقى يوصل للصفحة
+`swot.notes` و`discovery_notes` **مكانوش معروضين في أي مكان** في `dashboard/` — رغم إن سجل الاكتشاف
+بيقول حرفياً "مش هنحشي بمرشحين تحت المستوى" و"جرّبي نطاق أوسع". و`swot.py:190` كان بيحسب الفراغ على
+الـSWOT **كله**، فنقطة قوة واحدة عرضية سكّتت الإفصاح. دلوقتي: إفصاح **لكل خانة**، الخانة الفاضية
+بتقول سببها بدل شرطة، وسم `ready_for_swot=false` بحاجبه، و`discovery_audit` بيتحفظ.
+
+### التحقق: إعادة تشغيل فوليوم قطر فعلياً (المعايير مسجّلة مقدماً)
+
+| | قبل | بعد |
+|---|---|---|
+| المنافسون | **1** (شركة كاترينج) | **4** — Joe's cafe · Pure Eats · Suisse Chalet Café · The Kitchen Doha |
+| نوعهم | كاترينج عدّى على type="food" | مقاهي/مطاعم بمسافات 0.2 · 0.5 · 2.7 كم |
+| المرشحون المسحوبون | 2 | **20** |
+| أقران بموقع قابل للفحص | 0 | **3** |
+| سجل الاكتشاف | `proximity dropped` | `resolved center via Places -> (25.37599, 51.54502)` · `biased ... r=15000m` |
+| ملاحظات SWOT | 1 | 2 (منها الإفصاح الجديد لكل خانة) |
+
+**الجيوكود اشتغل لأول مرة في تاريخ النظام.**
+
+### صدق: حاجتان ما اتحسنوش
+1. **التهديدات لسه 0.** الإفصاح الجديد بيقول السبب على الصفحة: "التهديدات محتاجة قرين له موقع قابل
+   للفحص، أو شكاوى، أو إشارة سوق. المتاح: 4 قرين، منهم 3 بموقع قابل للفحص." الترندات اللي رجعت
+   (`Fresh mood 🥗😍 #tchetche`) مالهاش إشارة نمو، فالاشتقاق ما اشتغلش — **صح إنه ما اخترعش**.
+2. **استعلام v1 كان لسه بأسماء الأطباق** بعد إعادة التشغيل (`'tomato basil soup baked salmon with
+   cafe'`) — الترتيب وصل لـ`query_seeds` ووقف قبل `discovery.build_text_query` بدالة واحدة.
+   اتصلّح بعدها: `'cafe catering tomato basil soup'`، واسم البراند بيتشال من `offering_keywords`
+   في المصدر. **التشغيلة اللي فوق كسبت من البذور بس — الرقم هيتحسن أكتر في التشغيلة الجاية.**
+
+**السويت: 2080 ⟶ 2129 خضراء. صفر commit.**
+
+## 8.9 — 2026-07-21: نانوكير + بيبسي — مشاكل ظهرت من تشغيل براندات مختلفة
+
+### نانوكير (إيكومرس مصري بالعربي)
+- **أسماء المنافسين كانت عناوين SEO.** التسليمة كانت بتقول "أفضل مكمل غذائي في مصر 2026"
+  و"متجر مكملات غذائية في مصر" كأنهم براندات — بينما دول inshapesupplements.com و beseha.com.
+  `_clean_title` كان بياخد أول جزء قبل الفاصل، واللي على صفحة SEO هو عبارة الكلمات المفتاحية.
+  الحل: الجزء اللي **يطابق الدومين** يكسب، وإلا الدومين نفسه يتجمّل. القاعدة بالدومين مش بقايمة
+  كلمات ⇒ بتشتغل بأي لغة. **النتيجة: Drdiamond · iFIT · Iherb** بدل عناوين البحث.
+- **تسريب اسم البراند عبر الكتابتين.** الاسم إنجليزي ("Nano Care Therapeutics") والمنتجات عربي،
+  فحاجز `tokenize(name)` مالحقش والاستعلام فضل `'ecommerce نانو كير ليبوسومال فيتامين'`. وصّلنا
+  `brand_identity_tokens` (بتستنتج كلمات البراند من **تكرارها عبر المنتجات** بأي أبجدية).
+  **مقايضة مسجّلة:** لبراند اسمه "Nano Care" بيبيع "Nano Care Liposomal X"، كلمة `ليبوسومال`
+  بتركب كل المنتجات زي اسم البراند — والتكرار لوحده مش قادر يفرّق. **نرمي**: اسم مسرّب = صفر
+  مضمون، فئة ضايعة = استرجاع أقل بس.
+- **أهم إشارة كانت في الخانة الغلط.** نانوكير كلها قايمة على الليبوسومال، والسوق بيقول
+  *"Why Liposomal Technology Is Becoming the Standard"* — النظام حسبها **فرصة**. دي تآكل خندقها.
+  ضفنا فئة تهديد **التسليع** (غير النمو: النمو = منافسون أكتر، التسليع = ميزة أقل).
+  **صفر ⟶ 1 تهديد حقيقي.** وخبر فئة عادي ("A Breakthrough in Nutrient Delivery") **مش** تهديد.
+- **صدق:** التهديدات كانت صفر لسبب سليم — نانوكير **مش متأخرة** في أي بُعد مقيس أمام 3 أقران
+  اتسحبوا فعلاً. المشكلة كانت التصنيف، مش نقص الأدلة.
+
+### بيبسي (براند عالمي محجوب)
+- **الموقع بيرجّع 403 — حتى على `robots.txt`.** أكدناه بفحص مستقل: `pepsi.com` و`pepsico.com`
+  الاتنين 403 لمتصفح عادي، ومتصفح Chromium كامل بياخد نفس الرد. **مش مشكلة اسكرابر ضعيف** —
+  الرفض عند حافة الـCDN قبل أي تفاوض.
+- **الرسالة كانت كلام مبرمجين.** كانت بتطبع `<ErrorCode.BOT_PROTECTION: ...> datetime.datetime(...)`
+  وتعرض تلات أسباب مختلفة مع بعض — رغم إن كائن الفشل عارف أنهي واحدة. بقى
+  `scrape_failure_message` بيفرّق: حجب متعمد / 429 مؤقت / موقع مش موجود / شهادة — وكل واحدة
+  بتقول **إيه العمل**. الـrepr الخام بيروح لسطر `[debug]` منفصل.
+- **قرار المالكة: fallback بـApify.** `scraper/apify_fallback.py` — بيشتغل **بعد** زحف بصفر صفحات
+  بس (موقع شغّال عمره ما يتحاسب مرتين)، سقف صارم 50 صفحة (Apify بيحاسب بالنتيجة)، وكل ناتج موسوم
+  `source="apify"` فمحدش يقدر يعرض فيتش مدفوع على إنه زحفنا إحنا. أي فشل بيرجّع للرسالة الصادقة.
+  **مقيس حي: 6 صفحات من بيبسي بمحتوى حقيقي (منتجات وحملات) في 162 ثانية.**
+- **حد أخلاقي مسجّل مرة واحدة:** موقع بيرفض نشر `robots.txt` أصلاً — استخدام فيتشر خارجي هناك
+  قرار بخصوص شروط الموقع، وهو قرار المالكة لكل براند. الكود ما بياخدوش بالنيابة عنها بصمت؛
+  عشان كده كل تشغيلة fallback موسومة ومسجّلة. ومفيش أدوات تحايل (بروكسي دوّار/بصمة TLS/حل كابتشا)
+  اتبنت ولا هتتبني.
+
+### fallback بيبسي — أربع طبقات، كل واحدة كانت مخبّية اللي تحتها
+
+الـfallback نجح من أول لحظة (12 صفحة بيبسي حقيقية). اللي فشل هو **استهلاك** نتيجته:
+
+1. **قواميس Apify اتحطت في `manifest.pages` مباشرة.** لكن `PageRecord` مابيحملش نص — بيحمل
+   `html_path`/`clean_text_path` بيشاوروا على ملفات. التعيين وقع في التحقق، والـ`except` الواسع
+   بلعه ⇒ **فيتش ناجح بان كأنه موقع ميت.** الحل: نكتب نفس تخطيط ملفات الزاحف ونبني PageRecords فوقه.
+2. **بروفايل فاضي اتشحن كتحليل.** بعد التصليح، التشغيلة كمّلت وطلّعت SWOT فيه ٨ نقاط ضعف عن بيبسي:
+   "مفيش تاجلاين"، "قيمة مقترحة ضعيفة"، "مدى منتجات ضيق". **كلها كذب** — أعراض فشل استخراجنا
+   مكتوبة كتدقيق للبراند. الكود كان بيحرس حالة "صفر صفحات" بس، مش الخطوة اللي بعدها.
+   `profile_is_hollow` بيوقف التشغيلة دلوقتي ويقول السبب.
+3. **HTML بلا رأس.** Apify بيرجّع HTML منظّف بالـreadability: `<div id="readability-content">`
+   بدون `<head>`/`<title>`/`og:` — ومستخرجاتنا القاعدية بتقرا الحاجات دي بالظبط. اسم البراند كان
+   في الـ`h1` والنظام أعمى عنه. بنعيد بناء رأس من ميتاداتا Apify نفسها؛ الحقل الغايب **يتشال**
+   (`<title></title>` فاضية بتتقري "البراند مالوش عنوان" مش "إحنا مشفناش").
+4. **`site_metadata` فضل فاضي.** الهوية بتتقري من `manifest.site_metadata`
+   (`business_profile/rules/from_metadata.py:165`)، مش من HTML الصفحات — والاسترداد كان بيبني
+   الصفحات ويسيب الكائن ده فاضي. بيتملّي دلوقتي من نفس الميتاداتا، **وبس لو الزاحف نفسه مقراش حاجة**.
+
+**نظافة اختبارات (باج من عندي):** اختبار كان بيكتب نص فكسچر (`"real body"`) في مجلد `scrapes/`
+الحقيقي لأني نسيت `scrape_dir`. اتنضّف، وكل الاختبارات بقت تكتب في `tmp_path`.
+
+**السويت: 2145 ⟶ 2184 خضراء.**
+
+## 8.10 — 2026-07-21: تقوية الاسكرابر — الإجابة مكانتش مكتبة
+
+سؤال المالكة: "الجت هب فيه lib حلوة نقوي بيها الاسكرابر عموماً علشان ميبلوكش غير للشديد القوي".
+القياس ودّى لحتة تانية: **مكانش عندنا مشكلة قوة، كان عندنا مشكلتين من صنعنا.**
+
+### ١) كنا بنناقض نفسنا (والتناقض هو أرخص فحص بوت في الدنيا)
+مقيس على متصفح المشروع نفسه:
+
+| الإشارة | كنا بنقول | الحقيقة |
+|---|---|---|
+| نسخة المتصفح | Chrome **131** | **147** |
+| `Sec-CH-UA` | **فاضية** | كروم بيبعتها دايماً |
+| `navigator.languages` | `['en-US']` | وهيدرنا `en-US,en;q=0.9,ar;q=0.8` |
+
+UA **مكتوب بالإيد** بيتقادم لوحده — شحنا كذبة ١٦ نسخة. `scraper/browser_identity.py` بيشتق الهوية
+من المحرك الفعلي: نسخة صح + تلميحات عميل متطابقة + locale بيوافق الهيدر. **مقيس: 147 = 147 ✓**
+
+**اللي رفضناه عمداً:** ترقيع `navigator.webdriver`. ده موجود لغرض واحد: إخفاء الأتمتة عن موقع سأل
+عنها بالتحديد. بنشيل تناقضاتنا إحنا، مش بنكسر قفل حطه حد عن قصد.
+
+### ٢) كنا بنرمي مواقع شغالة (الأخطر)
+**مقيس (بيبسي):** الموقع رد **200 بصفحة كاملة 35KB وعنوان "Pepsi Official Site"** — وإحنا رمينا
+الموقع كله لأن `_incapsula_` موجودة في الـHTML. لكن `_incapsula_` هو **سكريبت الحماية نفسه**،
+بيشحن على كل صفحة محمية بما فيها اللي بتتقدّم لزوار عاديين. كنا بنقرا "الموقع بيستخدم حماية" على
+إنه "الموقع رفضنا". العلامات اتفصلت:
+- **قاطعة** (`challenge-platform`, `__cf_chl_`, `px-captcha`): بتتحمّل **فقط** على صفحة تحدي ⇒ حجب.
+- **حضور بس** (`_incapsula_`, `_pxhd`, `ak_bmsc`): حجب **فقط** لو الصفحة كمان فاضية/بلا عنوان.
+
+اختبار التحدي العربي من كلاودفلير (`test_bot_detection_lang_agnostic`) رجع **أخضر بلا تعديل** —
+التفرقة صح مش ترخية.
+
+### ٣) عن مكتبات GitHub — قياس مش رأي
+- **أدوات التحايل** (`curl_cffi`, `undetected-chromedriver`, `camoufox`, `cloudscraper`): بتكسر
+  الخط اللي فوق. مرفوضة.
+- **أدوات الاستخراج** (`trafilatura`, `extruct`, `BeautifulSoup`): المحتوى المسترد فيه **صفر
+  JSON-LD، صفر microdata، صفر أسعار** — مفيش مكتبة هتطلّع حاجة مش موجودة.
+- المكسب الحقيقي كان **٤ سطور إعداد**.
+
+### ٤) غلطة تشغيلية مسجّلة — كررت درس ١٣ يوليو
+ضربت بيبسي ~١٠ مرات في التشخيص. نفس الكود بالظبط: **200 (35KB) من ساعة ⟶ 403 (908 بايت) دلوقتي**.
+جدران الحماية بتسجّل سمعة IP. **مش عارف دلوقتي لو بيبسي أصلاً محجوب ولا أنا اللي حجبته علينا** —
+والدليل الوحيد إنه رد 200 كامل مرتين قبل ما أكتّر. التأكد الوحيد: نسيبه يومين ونجرب **مرة واحدة**.
+**قاعدة:** التشخيص على موقع خارجي = طلب واحد لكل فرضية، والتشغيلة الحقيقية هي الاختبار.
+
+**السويت: 2184 ⟶ 2202 خضراء.**
+
+## 8.11 — 2026-07-21: التاكسونومي بيخلط سؤالين (تحليل عميق، حل معماري)
+
+**بدأ من:** ليه كوكاكولا مصر طلعت `services_b2c`؟ القياس عبر **كل** البروفايلات كشف إن ده عرض
+لمرض في `BusinessCategory` نفسه، مش حالة واحدة.
+
+**الجذر:** الـ19 تصنيف بيخلطوا **محورين متعامدين**:
+- **السوق** (إيه بتبيع): restaurant · cafe · clinic · education · beauty · fitness · automotive …
+- **نموذج العمل** (إزاي بتبيع): ecommerce · retail · services_b2c · services_b2b · agency …
+
+حقل واحد مايقدرش يجاوب الاتنين، فبيتأرجح حسب اللي الموقع بيركّز عليه.
+
+**الدليل المقيس (`outputs/*_profile.json`):**
+- تحت `ecommerce` واحدة: **صيدلية أونلاين + بيت مجوهرات + براند مكملات + براند تجميل** — أربع أسواق
+  مالهاش علاقة، فـ"مين منافسيّا" ممكن يقارن صيدلية بجواهرجي.
+- **Raw African**: `beauty` في تشغيلات و`ecommerce` في غيرها — نفس البراند، نفس الموقع (**نتيجة غير
+  ثابتة**).
+- **كوكاكولا** = `services_b2c` (وهي FMCG مشروبات)؛ فودافون/أورانج نفس الشيء، وفودافون مرة
+  `services_b2b`.
+
+**ليه بيكسر كل حاجة:** المحورين **مطلوبين فعلاً** لمستهلكين مختلفين:
+- السوق يحرّك: بذور الترند، `market_definition.query_seeds`، صلة الأقران، التموضع.
+- النموذج يحرّك: `CATEGORY_TYPE_MAP` (أنواع Places)، توجيه `business_type.py`، نصف قطر البحث.
+فأي إجابة يختارها الحقل، **المستهلك التاني بياخد مدخل غلط بصمت**. **12 موديول، 200+ استخدام.**
+
+**حكم المالكة: "ممنوع الحلول المؤقتة"** — نفصل المحورين، مانرقّعش المصنِّف. + **السوق نص حر موثّق**
+مش قايمة مغلقة (أي قايمة هتقصر عن أسواق حقيقية — D-8). + **إعادة تحليل الكل** بعد اكتمال التحويل.
+
+**اتنفّذ (خطوة 1 من 4):** `business_profile/schemas.py`:
+- `BusinessModel` enum مغلق صغير (ecommerce/local/service/hybrid/unknown) — المحور ده فعلاً محدود.
+- `market_category` = `EvidencedField[str]` نص حر.
+- `category` القديم **باقٍ** حتى يتحوّل كل مستهلك — مفيش حاجة تقع في النص.
+
+**اتنفّذ (خطوة 2 من 4):** الاستخراج بيملا المحورين — برومبت الهوية بيسأل عن `market_category`
+(نص حر: "handmade jewellery"/"liposomal supplements") و`business_model` (مغلق:
+ecommerce/local/service/hybrid/unknown)؛ `IdentityResponse` + `ValidatedIdentity` بيحملوهم؛
+`_merge_identity_axes` بيكتبهم على البروفايل (السوق EvidencedField، النموذج enum). موديل غير معروف
+يُسقَط مايكسرش. **بق مسكه اختبار قايم:** الـ`default_factory` بتاعي بنى `ValidatedScalarField`
+بدون `inferred` المطلوب — اتصلّح.
+
+**اتنفّذ (خطوة 3 من 4):** المستهلكين اتحوّلوا للمحور الصح + الداشبورد:
+- **النموذج**: `business_type.classify_business_type` بيقرا `business_model` صريح (ecommerce→ship،
+  local→proximity، service→reach، hybrid→both)؛ غائب/unknown ⟶ قوايم `category` القديمة (توافق).
+- **السوق**: `trends.keywords_from_profile` و`market_definition.query_seeds` يفضّلوا
+  `market_category` النص الحر؛ `category` احتياطي. (نصف قطر البحث فضل على `category` — ده سؤال
+  نموذج: geography-free ecommerce مقابل walk-in.)
+- **الداشبورد** (`war_room._brand_chips`): شيب السوق (النص الحر) + شيب النموذج بكلمة بشرية
+  ("متجر أونلاين"/"نشاط محلي")؛ unknown = مفيش شيب نموذج. برضه سطر brand-sub يفضّل السوق.
+
+**متبقّي:** إعادة تحليل الـ22 بروفايل (حكم المالكة) عشان يتصنّفوا على المحورين.
+**مسجّل في الذاكرة:** `category-conflates-market-and-model`.
+
+**السويت: 2202 ⟶ 2207 خضراء.**
+
+## 8.12 — 2026-07-25: تدقيق عدائي على الـSWOT — «يُنتَج · يُسلسَل · لا يُعرض»
+
+المالكة طلبت «ظبط السوات والتأكد إن كل شيء بيرفكت» بعد إعادة بنائه على ورقة Pickton & Wright.
+التدقيق العدائي طلّع **18 بند، منهم 3 حرجة، وأغلبها ارتدادات دخلت في نفس اليوم**.
+
+**النمط الجامع، وهو نفس اللي اتصلّح للصور الصبح:**
+> الحاجة بتتحسب صح · بتتخزّن صح · **وبتموت خطوة واحدة قبل الشاشة.**
+
+`grep` على `frontend/index.html` رجّع `notes` = **0** و`site_readiness` = **0**. يعني كل نص
+الإفصاح المكتوب بعناية بيتحط في حقل مالوش عارض، وبنود «جاهزية الموقع» اللي **اتنقلت** بحكم المالكة
+كانت **بتختفي** عند العميل — النقل بقى حذف. `api/webapp_analysis._items` (نسخة تانية غير اللي في
+`api/routes/swot.py`) كانت بتشحن ٥ حقول بلا `priority` وبلا `id`، فكل شغل الترتيب والأولوية
+ماكانش بيوصل أصلاً.
+
+**عيوب الدرجة نفسها (مقيسة، مش مستنتجة):**
+
+| العيب | القياس |
+|---|---|
+| دليل أرفع = حكم أعلى | قرين واحد ⟶ `rank=1.00 high focus=True` · تلات أقران ⟶ `0.29 low False` |
+| التفوّق العددي بيتحذف | `50` مقابل `{1,2}` ⟶ `drop=True` بقاعدة Kotler |
+| `whitespace` بتتحذف **حتمياً** | انتشار 0 + وسيط 0 ⟹ مصفوفة فرص Kotler عمرها ما ولعت |
+| `probability = importance` | محورين معلَنين، واحد مقيس |
+| الأثر بيقصّ الفارق عند صفر | تقدّم 25 ضعف وتعادل تام بيدّوا `low` الاتنين |
+
+**قرارات معمارية:**
+- **الازدواج اتشال (حكم المالكة «واحد بس»)** — فجوة الموقع كانت بتشحن ضعف داخلي **و**تهديد خارجي
+  بنفس الدرجة، وTOWS بيجوّز البند بنفسه (`WT [W1,T1]`). التهديد المشتق اتشال، **ومدح المنافس في
+  تعليقات العملاء بقى يروح خانة التهديدات** بدل `notes` — دليل خارجي حقيقي بدل حقيقة داخلية بلافتة
+  تانية. المبرر القديم («وإلا خانة التهديدات هتفضل فاضية للإيكومرس») بقى غير صحيح بعد شغل التعليقات.
+- **الإفصاح بدل الإنفاذ لبوابة الليدجر (P-24)** — `strict_subject_gate` بتعلن المود، والـSWOT
+  بيكتب إن بوابة التفضيل الدلالية غير مُفعَّلة. **شراء حَكَم لكل تشغيلة قرار صرف للمالكة، مش قرار
+  يتاخد بالسكوت.**
+- **«غايب ≠ خطأ»** — بروفايل قديم بلا `readiness` مابيتّهمش بعدم الجاهزية (P-11).
+
+**درسان جديدان يتضافوا للقسم 8:**
+1. **اختبار على محطة وسيطة بيعدّي والثغرة موجودة.** ١٣ اختبار كانوا بينادوا `score_gap` مباشرة،
+   وكلهم أخضر، والأولوية عمرها ما وصلت عميل. الاختبار الجديد بيبدأ من `synthesize_swot` وبيـassert
+   على `_swot_to_frontend`.
+2. **الاختبار الثابت على الملف ما بيغنيش عن تشغيل الكود الحقيقي.** اختبارات الفرونت (فحص نصّي على
+   `index.html`) كلها عدّت — وتشغيل دوال العرض نفسها على بايلود nanocare الحقيقي قبض إن البنود
+   الأربعة بتتعرض بأساس «ادعاء البراند عن نفسه» تحت عنوان *"No clear call-to-action on the page"*.
+   **ولا براند بيعلن عن الـCTA الناقص بتاعه.** فئة الفشل #6 بعينها.
+
+**السويت: 2531 ⟶ 2582 خضراء** (51 اختبار جديد). صفر صرف، صفر ريل.
+
+## 8.13 — 2026-07-26: الملف المتسلَّم نفسه (مظروف المنصة · الجهارة · حكم واحد · أودت الويب)
+
+البوستر اتصلّح من الجذر في نفس الجلسة (مراجع الستايل = إعلانات جاهزة، تركيب المنتج، الحبر
+المقاس، بوابات النص). فضل **الملف اللي بيوصل العميل**.
+
+### القياس على آخر ريل اتسلّم (`abuauf_agency_v2.mp4`)
+
+| الحقل | المطلوب | اللي اتسلّم |
+|---|---|---|
+| الأبعاد | 1080×1920 | **772×1372** |
+| pix_fmt | yuv420p | **yuvj420p** (JPEG full-range) |
+| color_range / space | tv / bt709 | **pc / bt470bg** (PAL متقاعد) |
+| primaries / trc | bt709 | **unknown** |
+| بت-ريت الفيديو | ≥ 6 Mbps | **1.65 Mbps** |
+| الصوت | 48 kHz | **44.1 kHz** |
+| الجهارة | −14 LUFS | **−28.3** (هيدروم فاضي 14.7 dB) |
+
+ملف موسوم full-range بـtransfer غير معرّف **المنصة بتقراه limited** ⟶ الأسود بيتهرس على ريل
+متوسط إضاءته 72.5/255. بحث في الريبو كله: **ولا موقع ترميز من الستة** بيحط وسم لون أو `-b:v`.
+
+### الحل (٤ بنود، كل واحد اتربط بالداشبورد قبل اللي بعده)
+
+1. **`reel/encode_profile.py` — تمريرة تسليم واحدة، مش ٦ مواقع مرقّعة.** `finalize_delivery()`
+   بتعيد الترميز مرة واحدة بعد الاند كارد **وبعدين بتقيس الملف اللي كتبته** — مش الأعلام اللي
+   بعتتها. فشل الترميز بيسيب الأصل مكانه ويقول.
+2. **`check_audio()` — جهارة حقيقية بـ`ebur128`** (integrated / true peak / LRA) + صمت البداية
+   والنهاية. `loudnorm=I=-14:TP=-1.5:LRA=11` راكب نفس التمريرة (سطر واحد، صفر تكلفة).
+3. **`reel/verdicts.py` — `gate()` بترفض النجاح الفاضي.** `value=True` بلا `observed` بيبقى
+   **`null`**، ورأي VLM لوحده مايعديش بوابة أمان. ده بالظبط شكل الحقل اللي كان بيقول
+   `faces_intact_across_motion: true` على لقطات فيها **0/65 فريم فيهم وش**.
+   `artifact_verdict()` بتلمّ كل البوابات في **قرار واحد حاجب**؛ كلهم `null` = **unverified**.
+4. **`api/routes/reel.py` بقى ينادي `build_reel_audit`/`write_reel_audit`** زي الـCLI — مسار
+   الويب **عمره ما ناداهم**. ريلز الداشبورد بتطلّع `.audit.json`، وسطر الميتا بيعرض الحكم
+   **بالاسم** (`blocked` / `ماتقاسش`) بدل `screening` اللي بيبص للشرائط السودا والصمت بس.
+
+**الدرس:** *«الغياب بيتقري نجاح»* تاني — بس المرة دي في الحاوية: كل موقع ترميز كان بيسيب وسم
+اللون فاضي، وffmpeg بيملاه بافتراض، والافتراض بيتسلّم كأنه قرار.
+
+**السويت: 2960 ⟶ 2981 خضراء** (21 اختبار، RED-first). صفر صرف.
+
+## 8.14 — 2026-07-26: الور روم اتشالت من الوجود (بروداكت موازي كامل)
+
+**أمر المالكة:** «احنا شغالين ع داش بورد webapp … localhost:8000 / ور روم دا الغيها من الوجود تماما».
+
+### اللي اتقاس قبل المسح
+
+| السؤال | الإجابة المقاسة |
+|---|---|
+| مين بيستورد `dashboard/*` من الكود الإنتاجي؟ | **صفر.** ولا ملف بره الحزمة نفسها — لا `api/` ولا `reel/` ولا `poster/` |
+| حجم الحزمة | 10 موديولات، ~490 KB (`war_room.py` وحدها 113 KB، `build.py` 87 KB، `server.py` 81 KB) |
+| اختبارات مربوطة بيها | **38 ملف كامل** (199 اختبار) + **15 اختبار** متفرقين في 9 ملفات مختلطة |
+| بورت | 8770 (stdlib `http.server`)، مستقل تمامًا عن FastAPI بتاع الويب آب |
+
+يعني كان **بروداكت تاني كامل**: سيرفره وHTML بتاعه وSWOT بتاعه ومنطق منتجاته — بيتبني وبيتصان
+جنب الويب آب من غير ما يشوفه، والمالكة بتفتح الويب آب. **نص الشغل كان بيتعمل مرتين.**
+
+### اللي اتشال واللي اتحافظ عليه
+
+- **اتشال:** `dashboard/` بالكامل + 38 ملف اختبار.
+- **اتحافظ عليه بإعادة توجيه مش بالمسح:** `test_env_is_loaded_on_every_entrypoint` كان بيتأكد إن
+  `dashboard.server` بيقرا `.env`؛ اتحوّل لـ`api.main` — نفس الحارس على السيرفر اللي فعلاً بيشتغل.
+- **اتراجع واتأكد إنه مش خسارة:** `_deck_currency` (حارس D-8 للعملة) كان دالة عرض في الديك نفسه؛
+  الحارس الحقيقي فوق في `media_plan_v2` ولسه موجود (`test_media_plan_v2_reality_check`).
+
+**السويت: 2981 ⟶ 2761 خضراء** (220 اختبار اتشالوا مع الكود اللي كانوا بيختبروه، صفر فشل متبقّي).
+
+## 8.15 — 2026-07-28: المشهد بيتصوّر عشان يستقبل المنتج (قرار وضع واحد بدل ثابت)
+
+**الشكوى:** «انا بستخدم نانو بانانا اللي هو شاطر في كدا ولما بستخدمه من جوجل بطلع نتايج تحفه يبقا
+المشكله من عندك» — ثم، بعد اعتراض البوستر: «لو الموديل اللي رسم بيبوّظه، وفي نفس الوقت اللزق
+بيبوّظ الباك جراوند اللي اتعمل ليها جينيريشن».
+
+### اللي اتقاس (رن حي، ٣ محاولات، اعتراض ٣ من ٣)
+
+| المحاولة | حكم الناقد |
+|---|---|
+| 1 | *"The brand logo is garbled and the **product boxes are floating illogically**"* |
+| 2 | *"The **product boxes are floating illogically** in the scene"* |
+| best | *"a **fabricated product**"* + `2 products in an ad for one named product` |
+
+واتشحن مع `invented_product=True` متسجّل.
+
+### السبب الجذري: نُصّين أعميين
+
+اتقاس باعتراض كل نداءات الصور (`calls.json`): التلاتة كلهم `has_logo: False, n_product_images: 0`.
+والمقارنة بين الأصل والمشهد كشفت تناقض هندسي:
+
+| | الباكشوت `_nano_probe/11.jpg` | المشهد المتولّد |
+|---|---|---|
+| الكاميرا | من فوق لتحت ~45° | مستوى العين |
+| الإضاءة | ستوديو مسطحة بلا ظل | نافذة اتجاهية من الشمال |
+| القاعدة | علبتين مايلين، بلا سطح تلامس | أرضية في التلت السفلي |
+| العدد | **٢** | إعلان لمنتج **واحد** |
+
+باكشوت متصوّر من فوق **مستحيل هندسياً** يقف على أرضية متصوّرة من مستوى العين. الموديول نفسه كان
+عارف المبدأ («ظل تحت قاعدة في الهوا هو ظل في الهوا») بس عالجه بتحريك الزون بدل قياس الزاوية.
+
+### العلاج: القرار قبل التوليد
+
+`DEFAULT_ZONE = (0.54, 0.50, 0.34)` — ثابت اتاخد مرة لبراند واحد واتطبّق على كل منتج بأي شكل في
+أي لايوت — **اتشال**. محله:
+
+1. **`poster/product_geometry.py`** (جديد) — نداء رؤية واحد مكاش بـsha1: زاوية الكاميرا · اتجاه
+   الضوء · عدد الوحدات · وجود قاعدة · شكل العبوة. `checked=False` = **مش متقاس** (الحالة التالتة).
+2. **`poster/product_placement.py`** (جديد) — القرار: `mode` (flat-lay / standing / held / hero)
+   + zone + حجم، مشتقين من هندسة الأصل **ومن الكوبي** (ماينفعش يتقاطع مع `text_box`). سقف
+   `MAX_HEIGHT_FRAC = 0.34` بيمنع عيب الـ٤٤% المقاس.
+3. **`_product_scene_guard`** — البرومبت بقى يطلب الكاميرا والضوء من القرار بدل «سطح في التلت
+   السفلي» دايماً. لو مفيش قياس، القاعدة العامة بتفضل (أضعف من مشتقة، أحسن بكتير من ولا حاجة).
+4. **`placement.confirm_product_zone`** — بيقيس السطح اللي اترندر فعلاً (تدرّج أفقي) ويزحلق
+   القاعدة عليه؛ ملقاش ⟵ يرجّع القرار كما هو.
+5. **`product_composite`** — ظل إسقاط اتجاهي (`_estimate_light` من تدرّج سطوع الوجهة) + مجانسة
+   لمعان/حرارة **مسقوفة** (12% / 6%) بترفض وتسجّل لو التصحيح هيطلّع أحمر البراند بره الصح.
+6. **`rank_candidates`** — الباكشوت وحيد الوحدة بيسبق (بيقتل `2 products in an ad`).
+
+**الليبل لسه بيتلزق مش بيترسم.** الـA/B (`test_the_product_label_is_not_banned.py`) قاس إن الموديل
+حتى مع حماية الليبل غلّط حرف عربي («جديد» بدل «حديد») — لمكمل غذائي دي مشكلة علامة تجارية.
+
+**+ إصلاح جانبي:** `_composite_after` / `_primary_product_img` كانوا بيتعرّفوا جوّه فرع `else` بس
+وبيتقروا بره — `no_image=True` كان بيرمي `NameError` من أول محاولة. اتربطوا قبل الفرع.
+
+**السويت: 2931 ⟶ 2969 خضراء.**
+
+## 8.16 — 2026-07-28: الهجين — إضاءة الموديل + حروف البراند (الاستخدام بيحدد الطريقة)
+
+**قاعدة المالكة الإنتاجية:** «بنخلي الـ AI يولد المشهد والعلبة عشان ناخُد منه الإضاءة، الظلال،
+والزاوية الـ 3D التحفة. في المونتاج بنجيب التصميم الأصلي عالي الجودة للعلبة ونعمله إسقاط
+(Perspective Warp) فوق العلبة اللي الـ AI رسمها».
+
+### الموقفين القدام كانوا مقيسين، وكل واحد قاتل لوحده
+
+| الطريقة | اللي اتقاس |
+|---|---|
+| الموديل يرسم | `test_the_product_label_is_not_banned` — العلبة مظبوطة والحرف العربي غلط («جديد» بدل «حديد»). لمكمل مسجّل دي مشكلة علامة تجارية |
+| اللزق | ٣ رنّات ورا بعض: *"floating illogically"* ثم *"a flat graphic floating illogically over the scene, not placed within it"* |
+
+### `poster/label_reprojection.py` (جديد)
+
+الموديل بيرسم المنتج (الباكشوت **بيتبعتله**)، وبعدين الفن الحقيقي بيتسقط على العلبة اللي رسمها:
+
+1. **إيجاد الوش بالدليل مش بالتخمين** — SIFT + RANSAC بين الباكشوت والعلبة المرسومة، بيرجّع
+   **عدد نقاط متفقة** = ثقة مقاسة. أول قياس: `B_label_protected` (ليبل محمي) **33/97 = 34% اتلقت**
+   مقابل `A_current_rules` (ليبل ممنوع) **25% اترفضت**.
+2. **وحدة واحدة** — القناع = سيلويت المنتج ∩ مستطيل النقاط المتطابقة موسّع ١.٤٥×.
+3. **مفيش حاجة بتطلع بره العلبة** — GrabCut بيقص على السيلويت اللي الموديل رسمه.
+4. **الإضاءة من المشهد** — حقل ظلال من لمعان الوش (blur 22%)، السقف ±26%.
+5. **جيتين إجباريين قبل أي وارب** (اتضافوا بعد عطل مقاس، تحت).
+6. **بيتدهور مابيقعش** — مالقاش ⟵ المحاولة اللي بعدها ترجع للّزق. و`POSTER_PRODUCT_MODE=composite`
+   بيرجّع اللين القديمة بالكامل.
+
+**تبعيات جديدة (بإذن المالكة):** `numpy==2.4.6` · `opencv-python-headless==5.0.0`.
+
+### الأعطال اللي ظهرت في التشغيل الحي — وكلها كانت «يُنتَج ولا يُفحَص»
+
+| العطل | السبب الجذري | العلاج |
+|---|---|---|
+| البوستر اتحوّل لانفجار شعاعي على الكادر كله | homography شبه منحلّة **عدّت** لأن ٢٣/٧٣ نقطة اتفقوا. عدّاد النقاط مابيقولش إن التحويل ممكن فيزيائياً | `_homography_is_sane` — تجانس إشارة w (خط التلاشي)، نسبة المساحة، + `validate_quad` على الوش المسقط. **الاتنين كانوا مكتوبين ومااتنادوش** |
+| الموديل رسم علبة زرقاء مخترعة رغم «الباكشوت مرفق» | `_image_bytes_from_url` بتقرا URLs بس؛ المسار المحلي بيرجّع None بصمت ⟵ **مفيش مرفق أصلاً** | الدالة بقت تقرا الملفات المحلية. السطر `[bg] nano-banana REAL PRODUCT (1)` مظهرش ولا مرة قبل الإصلاح |
+| الفن الحقيقي اتلزق على **جسم تاني** | فولباك الرؤية «لقى» وش ليبل ٢.٣% على حاجة تانية — إجابة إحداثيات من غير error bar | الفولباك اتقفل افتراضياً (`POSTER_LABEL_VISION_FALLBACK=1` لتشغيله) |
+| استنتاج غلط: «البرو هو الحل» | `gemini-3-pro-image-preview` بيرجّع **404** على المشروع ده (قياس مباشر ٢٠٢٦-٠٧-٢٨)، والسلسلة كانت بتنزل للـflash **بصمت** — فالـA/B اللي نسبته للبرو كان flash | التثبيت على البرو **اتشال**؛ `resolve_oneshot_model()` بيحترم `IMAGE_LANE`؛ والفيلأوفر بقى **بيعلن** أنهي موديل رسم فعلاً. الـdocstring اللي كان بيقول «pro SERVES» اتصحّح |
+
+**ملحوظة على الخطأ ٤:** نص جوجل الكامل بيقول *"was not found or your project does not have
+access to it… valid model name… available in the specified region"* — مفيش علاقة بخلاص الليمت
+(ده بيرجع 429 RESOURCE_EXHAUSTED). الوحيد المقاس إنه بيخدم: `gemini-2.5-flash-image`.
+
+### فجوة تانية اتقفلت (نفس الفئة)
+
+مسار الـoneshot كان بيبلّغ الناقد البصري بـ`expect_real_products` و`logo_composited`؛ المسار
+**الكلاسيكي** — اللي بيرندر أغلب البوسترات — مكانش بيبلّغه بأي منهم. فالناقد كان بيتسأل «هل ده منتج
+مفبرك؟» عن صورة المنتج الحقيقي، و«هل حروف اللوجو سليمة؟» عن ملف اللوجو نفسه — والاتنين **حواجز
+صارمة**، فبوستر سليم كان بيسقط.
+
+### الحالة الأمينة دلوقتي
+
+- **شغّال ومقاس:** معمار الوضع (الكاميرا تطابق الباكشوت · الحجم مشتق · مفيش تعويم)، الوارب نفسه
+  ركن-بركن، الجيتات بترفض الفاسد، والتدهور للّزق.
+- **حي على نانوكير:** الموديل بقى يرسم العلبة الحقيقية واقفة بظل تلامس ومنظور سليم ولون البراند صح.
+- **لسه هامشي:** مطابقة SIFT بين **صورة** و**إعادة رسم** بالـAI — أحسن حالة ٣٤%، وعلى مشاهد
+  الإنتاج ١٨–٣١%. آخر تحسين: قص الباكشوت على المنتج قبل المطابقة (`_crop_to_product`) عشان
+  الوصفات ماتتصرفش على الخلفية والعلبة التانية. **لسه محتاج قياس.**
+
+**السويت: 2969 ⟶ 3004+ خضراء.**
+
+## 8.17 — 2026-07-28: الفيديو بقى Veo وحده (i2v فقط) — وكلينج اتشال
+
+**أمر المالكة:** «اشتغل بـVeo مش كلينج، شيل أي أثر لكلينج» + «عايزه VEO من غير صور في الخلفية بس،
+مجرد إنه بيحرك الصور اللي نانو بانانا بيديهاله».
+
+**التكلفة اتقالت قدام القرار:** Veo بيحاسب **$0.40/ثانية** ⟵ ريل ٢٠ ثانية ≈ **$8 للرندر**، مقابل
+سعر كلينج بالكليب. القرار اتاخد والرقم مذكور.
+
+### اللي اتشال فعلاً
+
+`KlingProvider` + `_kling_jwt` + الترانسبورت + الثوابت + كاتب الـledger (**٢٥٠ سطر**)، ملف اختباره
+بالكامل، مفتاح `.env`، حارس الـconftest، وكل ذكر في الواجهة والاختبارات. الوحيد الباقي: **نص أمرك**
+في docstring المُحلِّل كسجل.
+
+### حاجتين كانوا موصولين على كلينج **بس** — لو اتشال من غيرهم كان هيبقى تراجع
+
+| اللي كان معلّق عليه | لو اتشال كده |
+|---|---|
+| **عقد الحركة** — `apply_motion_contract` و`MOTION_NEGATIVE` كانوا متطبّقين في **مكان واحد**: جوّه كلاس كلينج | Veo كان بيتولّد **من غير أي عقد** — لا طلب كاميرا محمولة ولا منع للفريم الثابت. ودي قاعدة رقم ١ في البريف |
+| **رفض توليد الفيديو من نص** | كلينج كان رافضه بالتصميم؛ Veo كان بيعمل العكس — **بينزل t2v تلقائي** لو الصورة ناقصة أو اترفضت |
+
+الموديول `motion_contract.py` مكتوب في أول سطوره إنه موديول مش سترنج جوّه كلاس عشان **«العقد اللي
+جوّه كلاس واحد هو عقد الموديل اللي بعده هيشحن من غيره»** — وبعدين وقع في نفس الحاجة بالظبط. حذّر من
+نفسه وكان صح.
+
+**العلاج:** النصف السالب راح لـ`_videos_config` (`negative_prompt` — حقل حقيقي في
+`GenerateVideosConfig`، **متأكَّد منه بالفحص مش بالافتراض**)، والنصف الموجب راح لـ`VeoProvider.generate`.
+و`MOTION_CFG_SCALE` **اتشال** — كان `cfg_scale` بتاع كلينج ومفيش مقابل ليه في Veo؛ ثابت محدش بيقراه
+أوحش من عدم وجوده لأنه بيتقري كأنه تحكّم موجود.
+
+**i2v فقط:** مفيش seed ⟵ **يرفض** برسالة واضحة. الـi2v اترفض ⟵ **يرفض**، مايرجعش t2v. الكولر عنده
+أصلاً الصورة الأمينة ومسار Ken Burns، والاتنين مايتختاروش لو ده رجّع حاجة شكلها رندر ناجح.
+
+### القياس
+
+| الموديل | النتيجة (٢٠٢٦-٠٧-٢٨) |
+|---|---|
+| `veo-3.1-generate-001` | **بيخدم** — بدأ operation فعلاً |
+| `veo-3.0-generate-001` | 404 NOT_FOUND |
+
+**اختبارات جديدة:** `tests/test_the_video_stack_is_veo_only.py` — الكلاس اتشال، المُحلِّل مايوصلش له،
+مفتاح بايت مايقدرش يخطف المسار (زي ما رانواي عمل ٢٠٢٦-٠٧-٠٥)، الرفض بدون seed، اختفاء الـt2v
+fallback، وصول نصفَي العقد، والتدهور الآمن على SDK قديم.
+
+**السويت: 3010 ⟶ 3006 خضراء** (٢٥ اختبار كلينج اتشالوا مع الكود، وضماناتهم اتنقلت على Veo).
+
+**ملحوظة:** `runs/kling_spend.jsonl` (٥٠ صف) اتساب — ده سجل مالي تاريخي مش كود. قوليلي لو تحبي يتمسح.
+
+## 8.18 — 2026-07-28: الاستمرارية بين المشاهد — بالبكسل مش بالوصف
+
+**سؤال المالكة:** «هو بما إنه علشان يكون سيناريو مترابط، الأحسن i2v ولا t2v؟»
+
+**الإجابة: i2v، ومش كتفضيل.** كل أدوات الترابط في السيستم بتشتغل على **الصورة الثابتة**: `look_lock`
+(كاميرا وجريد واحدين للبراند) · `identity_ref` (نفس الوش المختار مع كل seed) · `place_ref_url`
+(المكان الحقيقي) · الكمبوزيت والـQA قبل أي حركة. الـt2v بيرمي ده كله ويقول للموديل «تخيّل» — و«prose
+loses to pixels» هو الدرس المقاس في الريبو ده أربع مرات.
+
+**بس السؤال بيلمس فجوة حقيقية مش هي اللي بيسمّيها:** الترابط **جوّه** الكليب ≠ الاستمرارية **بين**
+الكليبات. المشاهد كانت بتتبعت seeds مستقلة، فمشهد ١ ومشهد ٣ لقطتين شبه بعض مش لحظة واحدة مستمرة.
+
+**اتقاس قبل الشغل:** `grep -rn last_frame reel/` رجّع **صفر**. ولا حاجة في الخط ده كانت بتنقل فريم
+من مشهد للّي بعده.
+
+### `reel/continuity.py` (جديد)
+
+آخر فريم من مشهد N بيبقى seed لمشهد N+1 ⟵ اللحظة تكمل بالبكسل. وترتيب الأولوية:
+
+1. **صورة المشهد الحقيقية** — مابتتزاحش أبداً
+2. فريم المشهد السابق — لما المشهد ده يكمّل نفس اللحظة
+3. الـstill المتولّد بتاع المشهد
+4. فريم المشهد السابق — لما المشهد مالوش seed خالص
+
+### حاجتين الموديول رافض يعملهم
+
+| الرفض | ليه |
+|---|---|
+| **مابيزاحش صورة حقيقية** | وعد التأريض إن كل مشهد من مكان البراند الحقيقي. فريم المشهد السابق صورة **متولّدة**؛ لو زاحت الحقيقية بنكون اشترينا النعومة بالحقيقة |
+| **مابيسلسلش من غير حد** (`MAX_CHAIN = 2`) | كل حلقة بتبعد جيل عن التأريض، فالانحراف **بيتراكم**. في الحلقة الخامسة الريل بيبقى ٤ أجيال من المكان الحقيقي ومحدش قال. ودي كمان طريقة تصوير الاستمرارية الفعلية: تمسك لقطة، وبعدين ترجع للكادر المؤسِّس |
+
+**قطع مقصود مابيتسلسلش:** الـintro والـoutro (bookends)، ومشهد المنتج (إكمال حركة إيد على باكشوت
+بيتقري كغلط مش كانسياب).
+
+**مشتق مش معلَن:** «نفس اللحظة» = نفس `place_ref_url` + مش bookend + مش مشهد منتج. الحقل اللي
+المخرج بيفتكر يظبطه اتترفض عمداً — الدرس متسجّل في
+`test_the_reel_product_is_pasted_not_drawn`: «العلاج اللي بيعتمد على إن الموديل يفتكر يشغّله مش علاج».
+
+**الفريم بيتاخد من الكليب الخالي من النص** — لو اتاخد بعد الكابشنز، هيدخل الهيدلاين بتاع المشهد
+اللي فات جوّه **عالم** المشهد الجديد.
+
+**السويت: 3006 ⟶ 3022 خضراء.**
+
+**لسه متشغّلش:** `last_frame` في Veo (هدف نهاية المشهد، بيتحكم في القوس جوّه الكليب الواحد)
+و`reference_images` و`seed` — تلاتتهم متاحين في `GenerateVideosConfig` ومستخدمين صفر مرة.
+
+## 8.19 — 2026-07-28: خمس خصائص بتفرّق السيناريو عن الـspec sheet
+
+**الطلب:** نقد مخرج إبداعي لريلاتنا. النتيجة المزعجة: **كل فحص البوابة بتعمله كان ناجح، والريل
+لسه بيتقري كتسلسل آلي**.
+
+### تصحيحان — مسجَّلان لأن التفكير كان غلط الأول
+
+| الادّعاء | الحقيقة |
+|---|---|
+| «القوس السردي غايب من الإنتاج» | الخطتين اللي فحصتهم **أقدم من الحقول نفسها** (خطط ١٢ و٢٠ يوليو · الحقول اتضافت ٢٤ يوليو) |
+| «البوابة بتتخطى نفسها لو الخطة فاضية» | `plan_reel_gated` بينادي `require_strategy=True` — الاستراتيجية **إجبارية** على أي خطة جديدة. والشرط مقصود: الخطط المعتمدة قبل العقد تتلَنت استشارياً بدل ما تتدان بأثر رجعي |
+
+### الفجوات الحقيقية — مقيسة على خطط إنتاج
+
+```
+أطوال المشاهد   2.5 · 3.5 · 3.0 · 3.0 · 2.5 · 3.0
+                2.0 · 3.0 · 3.0 · 3.0 · 3.0 · 3.0     ← مترونوم
+المشهد الأخير    الكابشن والصوت **نفس النص حرفياً**
+الكابشنز        ٥ من ٦، و٦ من ٦ — الصورة عمرها ما بتتكلم لوحدها
+بريف مشهد ٦     "a clean, static hero shot" — والـmotion contract بيمنعه عند الرندر
+```
+
+### `_craft_checks` في `reel/coherence.py`
+
+| الفحص | القاعدة |
+|---|---|
+| **رسالة واحدة للحظة** | كابشن = صوت ⟵ قناة محروقة. **الـCTA مستثنى** — على البيت الختامي التكرار مقصود، والقاعدة دي أقدم من الفحص (`test_cta_scene_caption_may_match_its_voiceover`) والفحص كان غلط لما تجاهلها |
+| **مساحة تنفّس** | كل المشاهد عليها كابشن ⟵ الصورة مالهاش لحظة |
+| **البيت الأول مشكلة** | القوس يفتح على الحل ⟵ مفيش تاني فصل يستحق. **قائمة عربي/إنجليزي** — قائمة إنجليزي بس كانت هتوقع كل خطة عربية |
+| **الإيقاع** | أقصر مشهد > ٦٠٪ من أطول واحد ⟵ مترونوم. القطع الميكرو جوّه المشهد مابينقذش رتم مسطّح |
+| **البريف مايحاربش الرندرر** | مشهد مكتوب static/locked-off ⟵ رفض عند التخطيط مش عند الرندر |
+
+### باج غبي مني، وله حارس دايم دلوقتي
+
+كتبت الريجيكس من خلال heredoc، فالـ`` اتحوّل لحرف **backspace حقيقي (0x08)** جوّه النمط. النتيجة:
+الفحصين محتاجين حرف تحكّم قبل أول كلمة، **فمستحيل يطابقوا أي حاجة** — وكل فحص كان بيعدّي بصمت.
+أسوأ فشل ممكن لبوابة: حيّة وشغّالة وعمياء. `test_no_pattern_carries_a_literal_control_character`
+بيفحص **كل** نمط في الموديول دلوقتي.
+
+وفجوتين تانيتين الاختبارات كشفتهم: `static hero shot` (الصفة والاسم مش ملزوقين) وكلمات التوتر
+العربية.
+
+**السويت: 3022 ⟶ 3046 خضراء.**
+
+## 8.20 — 2026-07-28: الـDNA ليه جمهورين واتكتب لواحد
+
+**الطلب:** مراجعة ذاتية لكل البرومبتات.
+
+### اتقاس على برومبت حقيقي متلقّط (مش قالب)
+
+`outputs/_nano_handoff/calls.json` — برومبت بوستر واحد، **٦٤٩٨ حرف / ١٠٢٩ كلمة**:
+
+- **٣٩ جملة قاعدة** ⟵ قاعدة كل **٢٦ كلمة**
+- تلات أسماء **مطلوبة وممنوعة في نفس البرومبت**:
+
+| بيقوله | وبعدين بيقوله |
+|---|---|
+| «Place the 'NanoCare' logo top-center» | «Do NOT draw, letter or imply the mark» |
+| «Assign one bold accent color to each product» | «**DO NOT DRAW THE PRODUCT ITSELF**» |
+| «a large circular graphic icon for the pack» | «leave its place EMPTY» |
+| «the 'nano' dot pattern on the packaging» | «ABSOLUTELY NO logos anywhere» |
+
+### السبب الجذري
+
+البلوك اللي جايب العمود الشمال عنوانه `BRAND DESIGN LANGUAGE (**follow it faithfully**)`. ده **بريف
+تصميم عبوة** — متعلّم صح من إبداعات البراند اللي فيها العبوات — و`_brand_dna_lines` كان بيلزقه
+**حرفياً** في برومبت شغلته خلفية بلا نص والمنتج **غايب عمداً**.
+
+الموديل اتداله شغلتين واتقاله الاتنين «faithful»، فحلّها بالطريقة الوحيدة اللي يقدر عليها: **رسم
+عبوة**. وده نفس سلسلة الأعطال اللي شفناها طول اليوم — علبة زرقاء بأيقونة ذرّة مخترعة («create a
+large, stylized, circular graphic icon for the center of the pack»)، ولافتات مشوّهة («place the logo
+top-center»)، وانحراف لون («assign one single, bold accent color»).
+
+### `brand/dna_scope.py` (جديد)
+
+**الفصل بالجملة مش بالحقل**، لأن حقل واحد بيخلط الجمهورين:
+
+> *"Composition: **Packaging follows a strict, symmetrical, grid-based composition. The focal point
+> is the large, central circular icon.** Lifestyle product shots use a simple tabletop setup with
+> the product in sharp focus."*
+
+الجملتين الأولانيين لمصمم عبوة. التالتة بالظبط اللي مولّد المشهد محتاجه. رمي الحقل بيضيّع التالتة،
+وإبقاؤه بيشحن الأولانيتين.
+
+**على الـDNA الحقيقي: ١٤ جملة عبوة اتحجزت، والعالم المصوَّر فضل.**
+
+**تشديدتان اتعلمتهم بالقياس:**
+1. قائمة الإنقاذ الأولى كان فيها colour/tone/mood ⟵ أنقذت **٧ جمل تخطيط عبوة**. نسخ التصميم مشبعة
+   بكلمات اللون؛ الكاميرا أو الشخص المصوَّر بس هما اللي بيعنوا صورة.
+2. الجملة اللي **موضوعها** سطح تصميم بتسقط مهما قالت — «Packaging... uses no photography» كانت
+   بتنجو بالكلمة اللي بتستثني بيها نفسها.
+
+**D-8:** المفردات عن **أسطح التصميم والتخطيط**، مش عن سوق أو لغة أو فئة. أي براند اتعلّم DNA من
+عبواته عنده المشكلة دي. نانوكير مكان الاكتشاف مش مكان السكن.
+
+**مراجعة ذاتية للبرومبتات اللي كتبتها النهاردة:** `product_geometry` (قاعدة كل ٧٣ كلمة) ·
+`label_reprojection` (كل ٤٠) · `scene_instruction` (كل ٤٨) — صفر أسماء متنازع عليها، صفر لوكيل مشفّر.
+
+**السويت: 3046 ⟶ 3061 خضراء.**
+
+## 8.21 — 2026-07-28: اللوجو طول الفيديو · الخاتمة من عالم الفيلم · واسمين مش معرَّفين
+
+**أمر المالكة:** «عايزة لوجو البراند يبقى موجود طول الفيديو» + «الخاتمة تبقى مميزة بالجو بردو
+بالألوان الطبيعية، متخليهوش أبيض لأنها خلصت كتير قبل كده».
+
+### اللي اتقاس قبل أي تغيير
+
+- `textlayer._scene_html:316` — `show_logo = ... and scene.kind in ("intro","outro","contact")`.
+  يعني **نص الريل** — الجزء اللي الناس بتتفرج عليه فعلاً واللي بيتقص ويتعاد نشره — من غير براند خالص.
+- `endcard._endcard_html` — أرضيتين بس، **الاتنين صناعيتين**: تدرّج فحمي أو **عاجي/أبيض**. العاجي هو
+  النهاية البيضا اللي اتمنعت، ولا واحدة فيهم شافت فريم من الفيلم اللي بتقفله.
+
+### العلاج
+
+**اللوجو:** موجود على **كل** مشهد. اللي بيتغيّر بين البوكيند وجسم الريل هو **البروز مش الوجود** —
+الجسم بيلبسه بهدوء (أصغر · شفافية ٧٢٪ · **من غير أنيميشن**)، لأن علامة بتظهر بحركة في كل قطع بتتقري
+**ست لوجوهات** مش براند واحد.
+
+**الخاتمة:** أرضيتها بقت **آخر فريم من الريل نفسه** — مضبّب لدرجة عدم التعرّف، مغمّق، ومصبوغ ناحية
+لون البراند. التضبيب مقصود: الهدف لون الفيلم وضوءه، مش إعادة عرض مشهد المتفرج لسه شايفه — أي حاجة
+مقروءة هتتقري كفريم متجمد الميكساج نسي يقصه. الفريم متاح أصلاً من سلسلة الاستمرارية (قسم 8.18).
+
+### واسمين مستخدمين ومش معرَّفين — نفس الفئة، اتلقوا بمسح AST على `reel/` كله
+
+| المكان | الأثر |
+|---|---|
+| `reel/endcard.py` | `logger` مستخدم **مرتين** ومش معرَّف ⟵ **الكود المكتوب عشان يشرح ضياع الخاتمة كان هو اللي بيخفي السبب**: `NameError` من جوّه المعالج |
+| `reel/__main__.py:372,459` | `os.environ` على **قرار الشحن** و`os` مستورد محلياً باسم `_os` بس ⟵ **`REEL_ALLOW_BELOW_GRADE=1` عمره ما اشتغل**، والمسار بيقع بدل ما يقف بنظافة |
+
+المسح شغّال على ٤٤ موديول، وكلهم بيستوردوا. ومعاه اختبار حارس بيتأكد إن أي `logger.x(` في الموديول
+ليه `logger` فعلاً.
+
+**السويت: 3061 ⟶ 3073 خضراء.**
+
+## 8.22 — 2026-08-01: الريل بيولّد منتجه · البوستر بيلزقه (رن حي فرض القرار)
+
+**أول رن Veo حي بعد إصلاح المصادقة.** النتيجة: الريل خلص وعدّى الفحص النهائي، بس **أغلبه Ken Burns
+مش حركة Veo** — والسبب واحد ومقيس.
+
+### اللي اتقاس
+
+| | |
+|---|---|
+| صرف Vertex النهاردة | **$17.16** (منهم **$16 Veo** = ١٠ رندرات) |
+| مشاهد نزلت Ken Burns | **٥** |
+| مشاهد اتشالت | **٣** (1, 6, 7 — seed مش متاح) |
+
+**حكم الـQA على المشهد ٠:**
+
+> *"The product is not generated within the video scene; it is a **STATIC IMAGE CRUDELY
+> OVERLAID** on top of unrelated footage."*
+
+المشهد ده لوحده حرق **٣ رندرات Veo × $1.60 = $4.80** وهو بيفشل على نفس السبب، وبعدين نزل Ken Burns
+برضه. والصرف الضايع ده **فضّى ميزانية الرن ($8) قبل ما المشاهد ٣ و٤ و٥ ياخدوا كليب أصلاً** — يعني
+عيب في الدمج كلّف الريل معظم حركته.
+
+وفي نفس الرن، **أحسن الكادرات كانت اللي الموديل رسمها**: علبة نانوكير على كاونتر مطبخ، أحمر البراند،
+و«Nanocare Liposomal E» مقروء.
+
+### القرار — قاعدة المالكة نفسها
+
+> «لو بتعملي ريل فيديو، اعتمدي على التوليد بدون أي قلق، لأن حركة الإيد والإضاءة هتبطّل العجب…
+> لكن لو بتطلعي بوستر ثابت عالي الدقة، ارجعي لطريقة القص واللزق»
+
+**البوستر بيتكبّر ويتقرا؛ كليب ثانيتين لأ.** فـ`_product_asset` بقى يرجّع `None` لأي منتج مادي —
+الموديل يرسمه. **الشاشة لسه بتتلزق**، ودي مش استثناء من القاعدة بل تطبيق ليها: واجهة تطبيق **حبر
+دقيق هو نفسه المنتج**، الحركة مابتخفيهوش، ومفيش موديل فيديو بيرسم UI مقروء.
+
+وخوف الليبل المشوّه اللي الملف ده اتكتب عشانه بقى **بيتمسك أبكر وأرخص**: بوابة الـseed بترفض العبوة
+غير المقروءة **قبل أي صرف Veo** (اتقاس في نفس الرن أكتر من مرة).
+
+### اللوجو — اتقاس على الفيديو مش على الكود
+
+التغيير وصل فعلاً، بس التنفيذ كان غلط: `scale(.62)` طلع **بكسلات رمادية مش مقروءة**، و`top:64px`
+وقّعه **جوّه الشريط الأسود المخبوز في الكليب**. بقى `scale(.82)` · `opacity:.9` · `top:150px`.
+«موجود» لازم تعني **مقروء**، وإلا فهي زينة بتدّعي إنها براندينج.
+
+**اختباران اتحدّثوا مش اتشالوا** — `test_the_reel_product_is_pasted_not_drawn` كان بيرمّز القاعدة
+العكسية، والسبب مسجّل فيه دلوقتي.
+
+**ملحوظة مفتوحة:** فيه **letterbox** أسود فوق وتحت في الريل. الكمبوزيتور بيعمل cover-fit صح
+(`force_original_aspect_ratio=increase,crop`)، يبقى الشريط **مخبوز في الكليب نفسه** — لسه محتاج تشخيص.
+
+**السويت: 3073 ⟶ 3078 خضراء.**
+
+## 8.23 — 2026-08-01: الفيلم كله بيتحرك — عدد المشاهد كان حسبة غلط
+
+**شكوى المالكة:** «انا مش عايزه الفيديو غير Veo لقطات واحدة بس بتتحرك، انا عايزه الفيديو كله
+بيتحرك، فيلم سيناريو».
+
+### السبب كان حسابياً بحت
+
+**أقل كليب في Veo = ٤ ثواني** (بيقرّب لـ4/6/8). والمخرج كان بيتطلب منه **١٠ مشاهد** لريل **٢٠ ثانية**
+— يعني ٢ ثانية للمشهد.
+
+> الرن بيدفع **٤٠ ثانية** فيديو عشان يسلّم **٢٠**.
+
+فالميزانية بتخلص عند المشهد ٤، وكل اللي بعده بيبقى Ken Burns. **نص الفيلم كان slideshow لأن عدد
+المشاهد كان متحدّد بفلاج عمره ما سمع عن مدة الريل** (`n_scenes = max(3, args.frames)`، و`--frames`
+افتراضيه ١٠).
+
+### العلاج
+
+`_scenes_for(max_seconds, requested)` — عدد المشاهد **مشتق من المدة**:
+
+| المدة | مشاهد | تكلفة Veo |
+|---|---|---|
+| 16s | 4 | $6.40 |
+| **20s** | **5** | **$8.00** |
+| 28s | 7 | $11.20 |
+
+٢٠ ثانية = ٥ مشاهد × ٤ ثواني = **كله حركة**. و`--frames` الصريح لسه بيكسب لو **أصغر** — القاطع
+ممكن يعوز قطع قصير، بس مش ممكن يطلب حركة أكتر من اللي المدة تقدر تدفعه. ومشاهد أقل وأطول بتكسر
+كمان الإيقاع المترونومي اللي فحوصات الحرفة بترفضه (قسم 8.19).
+
+**+ اللوج كان بيكدب:** السطر كان بيطبع `args.frames` الخام بينما النداء بيمرّر القيمة المشتقة، فريل
+٥ مشاهد كان بيسجّل «directing 10 scenes». اتصلّح، والقيمة بتتحسب **مرة واحدة** عشان النسختين
+مايفترقوش تاني.
+
+### وأمر إنفاق
+
+**«متحطش ليمت للفيديو الواحد، انا عايزه اطلع بالموديل البرفكت»** ⟵ `VEO_MAX_USD_PER_RUN=1000`.
+التعرّض المُبلَّغ قبل التنفيذ: Veo بـ$0.40/ثانية، وكل إعادة محاولة QA بتضيف كليب كامل ($1.60)، فريل
+واحد ممكن يوصل **~$24**. **العدّاد لسه بيسجّل كل رندر** في `runs/vertex_spend.jsonl`؛ اللي اترفع هو
+السقف بس.
+
+**السويت: 3078 ⟶ 3084 خضراء.**
+
+## 8.24 — 2026-08-01: «أكتر حاجة جايبة لايك» — الرقم اللي كنا بنجمّعه ونرميه
+
+**طلب المالكة:** «عايزه اسكراب السوشيال ميديا، اكتر حاجه جايبه لايك كدا فاهمني» + «الكومباتتور
+مكنتش بتسمع ع الداش بورد ولا ف الكود».
+
+### اللي اتقاس قبل أي كود
+
+`like_count` **معرَّف** في `social_intel/schemas.py`، و**بيتملّى** من كل provider
+(`apify_facebook` · `ig_business` · `snapshot_parser` · `fixture`) — و**بيتقرا من صفر كود تحليل**.
+grep على أي ترتيب بيه في الريبو كله رجّع **لا شيء**. الرقم بيتجمع، ويتهَش للخصوصية، ويتحقّق منه
+بـschema صارم، **ويترمي**.
+
+وأقرب حاجة موجودة (`competitor/social_gaps.py`) بتقارن **أنهي منصات** كل طرف موجود عليها. دي
+**حضور مش أداء**: إن المنافس على إنستجرام حقيقة تانية خالص عن إن أحسن بوست عنده عدّى متوسطه ٦ مرات
+وكان before/after.
+
+### `social_intel/performance.py` (جديد)
+
+**القرار الحامل: اللايكات الخام مش قابلة للمقارنة بين البراندات.** صيدلية بـ٤٠٠ ألف متابع هتكسب
+عيادة بـ٤ آلاف في **كل** بوست هتنشره في حياتها، وده مابيقولش حاجة عن **مين المحتوى بتاعه شغال**.
+واعتبارها مقارنة = رقم صحيح بيجاوب سؤال تاني — نفس فئة العطل اللي بندفع تمنها.
+
+| القاعدة | ليه |
+|---|---|
+| الترتيب **جوّه البراند** نفسه | مش ضد براند تاني |
+| المقياس بين البراندات = **الرفع (lift)** | أد إيه أحسن بوست بيعدّي **متوسط نفس البراند** — دي خاصية المحتوى مش حجم الجمهور |
+| `like_count = None` ⟵ **غير قابل للترتيب**، مش صفر | حسابه صفر بيحطّ بوست غير مقاس تحت بوست بلايك واحد، وبيسمّم كل متوسط في التقرير |
+| الكومنتات **مش** محتوى البراند | لايكات الكومنت بتقيس **صاحب الكومنت** |
+| الرفع بيتحجب تحت ٤ بوستات | مضاعف ١٠٠× من بوستين حسابيات على ضوضاء |
+
+**والمردود الحقيقي:** `creative_lessons()` بيحوّل الفائزين لسطور **البريف الإبداعي** يقدر ينفّذها —
+فالريل الجاي **يتعلّم من اللي اشتغل فعلاً** بدل ما الترتيب يفضل رقم على داشبورد.
+
+### التوصيل — على بُعد دالة واحدة
+
+`api/webapp_analysis._social_themes_for` كانت **بتحمّل نفس الإشارات دي بالظبط** وتبعتها للثيمات
+**بس**. يعني التفاعل ركب لحد جوّه التحليل واترمى في آخر خطوة. `social_performance_for()` بيقراها من
+نفس الـsnapshot: **ديترمنستك · صفر موديل · صفر فوترة**.
+
+**السويت: 3086 ⟶ 3106 خضراء.**
+
+## 8.25 — 2026-08-01: حد بيتفرج على الفيلم ويسأل «ده إعلان كويس؟»
+
+**نقد المالكة على ريل عدّى كل البوابات:** «الريل بشع، القشرة أوفر موت، ودار الفوائد صيدلية في مصر
+وعندها عربي — عملت إنجليزي ليه؟ والمتصفح المفتوح باين إنه مش بتاعهم… وفجأة اتحل من غير ما يمسك أي
+منتج».
+
+**خمس عيوب في خمس ثواني.** والـVO شُحن حرفياً: *"Tired of dandruff that just won't quit?"* —
+إعلان إنجليزي لصيدلية مصرية.
+
+### السبب بنيوي مش قاعدة ناقصة
+
+| البوابة | بتحكم على |
+|---|---|
+| seed QA | **صورة** واحدة |
+| scene QA | **كليب** واحد |
+| coherence lint | **الخطة** المكتوبة |
+| final_screening | **الحاوية** — letterbox · صمت · خاتمة |
+
+**كل واحدة بتحكم على جزء.** و`final_screening` أقربهم وهو **كود بس**: بيسأل «الملف بايظ؟» عمره ما
+سأل «الإعلان كويس؟». خمس أجزاء تعدّي كلها والفيلم يبقى مالوش لازمة — نفس فئة العطل بتاعة اليوم كله
+وصلت آخر مكان مكانتش اتقفلت فيه.
+
+### `reel/film_critic.py` (جديد)
+
+بيتفرج على **٨ فريمات موزّعة على الفيلم كله** + الـVO + الكابشنز، ويحكم كمخرج إعلانات. أربع
+حواجز صارمة، كل واحدة عيب المالكة رفضت ريل كامل بسببه:
+
+| المحور | السؤال |
+|---|---|
+| `product_causes_resolution` | المنتج **سبّب** التغيير؟ فيلم بيفتح على مشكلة وبيقفل على مبسوط **من غير ما حد يمسك حاجة** = إعلان مزاج عليه لوجو |
+| `problem_is_attractive` | المشكلة متدرمة بشكل المشاهد **عايز يكمّل** ولا معروضة كعَرَض إكلينيكي منفّر؟ |
+| `speaks_audience_language` | الـVO والكابشنز بلغة **الجمهور**؟ «موقع واجهته إنجليزي مابيخليش عملاءه بيتكلموا إنجليزي» |
+| `everything_belongs_to_brand` | كل شاشة/لوجو/عبوة في الكادر **ملكهم**؟ البوابات كانت بترفض المشوّه، عمرها ما سألت **بتاع مين** |
+
+و`reads_as_an_ad` + السكور **ملاحظات مش حواجز** — «ده حاسس إنه تعليمي» ملاحظة مش عيب.
+
+الحكم **بيتحسب في الكود** (PD-1) ومفيش `overall_pass` في رد الموديل يتصدّق. و**مابيحجبش على عماه**:
+مفيش ناقد، أو فريمات مش مقروءة، أو نداء فشل ⟵ بيشحن مع ملاحظة.
+
+### `reel/audience.py` (جديد) — الوقاية مش الكشف بس
+
+السلسلة كاملة: الموقع **بيعلن** نسخة عربية (hreflang) ⟵ الزاحف بيلتقطها ✓ ⟵ مصفوفة المنافسين
+بتستخدمها ✓ ⟵ **البروفايل: مفقودة** ⟵ المخرج بيقرا `languages=['en']` ⟵ الإعلان كله إنجليزي.
+
+والدليل اللي شافه **دائري**: `languages: ['en']` سجل لأنهي نسخة **إحنا** زحفناها، والتاجلاين إنجليزي
+لأن دي النسخة اللي قريناها. **النظام استنتج «براند إنجليزي» من حقيقة هو اللي أنتجها.**
+
+الترتيب هو الحجة: **اللي الموقع بيعلنه** > **فين العملاء** > كلام البراند عن نفسه > الزحف. وكل
+إجابة بتسمّي دليلها (`why`) عشان الغلط يبقى قابل للنقاش مش غامض.
+
+**والسباكة اتقفلت:** `declared_languages` بقى حقل في `BusinessProfile` وبيتنقل من المانيفست.
+والمخرج بقى يسأل الجمهور بدل الزحف — فالإعلان الإنجليزي **مايتكتبش** أصلاً، مش يتمسك بعدين.
+
+**D-8:** الدولة من البروفايل واللغة من جدول، فسوق محدش شغّله لسه بيشتغل يوم ما يظهر.
+
+**السويت: 3106 ⟶ 3132 خضراء.**
+
+## 8.26 — 2026-08-01: الملاحظات بتغيّر الفيلم — من «بيفلتر» لـ«بيتحسّن»
+
+**سؤال المالكة:** «لما آخده لـGoogle Flow بنفس التول اللي معايا طلع تحفة فنية… إيه ناقصنا؟»
+
+**الموديل هو هو.** الفرق إن **إنسان بيتفرج**، بيكوّن ملاحظة، **بيغيّر الحاجة اللي الملاحظة عنها**،
+وبيبص تاني. إحنا كنا بنولّد مرة وبنـ«نفلتر» — والفلتر **بيرفض مابيحسّنش**، يعني بيحرق رندر كامل عشان
+يقولك حاجة **جملة** كانت كفاية تغيّرها.
+
+### `reel/revision.py` (جديد) + اللوب في مسار الشحن
+
+**الناقد بقى يرقّم كل ملاحظة على المشهد اللي بتخصّه.** الفريمات مالهاش أرقام، المشاهد عندها — فبقى
+بيتعرض عليه **قائمة المشاهد مرقّمة** ويرقّم `fix_scenes` عليها. من غير ده الملاحظة تفضل «النهاية
+مش واصلة»، وده حاجة **مفيش حد ولا حاجة تقدر تطبّقها**.
+
+**تلات قواعد، كل واحدة طريقة الحاجة دي ممكن تبوظ بيها:**
+
+| القاعدة | ليه |
+|---|---|
+| الملاحظة بتغيّر **مشهدها هي وبس** | ملاحظة رقمها ٠ = عن الفيلم كله وبتروح لكل المشاهد. ورقم بره المدى **بيتعامل كملاحظة فيلم مش بيترمي** — ملاحظة مرقّمة غلط لسه ملاحظة حقيقية |
+| المراجعة **إضافية مش إعادة كتابة** | الخطة عدّت بوابة الترابط — قوسها وموتيفها وكاستها ولغتها **صح أصلاً**. رميهم عشان ملاحظة واحدة = استبدال عيب معروف بعيب مجهول. والوصف بيفضل **في الأول** لأن الموديل بيقرا بداية البرومبت كموضوع |
+| **مرّة واحدة** | لوب بيعيد الرندر لحد ما الموديل يرضى = لوب بيصرف $1.60 للكليب لحد ما حاجة تانية توقفه |
+
+### والمراجعة **مش تحسين بالضرورة**
+
+الرندر التاني **رمية جديدة لنفس الزهر** بتعليمة زيادة — ممكن ينفّذ الملاحظة ويضيّع حاجة الأول كان
+عنده. فالاتنين بيتحكم عليهم بـ**نفس الناقد على نفس المحاور**، والأحسن هو اللي بيتشحن.
+**والتعادل بيبقى للأول**، لأن التاني اتدفع فيه فلوس عشان نكتشف إنه مش أحسن — وتفضيله بيخلّي الصرف
+ده شكله تقدّم.
+
+**بيشتغل بس لو الأول فشل فعلاً** (`checked` و`passed is False`) — فيلم عدّى مفيش فيه حاجة تتنفّذ،
+وإعادة رندره = رندر كامل ورا سكور أعلى. و`REEL_REVISION=0` بيقفله.
+
+**والحكم اللي اتدفع فيه بيتعاد استخدامه** — المشاهدة التانية لنفس الفريمات لنفس الإجابة **مشاهدة
+مدفوعة تانية**.
+
+**السويت: 3132 ⟶ 3155 خضراء.**
+
+## 8.27 — 2026-08-01: ريل وكالات — لحظة واحدة مغطّاة · لقطة منتج بنرندرها · ١٥ ثانية
+
+**حكم المالكة:** «الريل الطبيعي ١٥ ثانية ومش حلو خالص — جايب حد بيستعمل برودكت، **فين السيناريو فين
+الماركت**؟ فيه حاجة مش لوجيك تماماً.»
+
+اللاموجيك كان **في البرومبت نفسه**، وكان **تناقض** مش نقص.
+
+### (١) البرومبت كان بيطلب حاجتين متعاكسين في نفس النص
+
+| السطر | كان بيقول |
+|---|---|
+| `SCENE VARIETY` | «**كل مشهد مكان مختلف**، وزاوية ولحظة مختلفة» |
+| `ONE CONTINUOUS SCENARIO` | «نفس البطل ونفس العالم من الخطّاف للـCTA» |
+
+الموديل بيفكّ التناقض ده زي ما هو عايز — والأكثر تحديداً هو اللي بيكسب، فطلعت **خمس عوالم منفصلة**.
+
+**والسطر الأول أصله ملاحظة حقيقية من المالكة في يوليو** («الخلفية مالهاش تفضل ورايا الريل كله»)،
+بس موضوعها كان **كادر متجمّد** مش **مكان ثابت**. الرد عليها بـ«غيّر المكان» هو اللي حوّل شكوى ترابط
+لعيب ترابط.
+
+**الحل — قواعد التغطية (`_COVERAGE_RULE`):** لحظة **واحدة**، مكان واحد، شخص واحد، وتتغطّى زي ما
+الإعلان بيتصوّر: **واسعة تؤسّس ← متوسطة تشيل الحركة والوش ← قريبة على التفصيلة ← insert على الشيء
+نفسه**. و`SHOT VARIETY` بقى بيغيّر **اللقطة مش العنوان**، و`CAMERA` بقى بيطلب **مقاس اللقطة الأول**
+ولازم يختلف عن اللي قبله — **دي هي التغطية**، وهي اللي بتخلّي القطع يتقري كـ**مونتاج** مش كتغيير قناة.
+والـSELF-CHECK (آخر حاجة الموديل بيقراها) اتظبط معاها، لأن سطر بايت هناك بيغلب كل اللي فوقه.
+
+### (٢) لقطة المنتج — بنرندرها إحنا، مش بنطلبها من موديل فيديو
+
+قِيس تلات مرات: Veo **بيعيد رسم الليبل كل فريم** فبيتشوّه، بوابة المشهد بتقتل الكليب، تلات رندرات
+بـ$1.60 اتحرقوا على مشهد واحد، والميزانية خلصت **قبل** آخر المشاهد تاخد أي حركة. ولزق باكشوت جوّه
+لقطة متحركة اترفض من البوابة بكلامها هي: «**صورة ثابتة ملزوقة بشكل فجّ**».
+
+**الوكالة مابتحلّش ده — بتقطع.** `reel/insert_shot.py` (جديد) بيرندر البيت ده بنفسه:
+خلفيته **آخر فريم من اللقطة اللي قبلها** (نفس الأوضة نفس الإضاءة) **مبلوَّرة** زي عدسة طويلة،
+وقدّامها **صورة البراند الحقيقية** بظل إسقاط وظل تلامس ومجانسة مسقوفة — كله من
+`poster/product_composite.py` المختبَر.
+
+* **الليبل صح ١٠٠%** لأنه الصورة نفسها · **صفر تكلفة** · **مفيش حاجة تترفض** لأن مفيش حاجة اتولّدت.
+* **ومش الـKen Burns اللي المالكة رفضته**: ده **إنقاذ** (مشهد فشل فبنمرّر عليه صورة ٤ ثواني ونعمل
+  نفسنا مش واخدين بالنا)، وده **بيت مقصود** مكتوب في الخطة، ثانية ونص، لموضوع **مفروض يبقى ثابت**.
+  و**مقفول** (locked off): الاهتزاز والقطع الداخلي **اتشالوا عنه** — الاتنين موجودين عشان ينقذوا
+  لقطة **مولَّدة**، وعلى باكشوت حقيقي بيخلّوه يبان **استيكر ملزوق**.
+* **مابيحلّش محلّ لقطة فشلت أبداً** — لو ماينفعش يتبني بيرجع `None` والمشهد بيتولّد زي ما هو.
+
+**بوابة الشكل (مقيسة على دار الفؤاد).** تلاتة من أربع مرشحين **قصّوا بنضافة** وطلعوا insert جميل
+لـ… **شريط صفحة رئيسية**: "Solutions For Every Concern" وزرار "Shop By Concern" وستّ منتجات في صف.
+البانر قاعد على أبيض مسطّح **بالظبط زي الباكشوت** — اللي بيفضحه **النسبة**: 3.8:1 و18.1:1 و2.0:1
+مقابل ٠.٤ للزجاجة و٠.٨ للعلبة. فبقى فيه حد أدنى وأقصى للنسبة (`0.30–1.75`) — **نسبة، مش كاشف نص**:
+مفيش OCR ولا موديل ولا لغة، وبتقول نفس الكلام عن بانر بالعربي أو بالتايلندي (D-8).
+**النتيجة المقيسة:** نانوكير ← علبة الكرتونة الحقيقية بليبل مقروء · دار الفؤاد ← **مفيش insert**
+(كل صورهم بانرات)، والمشهد الأخير فضل مولَّد — وده **الرد الأمين**.
+
+### (٣) ١٥ ثانية
+
+١٥ ÷ ٤ (أقل كليب Veo) + الـinsert اللي **مابيكلّفش ثواني Veo ومش مقيّد بالحد الأدنى** =
+**٣ لقطات مولَّدة + insert + الخاتمة**. و`--max-seconds` رجع لـ**١٥** بدل ٢٨ — ٢٨ مش طول أي منصة
+بتبيعه ولا حد بيتفرجه.
+
+**والمخرج كان بيتطلب منه ٢–٤ ثواني** والحد الأدنى للموديل ٤ — يعني كل «قطع سريع ثانيتين» بيتـرندر
+٤ **وبيتدفع فيه ٤** وبعدين بيتقص، والحسبة اللي `_scenes_for` بيعملها على الناحية التانية مابتطابقش
+الخطة اللي بيعدّها. بقى `duration_s: 4-6` **من المصدر**.
+
+### والعطل اللي طلع في الطريق: `tail_frame` **ماشتغلتش ولا مرة**
+
+`run_ffmpeg` بيحطّ مسار البرنامج بنفسه، و`tail_frame` كانت **بتبعته تاني كأرچيومنت** — فـffmpeg كان
+بيقرا مسار نفسه كـ**ملف الخرج**: «Error initializing the muxer for ffmpeg-win-x86_64». كل نداء كان
+بيرمي، والـ`except` بيرجّع `None`، و`decide_seed` بيقرا الـ`None` دي على إنها «**مفيش ذيل نسلسل
+عليه**». يعني **الاستمرارية بين المشاهد (٨.١٨) ماسلسلت مشهد واحد من يوم ما اتكتبت** — ووعد الموديول
+نفسه («الاستمرارية مالهاش تكلّف رندر») هو اللي خبّاها. **نفس فصيلة العطل: الغياب بيتقري نجاح.**
+مقيس: قبل ← `None` على كليب سليم؛ بعد ← فريم PNG حقيقي، والمسارين الفاشلين لسه بيرجّعوا `None`.
+واتحطّ حارس دائم بيمسح **كل** نداءات `run_ffmpeg` في `reel/`.
+
+**فتح للمتابعة:** كتالوج دار الفؤاد فيه ٢٤ منتج بأسماء وأسعار حقيقية و**صفر `image_url`** —
+`scraper/catalog.py` بيوصل صفحات المنتجات بالصور عن طريق `page_url` والوصلة دي راجعة فاضية.
+
+**السويت: 3155 ⟶ 3211 خضراء.** والصرف على البند ده كله **صفر** — PIL وffmpeg محليين، مفيش نداء
+موديل واحد.
+
+## 8.28 — 2026-08-01: الإيقاع · الطول · اللون · وسلسلة السوشيال المقطوعة
+
+**طلب المالكة:** تلات حاجات (الموسيقى تقود المونتاج · أطوال اللقطات · توحيد الألوان) + «الكومباتيتور
+مش بيسمعوا وفي الداشبورد مع السوشيال ميديا». التلاتة صح — **وتحتهم أعطال أخطر من اللي اتطلبت**.
+
+### القياس صحّح واحد من ادعاءاتي قبل ما أبني عليه
+
+قلت «الفيلم بيطلع أقصر من اللي مكتوب» لأن `video_provider.py:332` كان بياخد المقاس **الأقرب**
+(مشهد ٥ث → كليب ٤ث). **القياس كذّبه**: كل مشهد بيترندر في حدود **فريم واحد** من المطلوب، والملف
+20.40ث لمطلوب 20.50ث. فالادعاءات المتبنية عليه (انحراف صوت تراكمي · `-shortest` بيقص الجملة)
+**اتشالت**.
+
+**العطل الحقيقي أصغر وموجود:** المشهد المشترى ناقص بيتقفل بـ**تجميد** — **١١٪ فريمات متتالية
+متطابقة** في ثانيته الأخيرة مقابل **٠٪** لما الكليب يغطّيه، واللقطة التالتة جوّه المشهد بتاخد
+**٠.٦٧ث بدل ١.٦٧ث**. `ceil` بيوديها **٠٪**. التكلفة بأمانة: ريل `4,5,6,5` بيشتري ٢٢ث بدل ٢٠
+(**+١٠٪**) — والفاتورة القديمة مكانتش أرخص، كانت **غلط**.
+
+### (١) الإيقاع — مؤلَّف، مش مكتشَف
+
+إحنا بنولّد الـbed بنفسنا (`sound.py`)، يبقى **إحنا الملحّن**: التمبو **قرار** مش قياس — مفيش
+فيندور ولا سؤال رخصة لريل بيتباع لعميل ولا خطأ أوكتاڤ.
+
+`reel/tempo.py` (جديد): الـBPM مشتق من **نفس** `look_family` بتاع اللوك والجريد (D-8)، والقيم
+مختارة عشان الضربة تبقى **عدد صحيح من الفريمات** عند 30fps — luxury 75(٢٤) · warm 90(٢٠) ·
+clinical 100(١٨) · vibrant 120(١٥). **والتكميم على البدايات التراكمية مش الأطوال الفردية** (نفس
+فصيلة عطل `pacing.py`). **الأرضيات القرائية تكسب والشبكة تقرّب لفوق بس** — المالكة رفضت ريل مرتين
+عشان الكلام والنص بيعدّوا بسرعة.
+
+**والنبضة اتعملت مسموعة** — `aevalsrc` بتعبير دوري، **مدخل واحد** مش ٣٣. **مقيس:** رندرت البيد،
+فكّيت ترميزه، وقستُه بكاشف onset+autocorrelation مستقل → **قرا ٧٥ و١٠٠ و١٢٠ بالظبط، خطأ ٠.٠**.
+ده بيثبت إن النبضة **في الصوت فعلاً**، مش إن سترينج فلتر اتبنى.
+
+### (٢) اللون — طبقتين، والأولى أهم
+
+**`reel/grade.py` كان كامل ومختبَر و«كود ميت»** — مفيش موديول إنتاج بيستورده، فالـgrep اللي هو
+نفسه بيستشهد بيه («no grading at all») فضل صح بعد ما اتكتب.
+
+بس **قفل اللوك أهم منه**: `seed_gen.py:165` بياخد `look` و**الجسم مابيستخدمهوش** — كل ستيل في كل
+فيلم اتولّد من غير قفل. والتست الحارس بينادي `build_seed_prompt` **مباشرة** فمابيشوفش السيم.
+و**الخطة المعتمدة (HITL) كانت بتفقد اللوك** لأنه ملزوق بعقد الحركة في سترينج واحد — واتفصل، لأن
+اللوك **منع تقني** زي `_NO_TEXT` مش قرار إبداعي.
+
+و**الجريد لوحده مابيقرّبش اللقطات من بعضها** (بيحطّ نفس الأرقام على الكل)، فاتضافت **مطابقة كل
+لقطة على مرساة واحدة** (`reel/shot_match.py`) — مرساة مش جار، لأن الجار **بيتراكم**. القياس من
+`_harmonize` بس **بالميديان** ويتعبّر عنه `eq=gamma_*`. و**بيقصّ عند الكابّ مش بيستسلم** — عكس
+`_harmonize` بقصد: هناك فيه لون براند مسجَّل يتحمي، هنا عدم التصحيح = **نطة تعريض مبيّنة عند القطع**.
+
+**مقيس، قبل:** ٤٨ ريل على الديسك، لكل **لقطة** (القطع بـscene-score، الخاتمة مستبعدة) →
+وسيط **σ_luma 34.99 · σ_cast 0.1228 · مدى اللوما 90.3 من ٢٥٥**.
+**بعد:** **σ_luma −٢٨٪ · σ_cast −٣٦٪ · المدى −٣٢٪** — تصحيح بالنص بقصد (`PULL=0.5`)، لأن التصحيح
+الكامل بيخلي كل اللقطات واحدة، وده **فلات مش فيلم**.
+
+### (٣) سلسلة السوشيال — مقطوعة في تلات أماكن
+
+| العطل | الأثر |
+|---|---|
+| `IgSignal` فيه **٣ حقول** و`top_performers` بيقرا **٥** | `checked` **مستحيل** يبقى True مهما اتسحب |
+| مفيش `is_own_brand` | بوستات البراند نفسه بتتحط تحت `peers`، والدروس بتقول عليها «بوست منافس» |
+| `social_performance_for` **صفر نداءات** | دالة بتحسب نتيجة وبتديها لمحدش |
+| ملفّين بيكتبوا نفس الاسم بشكلين (`items` / `media`) | سنابشوت Graph بيتقري «البراند مالوش سوشيال» |
+| `_peers` بترمى في نفس سطر حسابها | أي براند من الداشبورد `competitors == []` للأبد |
+
+**و`int(x or 0)` كان هيبقى العطل مش الحل** — أبيفاي بيرجّع `-1` للمخفي، وتحويله لـ٠ بيقلب «ماقدرناش
+نقيس» لـ«صفر لايك»، يعني **نفس فصيلة «الغياب بيتقري نجاح» جوّه إصلاحها**.
+
+**مقيس على الملفات الحقيقية:** نانوكير ١٥ مقيسة/وسيط ٤/أعلى ٣٧٨ (**94.5x**) · بافلو برجر وسيط ٩١/
+أعلى ٦٠٧ · كوكاكولا وسيط ٣١٤/أعلى **113,409** · دار الفؤاد وسيط ٣/أعلى ١٢. + راوت
+`GET /api/social/performance/{dk}` تحت `require_user` بس (قراية ملف وحسابات — مفيش صرف)، ولوحة في
+الداشبورد بتعرض **تلات حالات مختلفة** (ماتجمعش / اتجمع ومش قابل للقياس + السبب / مقيس).
+
+### أعطال ساكتة اتكشفت في الطريق
+
+* **`tail_frame` كانت بترجّع `None` من يوم ما اتكتبت** — بتبعت مسار ffmpeg لنفسه كأرچيومنت، فكل
+  نداء بيرمي والـ`except` بيرجّع None، و`decide_seed` بيقراها «مفيش ذيل». **الاستمرارية (٨.١٨)
+  ماسلسلت مشهد واحد أبداً**، ووعد الموديول («مالهاش تكلّف رندر») هو اللي خبّاها. + حارس دائم بيمسح
+  كل نداءات `run_ffmpeg` في `reel/`.
+* `scene_qa._extract_frames` بيقعد على **٤ ثواني ثابتة** — على كليب ٦ث بياخد 0.4/2.0/3.6 ويسميهم
+  بداية/وسط/نهاية، فالتالت الأخير (مكان اختفاء المنتج) ماكانش بيتشاف. مع ceil بقى أغلط، فاتصلح معاه.
+* الهيكل اللي المخرج بينسخه بيوري `"duration_s":3` والقاعدة فوقيه بتقول «٤ هي الأرضية» → اتظبط
+  **واتحط clamp** عند التحليل (البرومبت طلب، الـclamp ضمان).
+* ~~فحص تباين الأطوال عند `>= 4`~~ — **حاولت أنزّله لـ٣ والدليل وقف ضدي فرجعته**: الخطة اللي البوابة
+  بتقراها فيها **٤** مشاهد أصلاً (تلات لقطات + الـinsert)، فالفحص **بيشتغل** على الشكل الحقيقي؛
+  والتنزيل كسر **٨ تستات** منهم «خطة نضيفة بتعدّي». الإعفاء لريل ٣ لقطات بلا insert **مقصود ومثبَّت
+  بتست**.
+* Docstrings بتناقض كودها اتصلحت بأمانة: `voiceover.py` (بيقول padding لكل سطر — الكود نداء واحد)
+  و`sound.py` (بيقول beat-sync — ماكانش فيه).
+
+**والتست مسك عليّا غلطة:** أول نسخة من التكميم استخدمت الحد الأدنى بتاع Veo (٤ث) كأرضية **قص** —
+والـ٤ث بتحكم اللي **بنشتريه** مش اللي **بنقصّه**. كان هيرجّع فيلم اتقصّر لـ٨.٨ث عشان يظبط التعليق
+لـ١٢.٦ث. اتصلح واتحط تست بيمنع رجوعه.
+
+**السويت: 3211 ⟶ 3352 خضراء، صفر فشل** (+١٤١ تست).
+**صرف الشغل ده كله: صفر** — PIL وffmpeg وnumpy محليين، مفيش نداء موديل واحد. (الرندر الحي للتأكيد
+البصري بند منفصل ومعلن.)
+
+## 8.29 — 2026-08-01: الداشبورد زرار بزرار — والـSWOT اللي نُصّه كان بيترمي
+
+**طلب المالكة قبل ما تسافر:** «امسك الداشبورد واحدة واحدة من الصفر لعظمه… اتأكد إن كل الفيتشر
+بتطلع… غياب الـopportunities/threats… واعمل فولدر `info` فيه كل الأوامر».
+
+### أدوات فحص دائمة (`info/`)
+
+`check_dashboard.py` — بيمشي على كل راوت بجلسة متولّدة من مفتاح السيرفر (**من غير أي باسورد**).
+`check_wiring.py` — كل زرار → دالته → الراوت → موجود على السيرفر؟
+الاتنين بيكتبوا في `logs/dashboard_check.log` — فعطل بيحصل ومحدش قاعد يفضل مكتوب.
+
+**النتيجة: ٤٣ زرار كلهم موصولين · ٢٤ مسار كلهم موجودين · صفر زرار ميت · صفر fail على تلات براندات.**
+
+**والاتنين وقعوا في فخاخهم الأول واتصلحوا** — الأول قال «`/api/jobs` نداء ميت» وهو بيتنادى صح ٧
+مرات (الريجيكس بيقطع عند علامة التنصيص)، والتاني قال «١٩ دالة مش متنادية» وكلهم بارامترات arrow
+functions. **كاشف بيخترع أعطال أسوأ من مفيش كاشف.**
+
+### الـSWOT — تلات أعطال، والتانتين بيمسحوا نص الشغل
+
+**١) الأساس المعتمَد كان بيترمي.** `approved_competitors` **فلتر على الاكتشاف الحي**، فمنافس معتمد
+مايرجعش غير لو الاكتشاف لقاه **تاني**. الموديول نفسه كاتب "SWOT computes against the APPROVED
+baseline, never the raw live pool" — **والتنفيذ بيعمل العكس بالظبط**. الاكتشاف واقع (فوترة) ⟸ صفر
+منافسين ⟸ صفر ضعف. دلوقتي بيترجّعوا من الرجيستري (فيه الاسم والموقع = كل المطلوب).
+**والمنافس اللي اتشال بالإيد مابيرجعش** — الضمان محفوظ.
+
+**٢) مقارنة السوشيال ميتة.** `matrix.py::_DIM_KEYS` بيمسح `social_platforms` من كل منافس قبل ما
+توصل `social_gaps`. **سوشيال المنافسين ماوصلش SWOT ولا مرة.**
+
+**٣) وسطر بقى بيكدب.** المنافسين المسترجَعين اتقال عليهم «أضافتهم المالكة» وهم **متكشَّفين** —
+`competitor_from_user` اسمها على أول مستخدم ليها مش على قيد. اتضاف `why=`.
+
+**مقيس (مخزّن ← لو ضغطت Generate دلوقتي):**
+
+| البراند | ضعف | منافسين |
+|---|---|---|
+| دار الفؤاد | 1 ← **2** | 0 ← **3** |
+| نانوكير | 1 ← **4** | 0 ← **1** |
+| أبو عوف | 1 ← **2** | 0 ← **4** |
+
+والبنود الجديدة **مقارِنة فعلاً**: «كل منافس مقيس عنده يوتيوب وانتي لأ» · «الـCTA عندك ٦ تحت متوسط
+المنافسين ١٤». **التهديدات بتفضل ٠** لأنها محتاجة صوت عملاء المنافسين (Places) — مصدر داتا ناقص مش عطل كود.
+
+### اللغة — عطل يوليو، وسببه حاسبين للدولة
+
+«دار الفوائد صيدلية في مصر — عملت إنجليزي ليه؟» `poster/locale.py::country_of` بيقرا الأدلة
+(تليفونات، عناوين، عملة). `reel/audience.py` كان عنده حاسب أضعف بيقرا حقل `country` المسطّح بس.
+بروفايل الـCLI فيه الحقل ⟸ عربي؛ **نفس البراند** من الداشبورد مفيهوش ⟸ **إنجليزي**.
+دلوقتي الضعيف بيسأل القوي. **كل براند في سوق عربي بقى عربي.**
+
+### المسارات كانت بتعتمد على مكان التشغيل
+
+لوحة السوشيال قالت «مفيش سناب شوت» **فوق ملف موجود**. `Path("runs/social_snapshots")` نسبي —
+من الريبو بيرجّع `checked: True` بـ١٥ بوست، من السيرفر `{}`. **نفس فصيلة العطل اللي `registry.py`
+صلّحها قبل كده**، وفيه `test_webapp_paths_are_anchored.py` موجود عشانها. اتربط بجذر الريبو.
+**و`except` صامت** كان بيخلي «فشل القراية» و«ماتجمعش» نفس الرد — بقى بينطق.
+
+### الداشبورد كان بيطلّع فيلم تاني
+
+المتصفح بيبعت `n_scenes: 5` **ثابتة** والراوت بياخدها كما هي، بينما الـCLI بيشتقها. **منتج واحد،
+شكلين، حسب الباب.** دلوقتي `_scenes_for` في الاتنين → **٤ مشاهد** لـ١٥ ثانية.
+
+### فيتشر جديد: معاينة البرومبت والتكلفة قبل الصرف
+
+**مكانش موجود** (البوستر بيرجّع البرومبت **بعد** الرندر والداشبورد مابيقراهوش).
+`api/prompt_preview.py` + زرار **Preview brief**: اللغة والدليل، الريجستر، اللوك، الجريد، الإيقاع،
+عدد اللقطات وليه، آخر بيت، **والتكلفة المقدّرة**، و٢٢٬٧٥١ حرف من بريف المخرج.
+**مافيش نداء موديل** ⟸ مجاني ⟸ **شغال رغم قفل الفوترة**.
+
+### والرندر الحي وقف على الفوترة
+
+`403 "Lightning dunning decision is deny"` — الحساب موقوف، مش كوتا. **الصرف على المحاولة: صفر**
+(الحارس بيقدّر قبل والتسجيل بعد النجاح). التفاصيل والحل في `info/STATE.md`.
+
 ## 9. Where things live (quick map)
 
 | Concern | Files |
@@ -2272,11 +3719,129 @@ Packages: `scraper/`, `business_profile/`, `grounding/`, `competitor/`, `brand/`
 | Profile extraction | `business_profile/llm/{prompts,extractor,validator,rag,embeddings}.py`, `business_profile/rules/*` |
 | Ledger + compliance | `grounding/{ledger,audit,compliance}.py`, `poster/audit.py`, `strategy/audit.py`, `reel/grounding.py` |
 | Discovery + SWOT + TOWS | `competitor/{router,discovery,web_discovery,lite_scrape,matrix,swot,tows,themes}.py` |
+| نطاق الـDNA حسب المستهلك | `brand/dna_scope.py` — الفصل بالجملة: العالم المصوَّر يعدّي، تخطيط العبوة يتحجز (قسم 8.20) |
 | Brand identity (vision) | `brand/{creative_dna,brand_book}.py` |
 | Poster | `poster/{pipeline,concept,oneshot,art_director,variation,from_profile,template,vision_qa,brand_research}.py` |
+| وضع المنتج في المشهد | `poster/{product_geometry,product_placement,product_composite,placement}.py` — قياس الأصل ⟵ القرار ⟵ برومبت المشهد + اللزق (قسم 8.15) |
+| الهجين: حروف البراند على علبة الموديل | `poster/label_reprojection.py` — SIFT+RANSAC ⟵ homography ⟵ قص GrabCut ⟵ حقل إضاءة (قسم 8.16) |
 | Reel | `reel/{generate,art_director,motion,text_overlay,textlayer,endcard,video_provider,image_quality,grounding}.py` |
+| تسليم الريل + الأحكام | `reel/{encode_profile,verdicts,audit,final_screening}.py` (مظروف واحد · جهارة مقاسة · حكم واحد حاجب) |
+| لوب المراجعة | `reel/revision.py` — الملاحظة بتغيّر مشهدها · مرّة واحدة · الأحسن بيتشحن (قسم 8.26) |
+| الناقد على مستوى الفيلم | `reel/film_critic.py` + `reel/audience.py` — حد بيتفرج على الإعلان مش على الملف (قسم 8.25) |
+| استمرارية المشاهد | `reel/continuity.py` — آخر فريم يسيب seed اللي بعده، محدود ومشتق (قسم 8.18) |
+| فيديو الريل | `reel/video_provider.py` — **Veo 3.1 i2v فقط**، بعقد الحركة (قسم 8.17) |
+| صوت الريل | `reel/{voices,sfx,voiceover}.py` (كتالوج ElevenLabs محقَّق + SFX متمتَّر) |
 | Web | `api/routes/*`, `frontend/components/*` |
+| ~~الداشبورد الموحّدة~~ | **اتمسحت 2026-07-26** — شوف قسم 8.14. الواجهة الوحيدة = `api/main.py` + `frontend/{landing,index}.html` |
+| أداء السوشيال (اللي بيجيب لايك) | `social_intel/performance.py` — ترتيب جوّه البراند · مقارنة بالرفع · دروس للبريف (قسم 8.24) |
+| ذكاء الإعلانات | `ads_intel/{facts,config,relevance,live,pull_ledger,orchestrator,consumer}.py`, `ads_intel/providers/meta_ad_library.py` |
+| الذكاء التسويقي | `marketing_intel/{extractor,from_ads,schemas}.py` (الموات الحرفي) |
+| الخطة الاستراتيجية v2 | `media_plan_v2/{engine,reality_check,schemas}.py` (خلايا/خزنة/هجوم مضاد) |
+| حزمة الإطلاق | `launch_bundle/*` (الآن تشحن v2 + test_cells.csv + شيت الكالندر) |
 
 ---
 
 *This file is the single source of truth for the project — read it before acting here.*
+
+## 2026-08-02 — الكتالوج، الأدلة، وصوت العميل
+
+**الكتالوج كان بيسمّي المنتج الغلط.** الـDOM walker بيرمي الـ`<h1>` لما الثيم يلفّه في `<div>`
+(القاعدة «لو نصّي زي اللي قبلي اتجاهلني» بتشيل الابن الدلالي بدل الغلاف). مقيس على صفحة حقيقية:
+١٧٤ بلوك، **صفر h1**، فالاسم اتاخد من كاروسيل «Frequently Bought Together» — ٢٤ منتج باسم وسعر
+منتج تاني. الإصلاح بيرقّي السجل بدل ما يرمي الابن: البلوكات فضلت ١٧٤، وبلوكات h1 من ٠ لـ١.
+
+**وصورة المنتج كانت مستحيلة.** `build_catalog` بيقرا `getattr(img, "url", "")` والموديل حقله
+`src` — الـdefault حوّل اسم حقل غلط لـ«مافيش صورة»، في كل موقع. والتست كان بيحمي العطل: الـdouble
+مخترع `self.url`. اتصلّح واتضاف تست بيقارن الـdouble بالـschema.
+
+**تسريب مفتاح:** جوجل بترجّع المفتاح جوّه نص خطأ 403، والنص كان بيتحط حرفياً في `PlacesError`.
+التعتيم بقى عند بناء الرسالة.
+
+**Places موقوف** (403 CONSUMER_SUSPENDED) — و`find_subject_places` كان بيرجّع نفس الـ`None`
+للرفض وللغياب، وده اللي خلّى الفرع يبان ميت في الكود. الرفض بقى بيتسجّل بسببه.
+
+**Evidence Ledger:** استبعاد الحقل كله كان بيرمي `evidence[].quote` كمان — و**٨٦٪ من الاقتباسات
+(165/192) مختلفين عن قيمتهم**، كتير منهم بلغة تانية. الاستبعاد بقى للـ`value` بس. الرفض 0/192 ←
+**4/192** من غير ما نرمي قوة حقيقية.
+
+**تعليق عميل مش نقطة قوة:** الـSWOT كان بيشحن «تحفة 😍❤️❤️❤️❤️» كنقطة قوة براند. تلات قواعد أقوى
+اتقاسوا **غلط** (تقاطع قاموس البراند — عبر-لغوي فمستحيل؛ التكرار لوحده — بيفشل بالعكس؛ أرضية ٣
+كلمات — التستات كذّبتها). اللي فضل مؤكد: كلمة الإحساس ماينفعش تكون التعليق كله. الباقي **معلن**
+في تست باسمه.
+
+**أداة:** `python -m info.swot_diff` — بتوري الفرق من غير تخزين ومن غير صرف. أربع عيوب فيها هي
+نفسها اتصلّحت بالقياس، وكل واحد كان هيوري تحسين مزيّف.
+
+السويت: **3457 خضراء، صفر فشل**.
+
+## 2026-08-02 (متأخر) — التنفيذ، والتدقيق اللي كذّبني
+
+الـSWOT المجدَّد اتكتب على كل البراندات كـ**دمج**: الفلاتر تشيل، والسطر اللي مدخله ناقص (Places
+موقوف، أقران/trends السجل ما احتفظش بيهم) يتحافظ عليه. نسخة احتياطية قبل الكتابة.
+
+**اتكتب، وفحصي بنفسي قال «نضيف». تدقيق عدائي مستقل لقى ٣ عيوب HIGH:** السرد (ملاحظات + `mode`)
+بيوصف إعادة حساب بصفر أقران فوق محتوى فيه مقارنات أقران؛ السطور المنقذة فقدت `id` و`priority`
+(كنت بستخدم `_swot_from_raw` وهي لغرض تاني)؛ و`mode` نزل standalone. وكمان تعليق عميل كان العنوان
+الرئيسي، وفلترة ادّعاءات المنتج متناقضة بين حقلين.
+
+اترجعت النسخة، واتصلحوا من الجذر: ترحيل كامل + إعادة ترقيم شاملة (ID مكرر أسوأ من ID ناقص)،
+`_reconcile` بيعيد توليد الملاحظات على المحتوى النهائي، `unique_insight_texts` بقى بيفلتر جوّاه
+(كان بيرجّع نصوص مجردة فيرمي الدليل اللي الفلتر محتاجه)، والعنوان الرئيسي بيتخطّى صوت العميل.
+
+**وتحسين المميِّز:** الحكم بمكان الدليل لوحده رمى «مسجل بالهيئة القومية لسلامة الغذاء» — أقوى سطر
+في سوات نانوكير — لأنه مطبوع على صفحة منتج. بقى الادّعاء منتجيًا لما **يسمّي كمان منتج الصفحة**
+من الـslug بتاعها. ١٢ من ٢٣٥ ادّعاء، كلهم أوصاف منتجات، والتسجيل نجا. عدم التماثل مقصود ومسجَّل
+في تست: slug مايتقريش ⟹ نبقي الادّعاء.
+
+**بصراحة:** ١٤ من ١٥ إيجنت تدقيق وقعوا على حد الجلسة. براند واحد بس اتدقق مستقل — وهو اللي لقى
+الخمسة. الباقي فحصته بنفسي بنفس المعايير، وده أضعف.
+
+## 2026-08-02 — السطر اللي بيناقض نفسه
+
+تدقيق تاني (وقف بأمر المالكة بعد براند واحد) لقى عيبين جداد، الاتنين اتأكدوا بالداتا:
+
+**السطر بيناقض بلوك أولويته.** `source_theme` بيقول «no compared peer promises this (2 checked)»
+و`priority.peers_measured = 0` وأساسه بيقول «لم يُقارَن بأحد» — في **نفس الكائن**. `brand_signals`
+بيقارن فعلاً، و`score_opinion_item` مكانش يعرف. الإصلاح: حقل `peers_compared` على `SWOTItem` بيشيل
+الرقم (مش استخراجه بالـregex من جملة إنجليزية، اللي كان هيفترق عنها أول تغيير صياغة). الرتبة
+مااتغيرتش — الجملة بس بطّلت تناقض نفسها.
+
+**الصمت كإجابة.** `differentiation_note` كان بيرجّع `None` لما الادّعاء مافيهوش وعد قابل للمقارنة،
+والتعليق مكتوب فيه «say nothing» كإنها فضيلة. فسطر رابع من نفس الحقل يقعد فاضي جنب تلاتة
+معلَّقين، ومحدش يعرف اتفحص وعدّى ولا ماتفحصش. بقى فيه **حالة تالتة منطوقة**.
+
+**وفخ اتكشف أثناء كتابة التست:** `PeerWords.promises` بيشيل أسماء مفاهيم، واللي يبنيه بإيده بيحط
+نص الوعد. المقارنة كانت بتفشل بصمت وترجّع «مافيش قرين بيوعد بده» — ادّعاء تميّز مصنوع من اختلاف
+شكل داتا، وغلط في الاتجاه اللي بيجامل العميل. الدالة بقت تفهم الشكلين.
+
+## 2026-08-02 — الجسر من الـCLI للداشبورد
+
+المالكة سألت: تشغيلة CLI هتوصل الداشبورد كاملة؟ القياس: **٩ من ٢٠ بلوك**.
+
+وفي الطريق لقيت الأخطر: `adopt_full_result` بيعيد بناء الـSWOT بـ`_swot_from_raw` اللي كانت بتحمل
+٤ حقول — فكل تبنٍّ كان **بيفقد كل `id` وكل `priority`**. `SWOTItem.id` موجود أصلاً عشان TOWS كان
+بيربط خططه بترتيب القايمة، فرميه بيرجّع العطل طبقة أعلى. تلات مسارات تانية بتعدي على نفس الدالة.
+اتصلحت من الجذر والنسخة المكررة اتشالت.
+
+**واتضافت لوحة «What the analysis found»**: راوت `/api/intel/{dk}` + لوحة بتعرض عروض/وعود/شكاوى/
+زوايا للبراند ولكل منافس، كل سطر باقتباسه ومصدره، بأربع حالات متفرّقة (ماتحللش / اتحلل وفاضي /
+اتشال منه N بلا مصدر / فيه محتوى). دار الفؤاد: ١٣ سطر و٩ لينكات مصدر. والقصّ بقى معلَن
+(«3 more not shown») بدل ما العنوان يوعد ١٣ ويعرض ٩.
+
+## 2026-08-02 (ليلاً) — Veo يبقى كاميرا غبية
+
+قرار معماري من المالكة بعد ٣ ريلات فاشلة: المنتج **مايتولّدش أبداً** — يتركّب من صورة البراند.
+اتنفّذ محورين من أربعة:
+
+**عزل المنتج:** أي مشهد منتج بقى insert. والتناقض اللي تحته: بوابة الجودة كانت بتسأل كل مشهد
+«فين المنتج؟» حتى المشاهد اللي البرومبت مانع فيها المنتج — فرسّبت مشهدين بـ«المنتج غايب» وكل
+إعادة $2.40 مستحيل ترضيها. المؤشر بقى للمشهد اللي بيحمل المنتج بس.
+
+**اللوجو:** `_knockout_if_dark` كان بيمسح ألوان أي شعار إضاءته < 0.5. دار الفؤاد: إضاءة 0.13
+**وكروما 0.26** — غامق وملوّن. بقى يقيس الكروما، والقراءة تتشترى بلوح فاتح مش بمسح الهوية.
+
+**وانحدار داتا:** `retail` كان بيوديه لـ«service» قبل فحص الأكل، فأبو عوف — تمر وفشار وبن —
+اتوجّه كشركة خدمات. فرع الخدمة بقى يتنازل للأكل.
+
+السويت: **3523 خضراء**.
+

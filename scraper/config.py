@@ -2,6 +2,7 @@
 
 All tunable values live here. No magic numbers in the rest of the code.
 """
+import os
 
 # --- Scrape budget --------------------------------------------------
 # MEASURED (2026-06-15, 32 saved sites): the 60s wall was the BINDING constraint on
@@ -39,6 +40,16 @@ ECOMMERCE_PRODUCT_URL_MIN = 15        # >= this many PRODUCTS-type URLs (homepag
 # nahdionline.com -> no product pages -> "no prices" downstream). The budget guard is
 # for stopping a long tail, not preventing the start.
 MIN_SUBPAGE_ATTEMPTS = 5
+
+# Minimum visible rendered text for a page to count as real brand content (P-61). Below this a
+# page is treated as an EMPTY_RENDERED_DOM (a failed SPA / JS-wall / blank shell) — the OLD guard
+# only fired when the HTML had no "<body" tag at all, which almost never happens, so empty shells
+# (marasim: 0 clean chars) sailed through as pages_succeeded. Deliberately LOW: the audit finding
+# guessed ~40, but a committed test fixture (a salvaged menu subpage, "Our Menu / grilled dishes
+# and stews" = 33 chars) proves real-but-sparse content can sit in the low 30s — measurement beats
+# the guess. 20 catches genuine emptiness (0 chars) and bare status/loading shells while keeping
+# sparse real pages; the substantive "enough brand signal" judgment lives in readiness (P-62).
+MIN_RENDERED_CHARS = 20
 
 # --- Multi-depth crawl (FIX-A, 2026-07-11) ---------------------------
 # The frontier used to be built ONCE from homepage links + sitemap, making every crawl
@@ -95,7 +106,11 @@ USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
-ACCEPT_LANGUAGE = "en-US,en;q=0.9,ar;q=0.8"   # EN-first, AR accepted (MENA sites)
+# CS-158 (verify-first, register): EN-first Accept-Language is a DISCLOSED global default —
+# some sites serve different content per language, and this may bias what non-EN brands
+# expose to the crawl. Measuring that impact is a separate ticket; until then the default
+# is unchanged but env-overridable per run (SCRAPER_ACCEPT_LANGUAGE).
+ACCEPT_LANGUAGE = os.getenv("SCRAPER_ACCEPT_LANGUAGE", "en-US,en;q=0.9,ar;q=0.8")   # EN-first, AR accepted (MENA sites)
 VIEWPORT_WIDTH = 1366
 VIEWPORT_HEIGHT = 800
 
@@ -323,6 +338,11 @@ SOCIAL_DOMAINS = {
 }
 
 # --- Bot protection indicators --------------------------------------
+# Text phrases shown ON a challenge/block page. The scraper sends an EN-first Accept-Language, so
+# most WAF interstitials come back in English — but a site that forces its own locale serves the
+# challenge in that language, which the old EN-only list missed (P-63, D-8). A few common
+# non-English phrasings are added; the language-INDEPENDENT signals (HTML markers, WAF headers,
+# status+empty-body) in fetcher._detect_bot_protection are the real backstop.
 BOT_PROTECTION_TEXT_SIGNALS = [
     "verify you are human",
     "checking your browser",
@@ -334,13 +354,71 @@ BOT_PROTECTION_TEXT_SIGNALS = [
     "ddos protection",
     "just a moment",
     "please enable javascript and cookies",
+    # non-English challenge phrasings (Cloudflare/WAF localizations)
+    "تأكد من أنك إنسان",          # ar: verify you are human
+    "التحقق من أنك لست روبوت",     # ar: verify you are not a robot
+    "لحظة من فضلك",               # ar: just a moment
+    "vérifiez que vous êtes humain",  # fr
+    "un instant",                 # fr: just a moment
+    "insan olduğunuzu doğrulayın",    # tr
+    "bir dakika",                 # tr: just a moment
+    "verifique que es un humano", # es
+    "überprüfung ihres browsers", # de: checking your browser
 ]
+
+# Language-INDEPENDENT WAF/bot markers found in a challenge page's HTML or response headers,
+# regardless of the display language (Cloudflare always bootstraps its challenge JS; Incapsula /
+# PerimeterX / Akamai / Distil leave their own fingerprints). This is the real fix for P-63.
+# CONCLUSIVE: these load ONLY on a challenge/interstitial page. Their presence IS the block,
+# whatever the page's language or length.
+BOT_CHALLENGE_MARKERS = [
+    "/cdn-cgi/challenge-platform",   # Cloudflare managed challenge / Turnstile bootstrap
+    "challenge-platform",
+    "__cf_chl_",                     # Cloudflare challenge token
+    "cf-chl-",
+    "distil_r_captcha",              # Distil / Imperva
+    "px-captcha",                    # PerimeterX
+]
+
+# PRESENCE ONLY: a vendor's script or cookie that ships on EVERY page it protects — including the
+# ones served happily to real users. MEASURED (pepsi.com, 2026-07-21): the site answered 200 with a
+# full 35KB page titled "Pepsi Official Site" and we discarded the entire site because `_incapsula_`
+# appeared in the HTML. These count only when the page ALSO looks like an interstitial.
+BOT_VENDOR_MARKERS = [
+    "_incapsula_",                   # Imperva Incapsula
+    "_pxhd",                         # PerimeterX
+    "ak_bmsc",                       # Akamai Bot Manager cookie/marker
+]
+
+# Kept for callers that want every marker (the union), e.g. diagnostics.
+BOT_PROTECTION_HTML_MARKERS = BOT_CHALLENGE_MARKERS + BOT_VENDOR_MARKERS
 
 # --- Regex patterns -------------------------------------------------
 EMAIL_REGEX = r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"
 
 # --- Output dirs ----------------------------------------------------
+# WHERE THE SCRAPES LIVE — one resolver, so nobody has to remember four defaults.
+#
+# The corpus is 3.4 GB across 12k files and it was sitting inside the owner's Google-Drive folder,
+# where every stat() goes through the sync layer: a `du` over it did not finish in eight minutes
+# and a single `find` timed out at five. Nothing in it is committed (`.gitignore`: "Scrape outputs
+# (large, regeneratable)"), so the whole corpus can live on a local disk while the code stays on
+# the synced drive.
+#
+# A junction was the obvious fix and the Drive filesystem REFUSES it ("Incorrect function" —
+# reparse points are not implemented there), which is why this is a config value and not a symlink.
+# Unset -> "scrapes", byte-identical to every previous run.
 DEFAULT_OUTPUT_ROOT = "scrapes"
+
+
+def scrapes_root() -> str:
+    """The corpus root, resolved AT CALL TIME.
+
+    Read here rather than pinned at import because `.env` is loaded by the entry points, and a
+    constant computed at import would be frozen before `load_dotenv` ever ran — the variable would
+    be set, ignored, and every scrape would silently write to the old place.
+    """
+    return (os.environ.get("BASEERA_SCRAPES_DIR") or "").strip() or DEFAULT_OUTPUT_ROOT
 
 # --- Image / asset ----
 MAX_PALETTE_COLORS = 6

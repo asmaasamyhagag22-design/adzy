@@ -46,13 +46,54 @@ def test_a_clean_shell_is_allowed_to_spend(monkeypatch):
     refuse_if_no_spend("anything")                    # does not raise
 
 
-def test_the_paid_entrypoints_actually_call_the_tripwire():
-    """The rule is only real if the paid mains invoke it. Static check — importing is enough;
-    we must never CALL these mains (that is the whole point)."""
+def test_every_paid_entrypoint_calls_the_tripwire():
+    """CS-92: the old test only checked 2 of the paid mains; 5 others (poster/strategy/reel/
+    business_profile) spent with NO tripwire. This asserts EVERY paid entrypoint invokes it."""
+    import importlib
     import inspect
 
-    import benchmark.grade_u1 as g
-    import trends.__main__ as t
-    for mod in (g, t):
+    paid_mains = [
+        "benchmark.grade_u1", "trends.__main__", "poster.__main__",
+        "strategy.__main__", "reel.__main__", "business_profile.__main__",
+    ]
+    missing = []
+    for name in paid_mains:
+        mod = importlib.import_module(name)
         src = inspect.getsource(mod.main)
-        assert "refuse_if_no_spend" in src, f"{mod.__name__}.main() does not trip the spend wire"
+        if "refuse_if_no_spend" not in src:
+            missing.append(name)
+    assert not missing, f"paid mains missing the spend tripwire: {missing}"
+
+
+def test_the_tripwire_actually_fires_from_a_paid_main(monkeypatch, tmp_path):
+    """BEHAVIOUR (not a source grep): drive strategy.main() down its PAID (LLM) path under a
+    no-spend context and prove it raises SystemExit BEFORE building a caller — the wire fires."""
+    import sys
+
+    import strategy.__main__ as sm
+
+    prof = tmp_path / "p.json"
+    prof.write_text('{"name": {"value": "Acme"}, "offerings": []}', encoding="utf-8")
+    monkeypatch.setenv("BASEERA_NO_SPEND", "1")
+    monkeypatch.setattr(sys, "argv", ["strategy", str(prof), "--days", "7"])  # NO --no-llm -> paid
+    with pytest.raises(SystemExit) as e:
+        sm.main()
+    assert "SPENDS REAL MONEY" in str(e.value) and "--no-llm" in str(e.value)
+
+
+def test_the_free_path_of_a_paid_main_is_not_blocked(monkeypatch, tmp_path):
+    """The tripwire must guard only the PAID path — strategy --no-llm spends nothing, so it must
+    still run under a no-spend context (never over-broadly brick the deterministic fallback)."""
+    import sys
+
+    import strategy.__main__ as sm
+
+    prof = tmp_path / "p.json"
+    prof.write_text('{"name": {"value": "Acme"}, "offerings": [{"name": {"value": "Widget"}}]}',
+                    encoding="utf-8")
+    out = tmp_path / "plan.json"
+    monkeypatch.setenv("BASEERA_NO_SPEND", "1")
+    monkeypatch.setattr(sys, "argv",
+                        ["strategy", str(prof), "--no-llm", "--days", "7", "--out", str(out)])
+    assert sm.main() == 0                                  # free path runs, no SystemExit
+    assert out.is_file()

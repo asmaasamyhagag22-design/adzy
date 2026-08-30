@@ -101,6 +101,10 @@ def main() -> int:
     )
     ap.add_argument("--headline", default=None,
                     help="override the headline (e.g. a planned content-calendar hook).")
+    ap.add_argument("--product", default=None,
+                    help="URL of ONE product page — the poster is about THAT item. Resolves its "
+                         "real name and packshot from the catalogue, or fetches the page when the "
+                         "link is not in it (a store's Arabic and English URLs never match).")
     ap.add_argument("--product-name", default=None,
                     help="FEATURE one product: make it the hero offering so the concept centres on "
                          "it (the user picked it from the scraped catalogue).")
@@ -120,9 +124,39 @@ def main() -> int:
 
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
 
+    # CS-92: a poster render generates a background image via a PAID model (Gemini/Imagen) and gates
+    # it — it inherently spends. Refuse under a no-spend context (pytest / BASEERA_NO_SPEND) so it
+    # can never bill by accident (the class of bug that caused the grade_u1 spend incident).
+    from spend_tripwire import refuse_if_no_spend
+    refuse_if_no_spend("generates a poster background image via a paid image model and renders it",
+                       alternative="inject a caller / run the hermetic tests instead")
+
     # FEATURE a user-picked product: make it the HERO offering so the concept/art-director centres
     # the poster on it instead of a generic brand creative (engineer's suggestion #1). Grounded —
     # it's a real product the user chose from the scraped catalogue.
+    # ONE LINK IS ENOUGH. The reel lane takes a product URL and resolves the name and the packshot
+    # from it; the poster lane demanded both by hand (`--product-name` AND `--product-image`), so
+    # whoever ran it had to go read the page themselves — which is exactly how a headline ends up
+    # being written by the operator instead of derived from the brand. Same resolver as the reel,
+    # so one pasted link cannot produce two different ideas of what is being advertised.
+    if args.product and not (args.product_name and args.product_image):
+        try:
+            from api.webapp_images import hero_product_facts
+            _f = hero_product_facts(profile, args.product)
+            if _f.get("name") and not args.product_name:
+                args.product_name = _f["name"]
+            if (_f.get("images") or []) and not args.product_image:
+                args.product_image = _f["images"][0]
+            if _f:
+                print(f"[product] resolved from the link: {args.product_name}"
+                      + (f"  ({_f.get('price')})" if _f.get("price") else ""))
+            else:
+                print("!! the product link resolved to nothing — the poster falls back to the "
+                      "brand's own hero offering", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 — a dead link must not cost the poster
+            print(f"!! the product link could not be read ({type(exc).__name__}) — "
+                  "falling back to the brand's own hero offering", file=sys.stderr)
+
     if args.product_name:
         _p = profile.get("profile", profile) if isinstance(profile.get("profile"), dict) else profile
         _offs = _p.get("offerings") or []
@@ -170,7 +204,12 @@ def main() -> int:
     if args.trend and caller is not None:
         try:
             from trends import top_trends, keywords_from_profile
-            hot = top_trends(keywords_from_profile(profile), top_k=5, require_match=True)
+            # D-8 (CS-62): search the BRAND'S market, not Google's US/English default. `profile`
+            # is right here; resolve gl/hl from its own evidence. ("","") when silent -> omitted.
+            from poster.locale import search_locale
+            _gl, _hl = search_locale(profile)
+            hot = top_trends(keywords_from_profile(profile), top_k=5, require_match=True,
+                             gl=_gl, hl=_hl)
             trend_context = "\n".join(f"- {t.title}" for t in hot if getattr(t, "title", ""))
             if trend_context:
                 print(f"[trend] {len(hot)} on-topic trend(s) will inform the concept copy")
@@ -234,7 +273,9 @@ def main() -> int:
             trend_context=trend_context or None, engine=args.engine,
             out_dir=str(Path(args.out).parent or "."),
             product_image=args.product_image,
+            product_name=args.product_name,
             prompt_override=prompt_override,
+            canonical_out=str(Path(args.out)),
         )
     except Exception as exc:  # noqa: BLE001 — the studio shows the log TAIL: make it readable
         print(f"[X] poster failed: {_fail_reason(exc)}", file=sys.stderr)

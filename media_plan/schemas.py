@@ -166,6 +166,10 @@ class GeoTargeting(BaseModel):
     cities: List[str] = Field(default_factory=list)
     regions: List[str] = Field(default_factory=list)
     address_ref: Optional[EvidenceRef] = None      # the address's evidence, from the profile
+    # CS-84 (root of P-51): the brand's country, from `country_of` evidence. Valid in EVERY mode —
+    # a national plan, a radius, or a city list all need to name WHICH country (a bare "national" or
+    # a lone "Cairo" is ambiguous). None when the evidence is silent (never a guess).
+    country: Optional[str] = None
 
     @model_validator(mode="after")
     def _mode_consistency(self) -> "GeoTargeting":
@@ -210,6 +214,7 @@ class CampaignObjective(BaseModel):
     budget_allocation_pct: float = Field(ge=0.0, le=100.0)   # this objective's share of the plan budget
     num_ad_sets: int = Field(default=1, ge=1)      # ad sets under this objective (drives the learning floor)
     test_budget: Optional[float] = Field(default=None, gt=0.0)   # absolute testing budget (>0); None = TBD
+    budget_note: str = ""                          # WHERE test_budget came from, or why it stayed unknown
     audience_refinement: Optional[str] = None      # refinement OVER MediaPlan.base_persona (TOFU widen / BOFU narrow)
     evidence: List[EvidenceRef] = Field(default_factory=list)
     kpi_target: Optional[KPITarget] = None

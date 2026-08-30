@@ -49,28 +49,51 @@ def _is_elegant_tone(tone: Optional[str]) -> bool:
     return any(k in (tone or "").lower() for k in _ELEGANT_TONES)
 
 
-def _knockout_if_dark(data: bytes) -> bytes:
-    """FIX (topshoes reel frame: dark crest invisible on dark footage): the broadcast
-    watermark rule — a DARK logo becomes its WHITE-KNOCKOUT variant for the reel overlay
-    (exact silhouette, near-white fill; reads on shifting footage with the CSS shadow).
-    A light/colorful-readable logo passes through untouched. Never raises."""
+# Logo URLs whose mark is dark AND coloured: the artwork is kept and the renderer seats it on a
+# light plate. A module-level set rather than a return value because `_logo_data_uri` is called
+# from two places that both only want the URI — threading a tuple through them would change two
+# signatures to carry one bit.
+_PLATE_LOGOS: set = set()
+
+
+def _knockout_if_dark(data: bytes) -> tuple[bytes, bool]:
+    """(logo_bytes, needs_plate). The broadcast watermark rule, taught to see colour.
+
+    FIX (topshoes reel frame): a DARK crest is invisible on dark footage, so it became a
+    WHITE-KNOCKOUT silhouette. Correct for a monochrome mark — and destructive for a coloured
+    one.
+
+    OWNER, 2026-08-02, on the Al Fouad reel: «الفواتئد اللجو اتسحب منه الالوان». Measured: that
+    logo is a RED heart with BLACK wordmark, mean luminance 0.32 — under the old threshold — so
+    every frame of every reel carried a flat white silhouette where the brand's own colours
+    should have been. The poster showed it correctly, which is how the loss was visible at all.
+
+    A mark is knocked out only when it is dark AND essentially colourless. A dark mark that
+    CARRIES BRAND COLOUR keeps its artwork, and the caller is told to seat it on a light plate
+    instead — readability bought with a background, not with the brand's identity.
+    """
     try:
         import io as _io
         from PIL import Image
         im = Image.open(_io.BytesIO(data)).convert("RGBA")
         px = [q for q in im.getdata() if q[3] > 40]
         if not px:
-            return data
+            return data, False
         lum = sum((0.2126 * q[0] + 0.7152 * q[1] + 0.0722 * q[2]) / 255 for q in px) / len(px)
         if lum >= 0.5:
-            return data
+            return data, False
+        # Chroma, measured the cheap way: how far the average pixel's channels spread. A greyscale
+        # crest sits near 0; a red heart pulls it up. 0.10 of full range is a colour a viewer sees.
+        chroma = sum((max(q[:3]) - min(q[:3])) / 255 for q in px) / len(px)
+        if chroma >= 0.10:
+            return data, True          # keep the colours; ask for a plate behind them
         white = Image.new("RGBA", im.size, (250, 250, 252, 0))
         white.putalpha(im.split()[3])
         buf = _io.BytesIO()
         white.save(buf, format="PNG")
-        return buf.getvalue()
+        return buf.getvalue(), False
     except Exception:  # noqa: BLE001
-        return data
+        return data, False
 
 
 def _logo_data_uri(url: Optional[str]) -> Optional[str]:
@@ -95,7 +118,19 @@ def _logo_data_uri(url: Optional[str]) -> Optional[str]:
         if low.endswith(".svg"):
             mime = "image/svg+xml"
         else:
-            knocked = _knockout_if_dark(data)
+            # البند 2: key a white-matted raster logo to alpha FIRST — this is the single
+            # choke point feeding BOTH the endcard and the in-scene overlay, and it also
+            # un-skews _logo_mean_luma (a white card used to read as a "light" logo).
+            from .image_quality import white_key_logo
+            keyed = white_key_logo(data)
+            if keyed is not data:
+                data, mime = keyed, "image/png"
+            knocked, needs_plate = _knockout_if_dark(data)
+            if needs_plate:
+                # A dark COLOURED mark: the artwork survives and readability comes from a plate
+                # behind it, not from erasing the brand. The flag rides on the data URI so the one
+                # caller that builds the CSS can act on it without a second fetch.
+                _PLATE_LOGOS.add(url or "")
             if knocked is not data:
                 data, mime = knocked, "image/png"      # white variant re-encodes as PNG
             else:
@@ -172,6 +207,38 @@ def _highlight_last_word(headline: str) -> str:
     return f'<span class="hl">{words[0]}</span>' if words and words[0] else ""
 
 
+def _highlight_keyword(headline: str, *, keywords) -> str:
+    """Accent the word that CARRIES the line — the product / hook word — not blindly the last one.
+
+    Cheat-sheet #2: the whole line sits quiet and the one keyword pops in the brand colour. The
+    old rule accented whatever token happened to come last, so «قشرة الشعر مش قدر محتوم» put its
+    pop on «محتوم» while the subject of the ad sat unlit.
+
+    Matching is WORD-START, never substring — "lab" matched inside "available" earlier today, the
+    third hit of that class in one session — and prefix matching still reaches inflected forms
+    («قشرة» opens «بالقشرة» after its clitics). Falls back to the last word, so every headline
+    keeps exactly one accent.
+    """
+    import re as _re
+    toks = [str(k).strip().lower() for k in (keywords or []) if str(k).strip()]
+    words = (headline or "").split(" ")
+    hit = -1
+    for i, w in enumerate(words):
+        stem = _re.sub(r"^[\W]+|[\W]+$", "", w.lower(), flags=_re.UNICODE)
+        bare = _re.sub(r"^(?:ال|بال|لل|وال|فال|كال|و|ف|ب|ل)", "", stem)
+        for k in toks:
+            if stem.startswith(k) or bare.startswith(k) or k.startswith(stem) and len(stem) > 2:
+                hit = i
+                break
+        if hit >= 0:
+            break
+    if hit < 0:
+        return _highlight_last_word(headline)
+    esc = [_esc(w) for w in words]
+    esc[hit] = f'<span class="hl">{esc[hit]}</span>'
+    return " ".join(esc)
+
+
 def _split_hook(headline: str) -> tuple[list[str], str]:
     """Split a headline into a big HERO (the leading 1-3 words, up to ~18 chars) and a small
     SUPPORT line (the rest). A short headline (<=3 words) is ALL hero, no support. Verbatim
@@ -196,7 +263,7 @@ def hero_word_count(headline: str) -> int:
     return len(_split_hook(headline)[0])
 
 
-def _lockup_headline(headline: str) -> str:
+def _lockup_headline(headline: str, word_delays=None) -> str:
     """A MINIMAL hero lockup: the lead 1-3 words ONLY (a reel carries LITTLE text), stacked and
     clean WHITE — no wordy support line, no coloured accent word that can clash with the footage.
     Verbatim words (a subset), CSS-only (none reordered/reworded → zero-hallucination)."""
@@ -204,8 +271,13 @@ def _lockup_headline(headline: str) -> str:
     hero = [_esc(w) for w in hero if w]
     if not hero:
         return ""
+    # ZERO-LATENCY SYNC (cheat-sheet #2): when the narration's word timestamps are known, each
+    # word pops at the instant it is SPOKEN; the fixed stagger is only the no-schedule fallback.
+    delays = list(word_delays or [])
+    def _d(i: int) -> float:
+        return float(delays[i]) if i < len(delays) else i * _LW_STAGGER
     return "".join(
-        f'<span class="lw" {_anim_attrs(i * _LW_STAGGER, 0.34, 38, "expo")}>{w}</span>'
+        f'<span class="lw" {_anim_attrs(_d(i), 0.34, 38, "expo")}>{w}</span>'
         for i, w in enumerate(hero)
     )
 
@@ -269,17 +341,51 @@ def _scene_html(scene: ReelScene, storyboard: Storyboard, width: int, height: in
     acc_stroke = "0.4px rgba(6,9,14,.22)" if elegant else "1.2px rgba(6,9,14,.42)"
     acc_style = "italic" if elegant else "normal"
 
-    show_logo = bool(logo_uri) and scene.kind in ("intro", "outro", "contact")
+    # THE MARK STAYS ON SCREEN (owner, 2026-07-28: «عايزة لوجو البراند يبقى موجود طول الفيديو»).
+    # It used to appear only on intro/outro/contact, so the middle of every reel — the part people
+    # actually watch, and the part that gets clipped and reshared — carried no brand at all. A
+    # persistent corner mark is ordinary broadcast practice; what changes between a bookend and a
+    # body scene is PROMINENCE, not presence, so the body wears it quietly instead of shouting.
+    show_logo = bool(logo_uri)
+    logo_bug = show_logo and scene.kind not in ("intro", "outro", "contact")
     logo_pos = "right:64px" if rtl else "left:64px"
-    logo_html = (f'<div class="logo" {_LOGO_ANIM} style="{logo_pos}"><img src="{logo_uri}"></div>'
-                 if show_logo else "")
+    # THE PLATE. A dark COLOURED mark keeps its artwork (see `_knockout_if_dark`) and buys its
+    # readability from a soft light card behind it — the ordinary broadcast answer — instead of
+    # being flattened to a white silhouette. Al Fouad's red heart is exactly this case.
+    plate_css = ("background:rgba(255,255,255,.92);border-radius:14px;padding:12px 18px;"
+                 "box-shadow:0 6px 22px -6px rgba(0,0,0,.45);"
+                 if _PLATE_LOGOS else "")
+    if logo_bug:
+        # The quiet form: NOT re-animated on every cut — a mark that pops in six times reads as
+        # six logos, not one brand. It rides the corner and stays put.
+        #
+        # SIZED BY LOOKING AT THE RENDER, not by taste. The first attempt used scale(.62) and
+        # opacity(.72) and MEASURED on the live Nano Care reel it came out illegible — a few
+        # grey pixels. "Present" has to mean readable or it is decoration pretending to be
+        # branding. It also has to clear the clip's own letterboxing: at top:64px the mark landed
+        # INSIDE the black bar baked into the footage, detached from the picture entirely.
+        # FULL SIZE, NOT A SHRUNK ONE (owner, 2026-08-01: «اللوجو صغير جدا، انا عايز
+        # بروفيشنال، واخد زاوية وباين معايا»). Two rounds of scaling it DOWN both came back
+        # illegible on the render, which is the answer: a broadcast corner mark is not a small
+        # logo, it is the logo, held quietly in a corner. So it keeps its full height and earns
+        # its quietness from stillness and a touch of transparency instead of from size.
+        logo_pos += ";top:150px;opacity:.92;transform-origin:" \
+                    + ("right top" if rtl else "left top")
+        logo_html = f'<div class="logo" style="{logo_pos}"><img src="{logo_uri}"></div>'
+    else:
+        logo_html = (f'<div class="logo" {_LOGO_ANIM} style="{logo_pos}{plate_css}">'
+                     f'<img src="{logo_uri}"></div>' if show_logo else "")
 
     inner: list[str] = []
     if scene.headline:
         if lockup:                                     # each WORD carries its own kinetic beat
-            inner.append(f'<div class="headline lockup">{_lockup_headline(scene.headline)}</div>')
+            inner.append(f'<div class="headline lockup">{_lockup_headline(scene.headline, getattr(scene, "caption_word_delays", None))}</div>')
         else:
-            inner.append(f'<div class="headline" {_HEAD_ANIM}>{_highlight_last_word(scene.headline)}</div>')
+            # Cheat-sheet #2: the accent goes on the word that CARRIES the line — the brand /
+            # product token when the headline contains one — not blindly on the last word.
+            _kw = [w for w in str(storyboard.business_name or "").split() if len(w) > 2]
+            inner.append(f'<div class="headline" {_HEAD_ANIM}>'
+                         f'{_highlight_keyword(scene.headline, keywords=_kw)}</div>')
     if scene.sublines:
         items = "".join(
             f'<div class="item" {_anim_attrs(_ITEM_BASE + i * _ITEM_STAGGER, 0.40, 26, "expo")}>'
@@ -313,7 +419,7 @@ def _scene_html(scene: ReelScene, storyboard: Storyboard, width: int, height: in
     /* READABILITY ARMOR (research): a real black outline BEHIND the fill (paint-order) so heavy
        display captions survive ANY footage — fixes 'unreadable' plain white text. */
     -webkit-text-stroke:2px rgba(0,0,0,.92);paint-order:stroke fill;}}
-  .headline .hl{{color:var(--accent);font-style:{head_style};}}
+  .headline .hl{{color:var(--accent);font-style:{head_style};font-size:1.2em;}}  /* cheat-sheet #2: the keyword is ~120% */
   /* designed LOCKUP (poster parity) for the hero scenes: stacked words, gradient fill +
      outline, the last word in the brand-accent gradient. */
   .headline.lockup{{display:flex;flex-direction:column;gap:2px;line-height:.98;

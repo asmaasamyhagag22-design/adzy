@@ -102,14 +102,28 @@ def _remote_image_data_uri(url: str, timeout: int = 8) -> Optional[str]:
 
 
 def _trim_logo_margins(data: bytes, mime: str) -> tuple[bytes, str]:
-    """Crop a raster logo's fully-transparent border so the mark FILLS its chip instead of
-    floating small in a wide empty canvas (MEASURED: WE's we-logo has the mark on the right
-    third of a transparent 496x140 canvas). No-op for SVG / on any failure."""
+    """Key a baked white canvas to alpha, then crop the transparent border.
+
+    WHITE-KEY FIRST — MEASURED (nanocare, 2026-07-24): the brand logo is a JPG (alpha=255
+    everywhere), so its white canvas (a) shipped onto the poster as the owner's dead white
+    plate, resurrected from inside the logo file, and (b) tricked `_logo_luminance` into
+    judging "light logo" -> dark frosted badge -> the gray double-frame. The one-shot
+    compositor already routes through `white_key_logo` (owner ruling "شيل خالص مش تطفية":
+    border-connected flood-fill, guarded so real transparency and colored cards stay
+    byte-stable) — the classic path now reuses the same primitive.
+
+    THEN trim the transparent border so the mark FILLS its chip instead of floating small
+    in a wide empty canvas (MEASURED: WE's we-logo has the mark on the right third of a
+    transparent 496x140 canvas). No-op for SVG / on any failure."""
     if "svg" in mime:
         return data, mime
     try:
         import io
         from PIL import Image
+        from reel.image_quality import white_key_logo
+        keyed = white_key_logo(data)
+        if keyed is not data:                    # keying happened -> PNG with alpha now
+            data, mime = keyed, "image/png"
         im = Image.open(io.BytesIO(data)).convert("RGBA")
         bbox = im.getbbox()                      # bounds of non-zero-alpha pixels
         if bbox and bbox != (0, 0, im.width, im.height):
@@ -120,6 +134,21 @@ def _trim_logo_margins(data: bytes, mime: str) -> tuple[bytes, str]:
     except Exception:
         pass
     return data, mime
+
+
+def _rekeyed_data_uri(uri: str) -> str:
+    """The same white-key+trim for an ALREADY-INLINE logo. The webapp path hands the brief
+    a data URI directly (skipping `_remote_image_data_uri`), and the white matte must not
+    sneak through that door. SVG passes through; any failure returns the original."""
+    try:
+        head, _, b64 = uri.partition(",")
+        if not b64 or "svg" in head[:40]:
+            return uri
+        mime = head.partition(":")[2].partition(";")[0] or "image/png"
+        data, mime = _trim_logo_margins(base64.b64decode(b64), mime)
+        return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
+    except Exception:
+        return uri
 
 
 # --- adaptive logo plate (no fixed white box; no blind removal) -----------------
@@ -174,29 +203,39 @@ def _bg_region_luminance(background_path: Optional[str], box) -> Optional[float]
         return None
 
 
+
+def _logo_style_for(*, logo_lum: float, bg_lum: float) -> str:
+    """The mark's inline style: NO PLATE, EVER — a shadow sized to the ground behind it.
+
+    OWNER RULING (2026-07-26): «انا عايزة اللوجو من غير خلفية وراه». Every plate variant this
+    file has tried — the white chip, the dark chip, the frosted badge — reads as a sticker
+    glued onto the poster, and the last one was measured putting a light tone on a light ground
+    where it separated nothing at all. So the mark now sits directly on the image.
+
+    Legibility still has to be earned, so it comes from the shadow instead: the closer the
+    logo's luminance is to the background's, the harder that shadow works. A light logo casts
+    a dark shadow, a dark logo a light one — the halo is the separation."""
+    delta = abs(float(logo_lum) - float(bg_lum))
+    # 0.55 apart -> a whisper; identical -> a real halo.
+    t = max(0.0, min(1.0, (0.55 - delta) / 0.55))
+    blur = round(8 + 22 * t, 1)
+    alpha = round(0.35 + 0.45 * t, 2)
+    if logo_lum >= 0.5:                       # light mark -> dark halo
+        rgb = "0,0,0"
+    else:                                     # dark mark -> light halo
+        rgb = "255,255,255"
+    return (f"background:transparent;box-shadow:none;"
+            f"filter:drop-shadow(0 2px {blur}px rgba({rgb},{alpha}))")
+
+
 def _adaptive_logo_style(logo_src, background_path, region_box) -> Optional[str]:
-    """Choose the logo plate from the LOGO's luminance vs the BACKGROUND behind it:
-      * high contrast (logo already reads) -> NO plate, just a soft shape-shadow;
-      * low contrast -> a plate that CONTRASTS the logo (dark plate for a light logo, light
-        plate for a dark logo) — never a fixed white box, never blind removal.
-    Returns the inline-style body, or None when luminance can't be judged (SVG / failure)."""
+    """Measure the logo against what is behind it and return its inline style. None when the
+    luminance cannot be judged (SVG / failure) — the caller then draws the mark plain."""
     logo_lum = _logo_luminance(logo_src)
     bg_lum = _bg_region_luminance(background_path, region_box)
     if logo_lum is None or bg_lum is None:
         return None
-    if abs(logo_lum - bg_lum) >= 0.28:
-        # the mark already reads on the background -> NO plate, just a soft shape-shadow.
-        return "background:transparent;box-shadow:none;filter:drop-shadow(0 2px 9px rgba(0,0,0,.6))"
-    # low contrast -> a soft FROSTED-GLASS "designed badge" that contrasts the LOGO: tight
-    # padding, real blur, a subtle border, and a MUTED tone (not stark white) so it reads as
-    # glass, not a screenshot box. A light logo gets a dark badge; a dark logo a soft light
-    # one (kept light enough that a dark wordmark stays legible).
-    badge = ("padding:9px 14px;border-radius:13px;"
-             "backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);"
-             "border:1px solid rgba(255,255,255,.16);box-shadow:0 7px 22px rgba(0,0,0,.34)")
-    if logo_lum >= 0.5:                       # light logo -> dark frosted badge
-        return f"background:rgba(12,15,22,.46);{badge}"
-    return f"background:rgba(236,238,243,.60);{badge}"   # dark logo -> soft light frosted badge
+    return _logo_style_for(logo_lum=logo_lum, bg_lum=bg_lum)
 
 
 def _esc(value) -> str:
@@ -368,6 +407,20 @@ def _fonts_head_and_stacks(
     return head, font_head, font_body
 
 
+
+def _fit_stacked_size(column_px: int, longest: int, n_words: int,
+                      *, advance: float, floor: int, ceiling: int) -> int:
+    """The size that fits the column in BOTH axes.
+
+    MEASURED (Al Fouad, 2026-07-26): the size came from the longest WORD alone, so a 6-word
+    Arabic headline stacked to ~615px of type, swallowed the middle of the poster and covered
+    the hero product — «طريقة الكلام اللي في نص الصفحة مش حلو». Each word is its own line, so
+    the number of words is a height, and a fit that ignores height is half a fit."""
+    by_width = int(column_px / max(1, longest * advance))
+    by_height = int((_CH * 0.44) / max(1, n_words) / 1.14)
+    return max(floor, min(ceiling, by_width, by_height))
+
+
 def _headline_block(
     brief: PosterBrief,
     rtl: bool,
@@ -390,6 +443,14 @@ def _headline_block(
     words = text.split()
     longest = max((len(w) for w in words), default=0)
 
+    # ARABIC IS TYPESET, NOT STACKED (owner, 2026-07-26: «طريقة الكتابة مستحيلة صعبة، بتبوّظ
+    # المنتج تماماً»). One word per line reads as a designed lockup in Latin display type; in
+    # Arabic it breaks the connected word-shapes the script is actually read by, forces a huge
+    # size to fill the column, and lands the headline across the model and the product. RTL copy
+    # goes to the wrapping block — the treatment stays exactly as designed for Latin.
+    if rtl and treatment in ("lockup", "stacked_hero", "highlight"):
+        treatment = "block"
+
     # 'highlight' — one word sits inside a brand-colored block (kinetic editorial flair).
     if treatment == "highlight" and 1 <= len(words) <= 9:
         n = len(words)
@@ -408,7 +469,8 @@ def _headline_block(
         n = len(words)
         if 1 <= n <= 6 and 0 < longest <= 22:
             max_size = 154 if column_px >= 800 else 120
-            size = max(58, min(max_size, int(column_px / (longest * 0.58))))
+            size = _fit_stacked_size(column_px, longest, n,
+                                     advance=0.58, floor=58, ceiling=max_size)
             upper_cls = "" if rtl else " upper"
             spans = []
             for i, w in enumerate(words):
@@ -431,7 +493,8 @@ def _headline_block(
     # narrower in a side panel than a full-width band), so the hero is dramatic but
     # NEVER overflows the edge. ~0.62em average glyph advance for the bold display face.
     max_size = 136 if column_px >= 800 else 110
-    size = max(52, min(max_size, int(column_px / (longest * 0.6))))
+    size = _fit_stacked_size(column_px, longest, max(1, len(words)),
+                             advance=0.6, floor=52, ceiling=max_size)
     upper_cls = "" if rtl else " upper"        # Arabic/Hebrew have no letter case
     n = len(words)
     spans = []
@@ -471,6 +534,16 @@ _FULL_SHOW = ["logo", "kicker", "headline", "sub", "offerings", "cta", "contact"
 _MINIMAL_SHOW = ["logo", "headline", "cta"]
 
 
+# HOW THE CALL TO ACTION IS DRAWN. Four real treatments, not four skins of one:
+#   pill       a solid rounded button — loud, retail, what every poster used to get
+#   block      a sharp-cornered slab — editorial, modern, reads as designed rather than clicked
+#   outline    the brand colour as a hairline border on transparent — quiet, premium
+#   text_arrow no button at all: the words with a rule under them and an arrow
+# The last one is the point. A premium poster often HAS no button, and a system that can only
+# draw buttons cannot make one.
+_CTA_STYLES = ["pill", "block", "outline", "text_arrow"]
+
+
 def default_design_spec(
     brief: PosterBrief, density: str = "minimal", variation_seed: Optional[int] = None,
 ) -> PosterDesignSpec:
@@ -492,7 +565,11 @@ def default_design_spec(
     # identical across brands — not just the layout.
     _treatments = ["stacked_hero", "highlight"] if layout in _HERO_LAYOUTS else ["block", "highlight"]
     treatment = _treatments[(seed // 13) % len(_treatments)]
+    # Decorrelated again (// 29) so the button is not a passenger of the layout: two brands that
+    # happen to share a composition must not also share a button.
+    cta_style = _CTA_STYLES[(seed // 29) % len(_CTA_STYLES)]
     return PosterDesignSpec(
+        cta_style=cta_style,
         layout=layout,
         logo_corner=_LOGO_CORNER_BY_LAYOUT[layout],
         headline_treatment=treatment,
@@ -511,30 +588,88 @@ def _mirror_corner(corner: str, rtl: bool) -> str:
     return corner.replace("left", "R").replace("right", "left").replace("R", "right")
 
 
+
+# ONE GUTTER (reviewer 2026-07-26: «زرار CTA x=96، الهيدلاين x=106، اللوجو x=116 — تلات حدود
+# شمال في 20 بكسل. لو متطابقين يبقى نظام؛ 20px = حاولنا ومظبطناهاش»). Every left/right offset of
+# the logo, the text block and the button hangs on this single number.
+_GUTTER_PX = 80
+
 def _logo_corner_css(corner: str) -> str:
     v, _, h = corner.partition("_")
     vside = "top:54px;" if v == "top" else "bottom:54px;"
-    hside = "left:80px;" if h == "left" else "right:80px;"
+    hside = (f"left:{_GUTTER_PX}px;" if h == "left" else f"right:{_GUTTER_PX}px;")
     return vside + hside
 
 
+def effective_scrim_strength(requested: float, background_path, text_box=None) -> float:
+    """The scrim darkness the TEXT actually needs, measured against what is behind it.
+
+    MEASURED (Al Fouad, 2026-07-25): the subheadline «اسألي صيادلة الفؤاد عن روتينك مجاناً…»
+    renders at `#e6ecf2` over a bright white bathroom and is effectively invisible. The cause is a
+    CONSTANT where a measurement belongs — `scrim_strength` defaults to 0.82 and is applied
+    blindly, so the legibility backing is the same darkness whether the scene behind it is a night
+    street or a white tiled wall. On the dark one 0.82 is plenty; on the light one near-white type
+    lands on near-white pixels.
+
+    The measurement was already here and already trusted: `_bg_region_luminance` + `_ink_on` give
+    the LOGO a contrast-aware plate, which is why the logo always reads while the copy that carries
+    the message does not.
+
+    Bright region -> darker scrim, scaled by how bright. Dark region -> untouched, because
+    over-darkening a scene that already carries type just destroys the photograph. Capped below
+    fully opaque for the same reason: this is a legibility floor, not a black box.
+
+    Degrades to `requested` on anything it cannot measure — an unreadable file must cost nothing.
+    Deterministic and universal (D-8): arithmetic on pixels, no model, no market assumption."""
+    try:
+        req = float(requested)
+    except (TypeError, ValueError):
+        return requested
+    if not background_path:
+        return req
+    box = text_box if (text_box and len(text_box) >= 3) else [0.05, 0.55, 0.90]
+    x, y, w = float(box[0]), float(box[1]), float(box[2])
+    region = (max(0.0, x), max(0.0, y), min(1.0, x + w), min(1.0, y + 0.38))
+    lum = _bg_region_luminance(background_path, region)
+    if lum is None:
+        return req
+    # The light copy needs a dark backing. Below this the scene is already doing the work.
+    _FLOOR = 0.34
+    if lum <= _FLOOR:
+        return req
+    # Scale the whole way to a near-opaque (but never opaque) backing as the scene approaches white.
+    span = (lum - _FLOOR) / (1.0 - _FLOOR)
+    needed = req + (0.96 - req) * min(1.0, max(0.0, span))
+    return round(min(0.96, max(req, needed)), 3)
+
+
 def _lower_css(layout: str, scrim_strength: float, align: str, rtl: bool) -> str:
-    """The position + scrim CSS for the text block of one layout archetype."""
+    """The position + scrim CSS for the text block of one layout archetype.
+
+    THE SCRIM HOLDS ACROSS THE TEXT, then fades (owner, 2026-07-26: «الكلام أبيض مش باين»).
+    MEASURED on that poster: the pixels behind the white headline averaged 185/255 — about a
+    1.7:1 contrast, unreadable — even though a scrim WAS applied. The gradient reached full
+    strength at the very bottom EDGE and fell to zero going up, while the block's 130px top
+    padding puts the biggest type near the TOP. The backing was under the margin, not under
+    the words. The stops now hold `s_hi` through the copy and fade only in the last stretch,
+    so a bright scene still gets a real plate and a dark one still keeps its photograph."""
     s_hi = round(max(0.0, min(1.0, scrim_strength)), 3)
     s_mid = round(s_hi * 0.8, 3)
     al = f"text-align:{align};"
     if layout in ("bottom_band", "magazine_hero"):
-        pad = "300px 80px 70px" if layout == "magazine_hero" else "130px 80px 70px"
+        pad = (f"300px {_GUTTER_PX}px 70px" if layout == "magazine_hero" else f"130px {_GUTTER_PX}px 70px")
         return (
             f".lower{{position:absolute;left:0;right:0;bottom:0;padding:{pad};{al}"
             f"background:linear-gradient(to top, rgba(8,12,18,{s_hi}) 0%, "
-            f"rgba(8,12,18,{s_mid}) 50%, rgba(8,12,18,0) 100%);}}"
+            f"rgba(8,12,18,{s_hi}) 72%, rgba(8,12,18,{s_mid}) 86%, "
+            f"rgba(8,12,18,0) 100%);}}"
         )
     if layout == "top_anchor":
         return (
-            f".lower{{position:absolute;left:0;right:0;top:0;padding:200px 80px 96px;{al}"
+            f".lower{{position:absolute;left:0;right:0;top:0;padding:200px {_GUTTER_PX}px 96px;{al}"
             f"background:linear-gradient(to bottom, rgba(8,12,18,{s_hi}) 0%, "
-            f"rgba(8,12,18,{s_mid}) 55%, rgba(8,12,18,0) 100%);}}"
+            f"rgba(8,12,18,{s_hi}) 72%, rgba(8,12,18,{s_mid}) 86%, "
+            f"rgba(8,12,18,0) 100%);}}"
         )
     if layout in ("side_panel_left", "side_panel_right"):
         on_left = layout.endswith("left")
@@ -543,15 +678,17 @@ def _lower_css(layout: str, scrim_strength: float, align: str, rtl: bool) -> str
         if on_left:
             box = "left:0;right:auto;"
             grad = (f"linear-gradient(to right, rgba(8,12,18,{s_hi}) 0%, "
-                    f"rgba(8,12,18,{s_mid}) 62%, rgba(8,12,18,0) 100%)")
+                    f"rgba(8,12,18,{s_hi}) 74%, rgba(8,12,18,{s_mid}) 88%, "
+                    f"rgba(8,12,18,0) 100%)")
         else:
             box = "right:0;left:auto;"
             grad = (f"linear-gradient(to left, rgba(8,12,18,{s_hi}) 0%, "
-                    f"rgba(8,12,18,{s_mid}) 62%, rgba(8,12,18,0) 100%)")
+                    f"rgba(8,12,18,{s_hi}) 74%, rgba(8,12,18,{s_mid}) 88%, "
+                    f"rgba(8,12,18,0) 100%)")
         return (
             f".lower{{position:absolute;top:0;bottom:0;width:60%;{box}{al}"
             f"display:flex;flex-direction:column;justify-content:flex-end;"
-            f"padding:80px 64px 100px;background:{grad};}}"
+            f"padding:80px {_GUTTER_PX}px 100px;background:{grad};}}"
         )
     if layout == "center_editorial":
         # A soft radial faded out at the horizontal extremes, so a full-width headline's
@@ -567,8 +704,9 @@ def _lower_css(layout: str, scrim_strength: float, align: str, rtl: bool) -> str
             f"rgba(8,12,18,{s_mid}) 76%, rgba(8,12,18,0) 100%);}}"
         )
     return (
-        f".lower{{position:absolute;left:0;right:0;bottom:0;padding:130px 80px 70px;{al}"
-        f"background:linear-gradient(to top, rgba(8,12,18,{s_hi}) 0%, rgba(8,12,18,0) 100%);}}"
+        f".lower{{position:absolute;left:0;right:0;bottom:0;padding:130px {_GUTTER_PX}px 70px;{al}"
+        f"background:linear-gradient(to top, rgba(8,12,18,{s_hi}) 0%, "
+        f"rgba(8,12,18,{s_hi}) 72%, rgba(8,12,18,0) 100%);}}"
     )
 
 
@@ -589,6 +727,41 @@ def _clampf(v: float, lo: float, hi: float) -> float:
 
 
 _SAFE_MARGIN = 42        # px every element must stay inside the frame by
+
+
+
+def avoid_product_zone(text_box, product_zone, *, cluster_h: float = 0.22,
+                       product_width: Optional[float] = None):
+    """Move a free-form text cluster OFF the composited product.
+
+    REVIEWER (2026-07-26): «النص غطّى المنتج… تغطية المنتج بالتايبوجرافي خطيئة أساسية» — the
+    headline sat across the bottle and covered its SPF claim. The product lands at a DECIDED zone
+    (`poster.product_placement`), so the copy no longer has to guess: if the cluster overlaps that
+    rectangle, it is pushed to whichever side has more room, and only narrowed if it has to be.
+    Boxes already clear of the product are returned untouched — the LLM's composition still
+    decides everything this rule does not have to.
+
+    `product_width` is the footprint the placement actually computed. Without it the old 0.40
+    guess stands, which over-reserves for a slim bottle and under-reserves for a wide carton."""
+    box = list(text_box or [])
+    if len(box) < 3 or not product_zone:
+        return box
+    x, y, w = float(box[0]), float(box[1]), float(box[2])
+    px, py, ph = (list(product_zone) + [0.5, 0.3, 0.4])[:3]
+    pw = float(product_width) if product_width else 0.40
+    overlaps_x = (x < px + pw) and (x + w > px)
+    overlaps_y = (y < py + ph) and (y + cluster_h > py)
+    if not (overlaps_x and overlaps_y):
+        return box
+    left_room = px
+    right_room = 1.0 - (px + pw)
+    if left_room >= right_room:
+        w = max(0.34, min(w, left_room - 0.03))
+        x = max(0.035, min(x, px - w - 0.02))
+    else:
+        w = max(0.34, min(w, right_room - 0.03))
+        x = min(0.93 - w, px + pw + 0.02)
+    return [round(x, 4), round(y, 4), round(w, 4)]
 
 
 def _freeform_lower_css(text_box, scrim_strength: float, align: str,
@@ -630,9 +803,16 @@ def _freeform_lower_css(text_box, scrim_strength: float, align: str,
                 f"{scrim}}}")
     # Upper placement -> a soft RADIAL wash that melts into the image (a hint of legibility
     # backing, feathered to transparent at every edge — NOT a hard rounded-card with a drop-shadow).
+    # The cluster carries the headline AND the subline AND the CTA. This wash used to reach
+    # ZERO at its edges, so the bottom copy sat on bare bright photo — the same invisible-copy
+    # complaint the fixed layouts were fixed for, in the branch that fix did not touch
+    # («الكلام اللي تحت لسه فاتح»). It now keeps a legibility floor across the whole block and
+    # feathers only at the outer rim.
+    _floor = round(max(s_lo, s_hi * 0.42), 3)
     scrim = (
-        f"background:radial-gradient(135% 135% at 50% 42%, rgba(8,12,18,{s_hi}) 0%, "
-        f"rgba(8,12,18,{s_mid}) 50%, rgba(8,12,18,{s_lo}) 78%, rgba(8,12,18,0) 100%);"
+        f"background:radial-gradient(150% 150% at 50% 46%, rgba(8,12,18,{s_hi}) 0%, "
+        f"rgba(8,12,18,{round(s_hi * 0.92, 3)}) 46%, rgba(8,12,18,{s_mid}) 72%, "
+        f"rgba(8,12,18,{_floor}) 100%);"
     )
     common = (f"position:absolute; left:{left}px; width:{width}px; text-align:{align}; "
               f"display:flex; flex-direction:column; align-items:{items}; "
@@ -661,7 +841,19 @@ def render_poster_html(
     background_path: Optional[str] = None,
     spec: Optional[PosterDesignSpec] = None,
     density: str = "minimal",
+    copy_ink: str = "#f5f3ef",
+    product_zone: Optional[tuple] = None,
+    product_width: Optional[float] = None,
 ) -> str:
+    """`product_zone` is where the product was ACTUALLY placed for this poster
+    (`poster.product_placement.decide_placement`, confirmed against the rendered scene). It used
+    to be read from a module-level constant, which meant the copy fled a rectangle the product
+    might not be in — true about some other poster, wrong about this one. None = no product.
+
+    `copy_ink` is MEASURED by the caller against this very background
+    (`poster.contrast_gate.ink_for_background`). MEASURED (v9): three attempts on a bright
+    pharmacy scene scored 2.72, 2.01 and 1.16:1 in white — the remedy for a bright ground is
+    not moving white copy, it is dark ink."""
     # The DESIGN spec drives the composition. When none is supplied we synthesize a
     # deterministic-but-varied one (per-brand hash) so output isn't one-size-fits-all;
     # the LLM art-director supplies a data-driven spec in the full pipeline.
@@ -677,6 +869,7 @@ def render_poster_html(
     kicker_color = _legible_on_dark(accent_rgb)   # readable on the dark scrim
     cta_bg = accent                               # keep the brand color on the button
     cta_text = _readable_on(accent_rgb)           # white on a dark brand color, dark on a light one
+
     # Lockup-headline gradient (the DNA "internal gradient" treatment): the brand accent -> a
     # second vivid palette color, or a lighter shade of the accent when the palette has only one.
     _pal2 = [str(c) for c in ([brief.primary_color] + list(brief.palette_hex or []))
@@ -731,7 +924,7 @@ def render_poster_html(
     # Brand mark: a real logo image (inlined) on a light plate; else wordmark text.
     logo_src = None
     if brief.logo_url and brief.logo_url.startswith("data:image"):
-        logo_src = brief.logo_url
+        logo_src = _rekeyed_data_uri(brief.logo_url)   # inline logos get the same white-key
     elif brief.logo_url and brief.logo_url.startswith(("http://", "https://")):
         logo_src = _remote_image_data_uri(brief.logo_url)
     # RTL: detect from the actual copy (Arabic headline/brand) -> right-align the
@@ -752,15 +945,72 @@ def render_poster_html(
     # default — never the boring system serif. The per-run variation seed (from the
     # spec) varies the pairing so the FONTS change between runs of the same brand.
     font_links, font_head, font_body = _fonts_head_and_stacks(brief, rtl, spec.variation_seed)
+    # THE BUTTON IS A DESIGN DECISION. This block used to be one hardcoded pill on every poster of
+    # every brand — the owner spotted it across four posters in a row. Each archetype is a real
+    # treatment with its own weight; `text_arrow` deliberately draws NO button, because a premium
+    # poster often has none and a renderer that can only draw buttons cannot make one.
+    _cta_style = getattr(spec, "cta_style", "pill") or "pill"
+    _cta_shadow = "box-shadow:0 16px 40px -10px rgba(0,0,0,.6);"
+    if _cta_style == "block":
+        cta_css = (f".cta{{display:inline-flex;align-items:center;gap:12px;background:{cta_bg};"
+                   f"color:{cta_text};padding:24px 56px;border-radius:6px;{_cta_shadow}}}"
+                   f".cta-text{{font-family:{font_body};font-weight:800;font-size:30px;"
+                   "letter-spacing:.04em;text-transform:uppercase;}")
+    elif _cta_style == "outline":
+        cta_css = (f".cta{{display:inline-flex;align-items:center;gap:12px;background:transparent;"
+                   f"color:{cta_bg};padding:20px 48px;border-radius:999px;"
+                   f"border:2.5px solid {cta_bg};}}"
+                   f".cta-text{{font-family:{font_body};font-weight:700;font-size:27px;"
+                   "letter-spacing:.02em;}")
+    elif _cta_style == "text_arrow":
+        # No plate, no fill. The words themselves, with a rule under them — so the CTA reads as
+        # part of the writing rather than a control pasted onto a photograph.
+        cta_css = (f".cta{{display:inline-flex;align-items:center;gap:14px;background:none;"
+                   f"color:{copy_ink};padding:6px 0 10px 0;border:0;"
+                   f"border-bottom:3px solid {cta_bg};}}"
+                   f".cta-text{{font-family:{font_body};font-weight:800;font-size:30px;"
+                   "letter-spacing:.01em;}"
+                   f".cta::after{{content:'\2190';font-size:26px;color:{cta_bg};font-weight:900;}}")
+    else:
+        cta_css = (f".cta{{display:inline-flex;align-items:center;gap:12px;background:{cta_bg};"
+                   f"color:{cta_text};padding:22px 52px;border-radius:999px;"
+                   f"border:1.5px solid rgba(255,255,255,.28);{_cta_shadow}}}"
+                   f".cta-text{{font-family:{font_body};font-weight:800;font-size:28px;"
+                   "text-transform:capitalize;letter-spacing:.01em;}")
 
     # Layout-driven CSS. FREE-FORM (spec.text_box set) places the cluster + logo at
     # continuous coords (unbounded compositions); else one of the 6 fixed archetypes.
+    # MEASURE THE BACKGROUND BEFORE DRAWING ON IT. The scrim used to be whatever the spec asked
+    # for, which is how near-white copy ended up on a near-white bathroom wall. The logo has always
+    # been given this treatment; the text that carries the message had not.
+    # DARK INK CHANGES THE PHYSICS. A scrim exists to darken a bright ground so WHITE type
+    # reads; with dark type measured as the better ink, darkening is exactly wrong — the copy
+    # gets a light veil instead, and its halo flips from black to white.
+    _dark_ink = str(copy_ink or "").lower() not in ("#fff", "#ffffff", "#f5f3ef", "#f3f7fb")
+    _scrim = effective_scrim_strength(spec.scrim_strength, background_path, spec.text_box)
+    if _dark_ink:
+        _scrim = 0.0
+    _ink_shadow = ("0 1px 6px rgba(255,255,255,.85)" if _dark_ink
+                   else "0 2px 10px rgba(0,0,0,.55)")
+    # The chips carry a plate; under dark ink a dark plate is black-on-black.
+    chip_bg = "rgba(255,255,255,.72)" if _dark_ink else "rgba(10,14,20,.58)"
+    chip_border = ("1px solid rgba(20,20,20,.18)" if _dark_ink
+                   else "1px solid rgba(255,255,255,.20)")
     if spec.text_box:
-        lower_layout_css = _freeform_lower_css(spec.text_box, spec.scrim_strength, align, arche)
+        # THE COPY NEVER SITS ON THE PRODUCT (reviewer 2026-07-26). The product is composited at
+        # a known zone, so the cluster is pushed off it before anything is laid out.
+        _tb = spec.text_box
+        try:
+            _tb = (avoid_product_zone(list(spec.text_box), product_zone,
+                                      product_width=product_width)
+                   if product_zone else list(spec.text_box))
+        except Exception:  # noqa: BLE001 — a layout nicety must never break a render
+            _tb = spec.text_box
+        lower_layout_css = _freeform_lower_css(_tb, _scrim, align, arche)
         logo_pos_css = _freeform_logo_css(spec.logo_xy)
     else:
         mark_corner = _mirror_corner(spec.logo_corner, rtl)
-        lower_layout_css = _lower_css(spec.layout, spec.scrim_strength, align, rtl)
+        lower_layout_css = _lower_css(spec.layout, _scrim, align, rtl)
         logo_pos_css = _logo_corner_css(mark_corner)
 
     # A short accent rule above the headline — a small piece of brand-colored
@@ -772,16 +1022,18 @@ def render_poster_html(
         if logo_src:
             # ADAPTIVE plate: contrast the logo against the real background behind it — no
             # plate when the mark already reads (natural integration), else a plate that
-            # contrasts the LOGO. Falls back to the capture-time chip flag when luminance
-            # can't be judged (e.g. an SVG logo): light/white logo -> dark plate.
+            # NO PLATE ON ANY PATH (owner ruling: «اللوجو من غير خلفية وراه»). The measured
+            # style is a shadow; when luminance cannot be judged (SVG) the mark still gets a
+            # neutral halo rather than the old dark chip — a box was never wanted, and a box
+            # drawn because we could not measure is the worst version of it.
             region = _logo_region_box(None if spec.text_box else mark_corner,
                                       spec.logo_xy if spec.text_box else None)
             adaptive = _adaptive_logo_style(logo_src, background_path, region)
-            if adaptive:
-                chip_style = f' style="{adaptive}"'
-            else:
-                chip_style = (' style="background:rgba(18,20,26,.92)"'
-                              if getattr(brief, "logo_chip", "light") == "dark" else "")
+            if not adaptive:
+                adaptive = _logo_style_for(
+                    logo_lum=(0.85 if getattr(brief, "logo_chip", "light") == "dark" else 0.20),
+                    bg_lum=0.5)
+            chip_style = f' style="{adaptive}"' 
             brand_html = f'<img class="brand-logo"{chip_style} src="{logo_src}" alt="{_esc(brief.business_name)}">'
         else:
             brand_html = f'<div class="brand">{_esc(brief.business_name)}</div>'
@@ -828,12 +1080,12 @@ def render_poster_html(
   .canvas {{
     position:relative; width:1080px; height:1350px; overflow:hidden;
     background:#0e131b {bg_layer};
-    font-family:{font_body}; color:#f5f3ef;
+    font-family:{font_body}; color:{copy_ink};
   }}
   .brand {{
     position:absolute; max-width:420px;
-    font-family:{font_head}; font-size:32px; font-weight:700; letter-spacing:.01em; color:#ffffff;
-    text-shadow:0 2px 10px rgba(0,0,0,.55);
+    font-family:{font_head}; font-size:32px; font-weight:700; letter-spacing:.01em; color:{copy_ink};
+    text-shadow:{_ink_shadow};
   }}
   .brand-logo {{
     position:absolute; max-height:104px; max-width:420px;
@@ -853,14 +1105,14 @@ def render_poster_html(
   }}
   .headline {{
     font-family:{font_head}; font-size:67px; line-height:1.05; font-weight:800;
-    letter-spacing:-.012em; margin-bottom:24px; text-shadow:0 2px 18px rgba(0,0,0,.45);
+    letter-spacing:-.012em; margin-bottom:24px; text-shadow:{_ink_shadow};
   }}
   /* stacked-hero headline (the 'BUSINESS / IDEAS' treatment) — a strong DISPLAY LOCKUP:
      heavy weight, tight leading, a crisp shadow for punch (art-critic: 'not a flat font'). */
   .hero-headline {{
     display:flex; flex-direction:column; gap:0; margin-bottom:24px;
     font-family:{font_head}; font-weight:800; line-height:.96; letter-spacing:-.02em;
-    text-shadow:0 2px 18px rgba(0,0,0,.45);
+    text-shadow:{_ink_shadow};
   }}
   .hero-headline .hw {{ display:block; }}
   .hero-headline.upper .hw {{ text-transform:uppercase; }}
@@ -895,6 +1147,14 @@ def render_poster_html(
   }}
   .lockup-flat {{ -webkit-text-stroke:1.3px rgba(6,9,14,.40); }}
   [dir="rtl"] .lockup-headline {{ letter-spacing:normal; line-height:1.08; gap:4px; }}
+  /* MEASURED (nanocare, 2026-07-24): -webkit-text-stroke outlines every GLYPH separately, and
+     Arabic glyphs JOIN — so a seam gets drawn across every letter joint ("folded pipes") and the
+     outline traces internal contours at terminals. Same failure family as the negative tracking
+     above: per-glyph typography on a connected script. The gradient fill + drop-shadows were
+     measured clean, so RTL keeps the designed look and drops ONLY the stroke. */
+  [dir="rtl"] .lockup-headline .lw,
+  [dir="rtl"] .lockup-headline .lw.accent,
+  [dir="rtl"] .lockup-flat {{ -webkit-text-stroke:0; }}
   /* 'highlight' treatment — one word knocked out inside a clean brand-colored block.
      No tilt: a rotated sticker read amateurish over a photo (MEASURED on ITI). */
   .hl-head {{ line-height:1.32; }}
@@ -905,25 +1165,19 @@ def render_poster_html(
   }}
   .sub {{
     font-family:{font_body}; font-size:24px; line-height:1.42;
-    color:#e6ecf2; margin-bottom:30px; max-width:780px;
+    color:{copy_ink}; margin-bottom:30px; max-width:780px;
   }}
   .offerings {{ list-style:none; display:flex; flex-wrap:wrap; gap:12px; margin-bottom:34px; }}
   .lower.align-center .offerings {{ justify-content:center; }}
   .offerings li {{
     font-family:{font_body}; font-size:19px; font-weight:500; padding:10px 18px;
-    background:rgba(10,14,20,.58); border:1px solid rgba(255,255,255,.20);
-    border-radius:999px; color:#f3f7fb; backdrop-filter:blur(2px);
+    background:{chip_bg}; border:{chip_border};
+    border-radius:999px; color:{copy_ink}; backdrop-filter:blur(2px);
   }}
   /* A confident, high-contrast CTA button (art-critic: the pill was a tiny footnote). */
   /* CTA: a solid high-contrast button — a light hairline border + strong dark shadow so it
      pops on ANY background (QA: the chip read low-contrast over a busy scene). */
-  .cta {{
-    display:inline-flex; align-items:center; gap:12px;
-    background:{cta_bg}; color:{cta_text}; padding:22px 52px; border-radius:999px;
-    border:1.5px solid rgba(255,255,255,.28);
-    box-shadow:0 16px 40px -10px rgba(0,0,0,.6);
-  }}
-  .cta-text {{ font-family:{font_body}; font-weight:800; font-size:28px; text-transform:capitalize; letter-spacing:.01em; }}
+  {cta_css}
   .contact {{ font-family:{font_body}; font-size:18px; color:#cdd6df; margin-top:22px; }}
   .socials {{ font-family:{font_body}; font-size:18px; color:#aeb8c4; margin-top:12px; letter-spacing:.02em; }}
   /* layout-driven: text-block placement/scrim + brand-mark corner (per design spec) */

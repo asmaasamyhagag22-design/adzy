@@ -9,12 +9,24 @@ any failure. Never raises.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Optional
 
 from reel.ffmpeg_tools import run_ffmpeg
+# ONE PLACE DECIDES HOW LONG THE CLOSE IS. The card's length and its overlap are part of the
+# delivered runtime, so they are owned by `reel/runtime.py` — a second literal here is how the
+# budget and the card drift apart, which is the arithmetic that made every 15-second reel 15.3-17.6.
+from reel.runtime import ENDCARD_S, ENDCARD_XFADE_S
 from reel.schemas import REEL_H, REEL_W
 from reel.textlayer import _FONTS_LINK
+
+
+# THE ERROR HANDLER USED TO BE THE ERROR. `logger` was referenced twice in this module — once
+# when the reel's dimensions cannot be probed, once in the catch-all that reports a failed
+# append — and never defined. So both paths raised NameError from INSIDE the handler: the code
+# written to explain a lost end-card was the code that hid the reason for it.
+logger = logging.getLogger(__name__)
 
 
 # ----- small colour helpers (contrast-aware background) -----
@@ -70,14 +82,30 @@ def _logo_mean_luma(logo_url: Optional[str]) -> float:
 
 def _endcard_html(logo_uri: Optional[str], name: str, cta: str, url_label: str,
                   accent: str, accent2: str, rtl: bool, width: int, height: int,
-                  *, elegant: bool, dark: bool) -> str:
+                  *, elegant: bool, dark: bool, ground_uri: str = "") -> str:
     ac = _hex_to_rgb(accent)
-    if dark:
+    if ground_uri:
+        # THE END CARD BELONGS TO THE FILM (owner, 2026-07-28: «الخاتمة تبقى مميزة بالجو بردو
+        # بالألوان الطبيعية… متخليهوش أبيض لأنها خلصت كتير قبل كده»).
+        #
+        # Both synthetic branches below are cards: a gradient the reel has never seen, arriving
+        # after eighteen seconds of a real place. The ivory one in particular ended reel after
+        # reel on the same white, which is the specific thing being ruled out. Grounding the card
+        # on the film's OWN last frame — blurred past recognition, darkened, tinted toward the
+        # brand accent — keeps the natural colours of the world the viewer was just in and gives
+        # the logo a clean dark field to sit on. The frame is already extracted for continuity.
+        bg = (f"linear-gradient(0deg, rgba(6,6,8,.82), rgba(6,6,8,.82)), "
+              f"radial-gradient(120% 96% at 50% 42%, {_rgb_to_hex(_mix(ac, (12, 11, 16), 0.55))}66 0%, "
+              f"transparent 62%), url('{ground_uri}') center/cover no-repeat")
+        ink, sub = "#F7F2EC", "rgba(247,242,236,0.80)"
+        rule = _rgb_to_hex(_mix(ac, (255, 255, 255), 0.28))
+        cta_border = "rgba(247,242,236,0.50)"
+    elif dark:
         # deep brand-tinted charcoal (keeps the brand hue but dark, so a light/gold logo pops)
         center = _rgb_to_hex(_mix(ac, (12, 11, 16), 0.72))
         mid = _rgb_to_hex(_mix(ac, (8, 8, 11), 0.87))
         bg = f"radial-gradient(120% 96% at 50% 42%, {center} 0%, {mid} 58%, #060608 100%)"
-        ink, sub = "#F5EFE9", "rgba(245,239,233,0.60)"
+        ink, sub = "#F5EFE9", "rgba(245,239,233,0.78)"
         rule = _rgb_to_hex(_mix(ac, (255, 255, 255), 0.20))
         cta_border = "rgba(245,239,233,0.45)"
     else:
@@ -85,7 +113,7 @@ def _endcard_html(logo_uri: Optional[str], name: str, cta: str, url_label: str,
         center = _rgb_to_hex(_mix(ac, (255, 255, 255), 0.86))
         mid = _rgb_to_hex(_mix(ac, (255, 255, 255), 0.93))
         bg = f"radial-gradient(120% 96% at 50% 42%, {center} 0%, {mid} 62%, #F3ECE2 100%)"
-        ink, sub = "#2A1A1F", "rgba(42,26,31,0.58)"
+        ink, sub = "#2A1A1F", "rgba(42,26,31,0.74)"
         rule = _rgb_to_hex(_mix(ac, (0, 0, 0), 0.12))
         cta_border = _rgb_to_hex(_mix(ac, (0, 0, 0), 0.18))
 
@@ -97,7 +125,9 @@ def _endcard_html(logo_uri: Optional[str], name: str, cta: str, url_label: str,
 
     logo_block = (f'<div class="logo-wrap"><div class="halo"></div>'
                   f'<img class="logo" src="{logo_uri}"></div>' if logo_uri else "")
-    name_block = f'<div class="name">{name}</div>' if name else ""
+    # The wordmark ALREADY says the name — repeating it as plain text under the logo reads
+    # amateur (owner on the v2 card: «جودة الاند وحشة»). The text name is the NO-LOGO fallback.
+    name_block = f'<div class="name">{name}</div>' if (name and not logo_uri) else ""
     # The old chunky white "button" implied a tap in a NON-interactive video (owner: "الزار دا
     # إيه لازمته"). Elegant brands: no fake button — the brand's own URL is the real "where to
     # go", set as a refined letter-spaced line. Non-elegant: a light hairline CTA chip + the URL.
@@ -115,21 +145,21 @@ def _endcard_html(logo_uri: Optional[str], name: str, cta: str, url_label: str,
  .grain{{position:absolute;inset:0;opacity:.05;pointer-events:none;
    background:radial-gradient(circle at 50% 42%, rgba(255,255,255,.10) 0%, transparent 42%);}}
  .wrap{{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
-   display:flex;flex-direction:column;align-items:center;gap:34px;padding:0 96px;box-sizing:border-box;}}
+   display:flex;flex-direction:column;align-items:center;gap:30px;padding:0 96px;box-sizing:border-box;}}
  .logo-wrap{{position:relative;display:flex;align-items:center;justify-content:center;}}
  .halo{{position:absolute;width:170%;height:270%;left:-35%;top:-85%;z-index:0;pointer-events:none;
    background:radial-gradient(circle at 50% 50%, {accent}5c 0%, {accent}26 34%, transparent 66%);
    filter:blur(34px);}}
- .logo{{position:relative;z-index:1;height:{round(height*0.165)}px;max-width:74%;object-fit:contain;
+ .logo{{position:relative;z-index:1;height:{round(height*0.19)}px;max-width:78%;object-fit:contain;
    filter:drop-shadow(0 8px 26px rgba(0,0,0,{'0.55' if dark else '0.16'}));}}
  .rule{{width:56px;height:1px;background:{rule};opacity:.85;}}
  .name{{font-family:{head_family};font-weight:{name_weight};font-size:{name_size}px;
    letter-spacing:{name_ls};line-height:1.16;max-width:82%;}}
  .cta{{font-family:'Space Grotesk','Cairo',sans-serif;font-weight:600;
-   font-size:{round(width*0.032)}px;letter-spacing:0.14em;text-transform:uppercase;color:{ink};
+   font-size:{round(width*0.035)}px;letter-spacing:0.14em;text-transform:uppercase;color:{ink};
    border:1px solid {cta_border};border-radius:999px;padding:0.7em 1.7em;}}
- .url{{font-family:'Space Grotesk','Cairo',sans-serif;font-weight:600;font-size:{round(width*0.028)}px;
-   letter-spacing:0.18em;text-transform:uppercase;color:{sub};}}
+ .url{{font-family:'Space Grotesk','Cairo',sans-serif;font-weight:700;font-size:{round(width*0.031)}px;
+   letter-spacing:0.2em;text-transform:uppercase;color:{sub};}}
 </style></head>
 <body><div class="card"><div class="grain"></div>
  <div class="wrap">{logo_block}<div class="rule"></div>{name_block}{cta_block}{url_block}</div>
@@ -153,7 +183,8 @@ def _url_label(profile: dict) -> str:
     return ""
 
 
-def render_endcard(profile: dict, out_png: Path, *, width: int = REEL_W, height: int = REEL_H) -> Optional[Path]:
+def render_endcard(profile: dict, out_png: Path, *, width: int = REEL_W, height: int = REEL_H,
+                   ground_frame: "str | Path | None" = None) -> Optional[Path]:
     """Render the brand end-card to a PNG via Chromium (Arabic shapes correctly). None on failure."""
     try:
         from playwright.sync_api import sync_playwright
@@ -175,8 +206,11 @@ def render_endcard(profile: dict, out_png: Path, *, width: int = REEL_W, height:
         # end-card the owner flagged). A light/gold/white logo -> dark card; a dark logo -> light.
         elegant = _reel_theme(profile) == "elegant"
         dark = _logo_mean_luma(brief.logo_url) >= 130.0
+        # The film's own last frame, blurred and darkened, as the card's ground.
+        ground_uri = _ground_data_uri(ground_frame, width, height)
         html = _endcard_html(logo_uri, name, cta, _url_label(profile), accent, accent2,
-                             is_rtl(name), width, height, elegant=elegant, dark=dark)
+                             is_rtl(name), width, height, elegant=elegant, dark=dark,
+                             ground_uri=ground_uri)
 
         out_png = Path(out_png)
         out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -192,39 +226,103 @@ def render_endcard(profile: dict, out_png: Path, *, width: int = REEL_W, height:
                 page.screenshot(path=str(out_png), clip={"x": 0, "y": 0, "width": width, "height": height})
             finally:
                 browser.close()
+        # P-38: trim any near-black letterbox band off the rendered card (a no-op on our full-canvas
+        # HTML, but the safety net the frame inspection asked for). Reuses the reel image trimmer.
+        if out_png.exists():
+            try:
+                from reel.image_quality import trim_letterbox_png
+                trim_letterbox_png(str(out_png))
+            except Exception:
+                pass
         return out_png if out_png.exists() else None
     except Exception:
         return None
 
 
-def append_endcard_to_reel(profile: dict, video_path: str | Path, *, seconds: float = 2.6,
-                           fps: int = 30, width: int = REEL_W, height: int = REEL_H) -> bool:
+def _video_dims(path: "str | Path") -> "tuple[int, int] | None":
+    """(width, height) from ffmpeg's stderr banner. None on failure — the caller must then
+    say so, not guess."""
+    import re
+    import subprocess
+
+    from reel.ffmpeg_tools import ffmpeg_exe
+    try:
+        r = subprocess.run([ffmpeg_exe(), "-i", str(path)], capture_output=True, text=True)
+        m = re.search(r"Video:.*?\s(\d{2,5})x(\d{2,5})", r.stderr or "")
+        if m:
+            return int(m.group(1)), int(m.group(2))
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def append_endcard_to_reel(profile: dict, video_path: str | Path, *,
+                           seconds: float = ENDCARD_S, fps: int = 30,
+                           width: int = 0, height: int = 0,
+                           tail_audio: "str | Path | None" = None) -> bool:
     """Append a ~`seconds` brand end-card (gentle push-in + fade) to the reel, IN PLACE, with a
-    short cross-fade from the last scene. Best-effort: returns False (reel untouched) on failure."""
+    short cross-fade from the last scene. Returns False (reel untouched) on failure — the
+    CALLER stamps that outcome; nothing here may pretend it appended.
+
+    The card is rendered at the REEL'S OWN probed dimensions, never a fixed canvas: the v2 Abu
+    Auf reel measured 772x1372 while the card assumed 768x1366, xfade refused the mismatch, and
+    the reel shipped card-less behind a printed [ok].
+
+    `tail_audio` is the sound bed the film was cut to, written long enough to cover this card.
+    Without it the card gets `anullsrc` and the reel's audio cross-fades INTO SILENCE — which is
+    why every delivered reel went quiet before its last frame (MEASURED: alfouad_run3 silent from
+    12.73s of 15.30s, nanocare_film from 10.40s of 16.69s). A commercial does the opposite: the
+    track lands ON the end frame. Defaults to `<reel>.bed.m4a`, which is exactly where
+    `reel/creative.py` writes it, so the common path needs no plumbing; still silent when there is
+    no bed, because inventing audio for a card is worse than a quiet one."""
     try:
         from reel.motion import _clip_duration, _has_audio
 
         video_path = Path(video_path)
         if not video_path.is_file():
             return False
+        dims = _video_dims(video_path)
+        if dims:
+            # libx264 needs EVEN dimensions; an odd-width reel would fail the card encode
+            # and silently cost the card again.
+            width, height = (dims[0] - dims[0] % 2, dims[1] - dims[1] % 2)
+        elif not (width and height):
+            logger.warning("endcard: could not probe the reel's dimensions — not appending")
+            return False
         work = video_path.parent
-        png = render_endcard(profile, work / "_endcard.png", width=width, height=height)
+        # THE CARD ENDS THE FILM IT IS ATTACHED TO. This function already holds the finished reel,
+        # so the frame the viewer is looking at one instant before the card appears is free to
+        # take — the same extractor the continuity chain uses. `None` on any failure, and the card
+        # falls back to its synthetic gradient: a decoration must never cost the card itself.
+        try:
+            from reel.continuity import tail_frame
+            ground = tail_frame(video_path, work / "_endcard_ground.png")
+        except Exception:  # noqa: BLE001
+            ground = None
+        png = render_endcard(profile, work / "_endcard.png", width=width, height=height,
+                             ground_frame=ground)
         if png is None:
             return False
 
-        # end-card -> a clip: slow push-in + fade-in
+        # end-card -> a clip: slow push-in. NO SECOND DISSOLVE.
+        #
+        # This carried `fade=t=in:st=0:d=0.4` on top of the 0.5s xfade below, so the logo arrived
+        # through TWO overlapping dissolves — 0.9s of the card's 1.8s spent not yet being visible.
+        # The mark smeared into view instead of landing, which is the opposite of what an end frame
+        # is for: the last thing a viewer sees should arrive on a beat and hold. The xfade IS the
+        # join; a card that also fades in is fading in twice.
         card = work / "_endcard.mp4"
         frames = int(seconds * fps)
         vf = (f"scale={width}:{height},zoompan=z='1.0+0.05*on/{frames}':d={frames}:"
               f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={width}x{height}:fps={fps},"
-              f"fade=t=in:st=0:d=0.4,format=yuv420p")
+              f"format=yuv420p")
         run_ffmpeg(["-loop", "1", "-i", str(png), "-t", f"{seconds:.2f}", "-vf", vf, "-r", str(fps),
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "medium", "-crf", "20", str(card)])
 
         # xfade the reel -> the end-card; the reel's AUDIO (Veo voiceover + ambience) must
         # SURVIVE the append — the silent card gets a padded track and the sound cross-fades
         # to silence over it (mapping only [v] here used to drop the whole voiceover).
-        t = 0.5
+        t = ENDCARD_XFADE_S
         main_dur = _clip_duration(video_path)
         off = max(0.0, main_dur - t)
         out = work / "_with_endcard.mp4"
@@ -233,13 +331,27 @@ def append_endcard_to_reel(profile: dict, video_path: str | Path, *, seconds: fl
         args = ["-i", str(video_path), "-i", str(card)]
         maps = ["-map", "[v]"]
         if _has_audio(video_path):
-            args += ["-f", "lavfi", "-t", f"{seconds:.2f}",
-                     "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+            # THE CARD'S AUDIO IS THE FILM'S LAST BAR, not silence. The bed was synthesized to
+            # cover `main_dur + seconds - t`, so its final `seconds` are exactly what belongs
+            # under the card; seeking to that offset keeps the music continuous across the join
+            # instead of cross-fading a track into nothing.
+            bed = Path(tail_audio) if tail_audio else video_path.with_suffix(".bed.m4a")
+            bed_dur = _clip_duration(bed) if bed.is_file() else 0.0
+            if bed.is_file() and bed_dur > main_dur + 0.05:
+                args += ["-ss", f"{max(0.0, bed_dur - seconds):.3f}", "-t", f"{seconds:.2f}",
+                         "-i", str(bed)]
+            else:
+                args += ["-f", "lavfi", "-t", f"{seconds:.2f}",
+                         "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
             # apad the reel's audio to EXACTLY the probed video length first: if the
             # AAC track runs a few ms short, acrossfade starves at the join and the
             # voiceover cuts abruptly instead of fading into the card.
+            # The fade lives in the GRAPH, not in an `-af` before an input — `-af` is an output
+            # option and would be applied to the wrong stream (or rejected). It runs on either
+            # branch: fading silence is a no-op, and one path is easier to trust than two.
             graph += (f";[0:a]apad=whole_dur={main_dur:.3f}[a0]"
-                      f";[a0][2:a]acrossfade=d={t}[aout]")
+                      f";[2:a]afade=t=out:st={max(0.0, seconds - 0.6):.2f}:d=0.6[a2]"
+                      f";[a0][a2]acrossfade=d={t}[aout]")
             maps += ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]
         run_ffmpeg(args + ["-filter_complex", graph] + maps
                    + ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),
@@ -252,5 +364,44 @@ def append_endcard_to_reel(profile: dict, video_path: str | Path, *, seconds: fl
             except OSError:
                 pass
         return True
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        # LOUD (v2 lesson): the 0-byte _with_endcard.mp4 sat on disk while [ok] printed.
+        logger.warning("endcard append FAILED (%s: %s) — the reel ships without its card",
+                       type(exc).__name__, str(exc)[:200])
         return False
+
+
+def _ground_data_uri(frame: "str | Path | None", width: int, height: int) -> str:
+    """The reel's last frame as a blurred, darkened data URI for the end card's ground.
+
+    Blurred PAST RECOGNITION on purpose. The point is not to show the scene again — the viewer
+    just watched it — but to end on the film's own COLOUR and light instead of on a generated
+    card. Anything still legible would read as a freeze-frame the edit forgot to cut.
+
+    Returns "" for anything unusable, and the caller falls back to the synthetic gradient. An end
+    card must never fail to exist because a decoration could not be made."""
+    import base64
+    import io
+    if not frame:
+        return ""
+    try:
+        from PIL import Image, ImageEnhance, ImageFilter
+        p = Path(str(frame))
+        if not p.is_file():
+            return ""
+        im = Image.open(p).convert("RGB")
+        # Cover-fit to the card, then blur relative to the SHORT side so the effect is the same
+        # whatever resolution the reel rendered at.
+        scale = max(width / im.width, height / im.height)
+        im = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))),
+                       Image.LANCZOS)
+        left, top = (im.width - width) // 2, (im.height - height) // 2
+        im = im.crop((left, top, left + width, top + height))
+        im = im.filter(ImageFilter.GaussianBlur(radius=max(18, min(width, height) * 0.055)))
+        im = ImageEnhance.Brightness(im).enhance(0.55)
+        im = ImageEnhance.Color(im).enhance(0.85)
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=82)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:  # noqa: BLE001
+        return ""

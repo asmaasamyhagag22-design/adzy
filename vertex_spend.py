@@ -33,7 +33,22 @@ class SpendRefused(RuntimeError):
 
 
 def monthly_cap_usd() -> float:
-    return float(os.getenv("VERTEX_MONTHLY_CAP_USD", "50"))
+    """UNLIMITED unless `VERTEX_MONTHLY_CAP_USD` says otherwise.
+
+    OWNER RULING 2026-07-25, «شيل اي حدود ع اي ميزانيه», taken with the exposure stated first:
+    Veo bills $0.40/SECOND, and an uncapped renderer is exactly what produced this project's
+    $228-in-four-days incident. She was shown that and chose to lift this one too.
+
+    THE METER SURVIVES: `record` still writes every render to `runs/vertex_spend.jsonl` with its
+    cost, and `guard_image`/`guard_video` still price each call — so "how much did today cost?"
+    stays answerable to the cent. Set the env var to a number to put a ceiling back."""
+    raw = str(os.getenv("VERTEX_MONTHLY_CAP_USD") or "").strip()
+    if not raw:
+        return float("inf")
+    try:
+        return float(raw)
+    except ValueError:
+        return float("inf")
 
 
 def _veo_usd_per_sec() -> float:
@@ -181,7 +196,8 @@ def record(kind: str, units: float, est_cost_usd: float, *, model: str = "", det
 
 
 def guard_video(seconds: float, *, detail: str = "", model: str = "",
-                ledger: Optional[Path] = None, max_usd: Optional[float] = None) -> float:
+                ledger: Optional[Path] = None, max_usd: Optional[float] = None,
+                reserve_usd: float = 0.0) -> float:
     """Pre-flight a Veo render: raise SpendRefused if it would breach the PER-RUN budget or the
     monthly cap, else return the estimate (the caller records() it after a successful render).
 
@@ -194,17 +210,37 @@ def guard_video(seconds: float, *, detail: str = "", model: str = "",
     `check_budget(cap=...)`. We REFUSE the clip rather than silently truncate the reel: the caller
     surfaces it at HITL so a human can approve an override or shorten the reel.
     """
+    # `reserve_usd` — WHAT THIS CALL IS NOT ALLOWED TO EAT.
+    #
+    # MEASURED 2026-08-06 on the live NTI reel. Scene 0 failed its QA twice, so it bought three
+    # clips. The run hit the $12 ceiling on scene 0, and scenes 1, 2 AND 3 were then refused their
+    # FIRST clip and fell back to Ken Burns — three quarters of a four-scene film became panned
+    # stills because one shot was re-rolled. The ceiling did its job; the ORDER was the defect.
+    #
+    # A budget spent first-come-first-served lets a retry take a base clip that another scene has
+    # not asked for yet. So the caller now passes what the REMAINING scenes still owe, and this
+    # call may only spend above that line. A first attempt reserves nothing (it IS the base cost);
+    # a retry reserves every base clip still to come. Default 0.0 = the old behaviour exactly.
     est = est_video_cost_usd(seconds)
+    reserve = max(0.0, float(reserve_usd or 0.0))
     run_cap = max_usd if max_usd is not None else veo_max_usd_per_run()
     spent_run = run_spend_usd("veo", ledger=ledger)
-    if spent_run + est > run_cap:
+    # COMPARE IN CENTS. MEASURED while adding `reserve_usd`: reserving pushes this comparison onto
+    # the boundary constantly (spent 3.20 + est 1.60 vs a 4.80 allowance), and in binary floating
+    # point `3.2 + 1.6 == 4.800000000000001` — so a scene lost its only clip to a rounding error
+    # of one ten-trillionth of a dollar. Money is denominated in cents; the guard now is too.
+    _c = 100.0
+    if round((spent_run + est) * _c) > round((run_cap - reserve) * _c):
         what = f" ({detail})" if detail else ""
+        held = (f" ${reserve:.2f} is held back for the {int(round(reserve / max(est, 0.01)))} "
+                f"scene(s) that have not been shot yet, so a re-roll cannot take their footage."
+                if reserve > 0 else "")
         raise SpendRefused(
             f"REFUSED{what}: this run has already metered ${spent_run:.2f} of Veo; +${est:.2f} for "
-            f"{seconds:.0f}s would exceed the ${run_cap:.2f} per-run budget. A reel is 6-8 clips, "
-            f"so the per-clip cost never trips the monthly cap on its own — this ceiling is what "
-            f"stops ONE reel eating the month. Shorten the reel, or raise VEO_MAX_USD_PER_RUN "
-            f"(or pass max_usd=) to proceed.")
+            f"{seconds:.0f}s would exceed the ${run_cap:.2f} per-run budget.{held} A reel is 6-8 "
+            f"clips, so the per-clip cost never trips the monthly cap on its own — this ceiling is "
+            f"what stops ONE reel eating the month. Shorten the reel, or raise "
+            f"VEO_MAX_USD_PER_RUN (or pass max_usd=) to proceed.")
     ok, msg = check_budget(est, ledger=ledger)
     if not ok:
         raise SpendRefused(msg)

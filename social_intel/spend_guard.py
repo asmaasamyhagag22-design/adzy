@@ -15,7 +15,15 @@ DEFAULT_LEDGER = Path("runs") / "apify_spend.jsonl"   # runs/ is gitignored
 
 
 def monthly_cap_usd() -> float:
-    return float(os.getenv("APIFY_MONTHLY_CAP_USD", "20"))
+    """UNLIMITED unless `APIFY_MONTHLY_CAP_USD` says otherwise — owner ruling 2026-07-25,
+    «شيل اي حدود ع اي ميزانيه». Spend is still recorded and still costed; only the refusal is gone."""
+    raw = str(os.getenv("APIFY_MONTHLY_CAP_USD") or "").strip()
+    if not raw:
+        return float("inf")
+    try:
+        return float(raw)
+    except ValueError:
+        return float("inf")
 
 
 def cost_per_1k_usd() -> float:

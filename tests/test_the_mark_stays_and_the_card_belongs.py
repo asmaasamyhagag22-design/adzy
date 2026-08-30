@@ -1,0 +1,354 @@
+# -*- coding: utf-8 -*-
+"""Two owner rulings about how a reel wears its brand (2026-07-28).
+
+    «عايزه لوجو البراند يبقا موجود طول الفيديو»
+    «الخاتمه تبقا مميزه بالجو بردو بالالوان الطبيعيه، يعني متخليهوش ابيض لانها خلصت كتير قبل كدا»
+
+MEASURED BEFORE CHANGING ANYTHING:
+
+  * `textlayer._scene_html` gated the mark on `scene.kind in ("intro", "outro", "contact")`, so
+    the MIDDLE of every reel — the part people actually watch, and the part that gets clipped and
+    reshared — carried no brand at all.
+  * `endcard._endcard_html` had exactly two grounds, a charcoal gradient and an ivory one, both
+    synthetic. The ivory branch is the white ending being ruled out, and neither has ever seen a
+    frame of the film it closes.
+"""
+from __future__ import annotations
+
+import types
+
+
+def _scene(kind="body", **kw):
+    s = types.SimpleNamespace(kind=kind, headline="", subline="", cta_text="", on_screen_text="",
+                              duration_s=3.0, caption_role="", caption_word_delays=None)
+    for k, v in kw.items():
+        setattr(s, k, v)
+    return s
+
+
+# =====================================================================
+# the mark stays on screen
+# =====================================================================
+
+def test_the_logo_is_no_longer_gated_on_the_scene_kind():
+    import inspect
+
+    import reel.textlayer as tl
+    src = inspect.getsource(tl._scene_html)
+    code = "\n".join(l.split("#")[0] for l in src.splitlines())
+    assert 'show_logo = bool(logo_uri)' in code
+    assert 'scene.kind in ("intro", "outro", "contact")' not in code, (
+        "the mark is still absent from the middle of every reel")
+
+
+def test_a_body_scene_gets_the_quiet_form():
+    """Presence, not prominence: a mark that pops in on every cut reads as six logos rather than
+    one brand, so the body wears it smaller, softer and un-animated."""
+    import inspect
+
+    import reel.textlayer as tl
+    src = inspect.getsource(tl._scene_html)
+    assert "logo_bug" in src
+    body = src[src.find("if logo_bug:"):src.find("else:", src.find("if logo_bug:"))]
+    assert "opacity" in body and "scale(" in body
+    assert "_LOGO_ANIM" not in body, "the body mark re-animates on every cut"
+
+
+def test_the_bookends_keep_the_full_treatment():
+    import inspect
+
+    import reel.textlayer as tl
+    src = inspect.getsource(tl._scene_html)
+    tail = src[src.find("else:", src.find("if logo_bug:")):]
+    assert "_LOGO_ANIM" in tail
+
+
+def test_include_logo_false_still_means_no_logo():
+    """The switch that turns the mark off entirely must survive making it persistent."""
+    import inspect
+
+    import reel.textlayer as tl
+    for fn in (tl.render_text_sequences,):
+        assert "include_logo" in inspect.signature(fn).parameters
+    src = inspect.getsource(tl)
+    assert "if include_logo else None" in src
+
+
+# =====================================================================
+# the card belongs to the film
+# =====================================================================
+
+def test_the_card_can_be_grounded_on_a_real_frame():
+    import inspect
+
+    import reel.endcard as ec
+    assert "ground_uri" in inspect.signature(ec._endcard_html).parameters
+    assert "ground_frame" in inspect.signature(ec.render_endcard).parameters
+
+
+def test_a_grounded_card_does_not_use_either_synthetic_gradient():
+    import reel.endcard as ec
+    html = ec._endcard_html(None, "براند", "اعرف أكتر", "brand.test", "#8B1E2D", "#8B1E2D",
+                            True, 1080, 1920, elegant=False, dark=False,
+                            ground_uri="data:image/jpeg;base64,AAAA")
+    assert "url('data:image/jpeg;base64,AAAA')" in html
+    assert "#F3ECE2" not in html, "the ivory ending is still being produced"
+
+
+def test_without_a_frame_the_card_still_renders():
+    """A decoration must never cost the card itself."""
+    import reel.endcard as ec
+    html = ec._endcard_html(None, "brand", "learn more", "brand.test", "#8B1E2D", "#8B1E2D",
+                            False, 1080, 1920, elegant=False, dark=True)
+    assert "radial-gradient" in html and "background:" in html
+
+
+def test_the_ground_is_blurred_past_recognition_and_darkened(tmp_path):
+    """The point is the film's colour and light, not a freeze-frame the edit forgot to cut."""
+    from PIL import Image, ImageStat
+
+    from reel.endcard import _ground_data_uri
+    import base64
+    import io
+    src = tmp_path / "f.png"
+    im = Image.new("RGB", (540, 960), (240, 240, 240))
+    for x in range(0, 540, 12):                      # hard vertical bars: obvious if they survive
+        for y in range(960):
+            im.putpixel((x, y), (10, 10, 10))
+    im.save(src)
+
+    uri = _ground_data_uri(src, 1080, 1920)
+    assert uri.startswith("data:image/jpeg;base64,")
+    out = Image.open(io.BytesIO(base64.b64decode(uri.split(",", 1)[1]))).convert("RGB")
+    assert out.size == (1080, 1920)
+    before = ImageStat.Stat(im.convert("L")).stddev[0]
+    after = ImageStat.Stat(out.convert("L")).stddev[0]
+    assert after < before * 0.5, f"the frame is still legible (stddev {before:.1f} -> {after:.1f})"
+    assert ImageStat.Stat(out.convert("L")).mean[0] < 160, "the ground is not darkened"
+
+
+def test_an_unusable_frame_yields_no_ground_and_does_not_raise(tmp_path):
+    from reel.endcard import _ground_data_uri
+    assert _ground_data_uri(None, 1080, 1920) == ""
+    assert _ground_data_uri(tmp_path / "missing.png", 1080, 1920) == ""
+    bad = tmp_path / "bad.png"
+    bad.write_bytes(b"not an image")
+    assert _ground_data_uri(bad, 1080, 1920) == ""
+
+
+def test_the_appender_takes_the_frame_from_the_finished_reel():
+    """It already holds the video; the frame one instant before the card is free to take."""
+    import inspect
+
+    import reel.endcard as ec
+    src = inspect.getsource(ec.append_endcard_to_reel)
+    assert "tail_frame(video_path" in src
+    assert "ground_frame=ground" in src
+
+
+def test_a_frame_extraction_failure_falls_back_rather_than_failing_the_card():
+    import inspect
+
+    import reel.endcard as ec
+    src = inspect.getsource(ec.append_endcard_to_reel)
+    at = src.find("tail_frame(video_path")
+    tail = src[at:at + 260]
+    assert "except Exception" in tail and "ground = None" in tail
+
+
+def test_the_module_has_the_logger_its_error_paths_use():
+    """`logger` was referenced twice in reel/endcard.py and never defined, so BOTH paths raised
+    NameError from inside the handler — the code written to explain a lost end-card was the code
+    that hid the reason for it. Found when a new keyword argument finally exercised the path."""
+    import reel.endcard as ec
+    assert hasattr(ec, "logger")
+    import inspect
+    src = inspect.getsource(ec)
+    for name in re.findall(r"\b(logger|log)\.\w+\(", src):
+        assert hasattr(ec, name), f"{name} is used but never defined"
+
+
+import re  # noqa: E402  (used by the guard above)
+
+
+# =====================================================================
+# the reel generates its product; the poster pastes it
+# =====================================================================
+
+def test_a_physical_product_is_no_longer_pasted_into_a_reel():
+    """OWNER'S PRODUCTION RULE: «لو بتعملي ريل فيديو، اعتمدي على التوليد بدون أي قلق… لكن لو
+    بتطلعي بوستر ثابت، ارجعي لطريقة القص واللزق». MEASURED on the live Veo run that forced it —
+    scene 0's QA verdict was "a STATIC IMAGE CRUDELY OVERLAID on top of unrelated footage", the
+    scene burned three $1.60 Veo renders failing on it, and the wasted spend exhausted the
+    per-run budget before three later scenes got a clip at all."""
+    import types
+
+    from reel.creative import _product_asset
+    for overlay in ("", "real_photo", "anything"):
+        s = types.SimpleNamespace(hero_product=True, product_overlay=overlay)
+        assert _product_asset({}, s, "https://brand.test/box.jpg") is None, overlay
+
+
+def test_a_real_screen_is_still_pasted():
+    """Not an exception to the rule but an application of it: an app UI is dense fine print that
+    IS the product, motion does not hide it, and no video model renders legible UI."""
+    import types
+
+    from reel.creative import _product_asset
+    prof = {"visual": {"homepage_screenshot_path": "/tmp/shot.png"}}
+    s = types.SimpleNamespace(hero_product=True, product_overlay="real_screen")
+    assert _product_asset(prof, s, "https://brand.test/box.jpg") == "/tmp/shot.png"
+
+
+def test_a_non_product_scene_still_composites_nothing():
+    import types
+
+    from reel.creative import _product_asset
+    s = types.SimpleNamespace(hero_product=False, product_overlay="real_screen")
+    assert _product_asset({}, s, "https://brand.test/box.jpg") is None
+
+
+def test_the_body_mark_is_large_enough_to_read():
+    """scale(.62)/opacity(.72) MEASURED on the live reel as a few illegible grey pixels.
+    "Present" has to mean readable, or it is decoration pretending to be branding."""
+    import inspect
+    import re as _re
+
+    import reel.textlayer as tl
+    # STRIP THE COMMENTS FIRST. They document the OLD values — "used scale(.62) ... at top:64px" —
+    # so a regex over the raw source reads the numbers being explained instead of the ones in force.
+    src = "\n".join(l.split("#")[0] for l in inspect.getsource(tl._scene_html).splitlines())
+    body = src[src.find("if logo_bug:"):src.find("else:", src.find("if logo_bug:"))]
+    assert "scale(" not in body, (
+        "the body mark is scaled DOWN — two rounds of that came back illegible on the render. A "
+        "broadcast corner mark is not a small logo, it is the logo held quietly in a corner")
+    opacity = float("0" + _re.search(r"opacity:(\.?\d+)", body).group(1))
+    assert opacity >= 0.85, f"the body mark is {opacity:.0%} opaque"
+
+
+def test_the_body_mark_clears_the_footage_letterbox():
+    """At top:64px the mark landed INSIDE the black bar baked into the clip, detached from the
+    picture. It has to sit on the image."""
+    import inspect
+    import re as _re
+
+    import reel.textlayer as tl
+    src = "\n".join(l.split("#")[0] for l in inspect.getsource(tl._scene_html).splitlines())
+    body = src[src.find("if logo_bug:"):src.find("else:", src.find("if logo_bug:"))]
+    top = int(_re.search(r"top:(\d+)px", body).group(1))
+    assert top >= 120, f"the mark sits at {top}px, inside the letterbox bar"
+
+
+# =====================================================================
+# every scene moves, or the scene count is wrong
+# =====================================================================
+
+def test_the_scene_count_is_derived_from_the_runtime():
+    """OWNER: «انا مش عايزه الفيديو غير Veo لقطات واحدة بس بتتحرك، انا عايزه الفيديو كله بيتحرك».
+
+    It was arithmetic. The director was asked for 10 scenes for a 20-second reel — 2 seconds each
+    — while Veo's SHORTEST clip is 4. So the run paid for 40 seconds of video to deliver 20, the
+    per-run budget ran out at scene 4, and everything after it fell back to a Ken Burns still.
+    Half the film was a slideshow because a flag defaulting to 10 had never heard of the runtime.
+
+    THE NUMBERS MOVED ON 2026-08-06, AND THE RULE DID NOT. `max_seconds` is the DELIVERED length,
+    and the branded end card takes its share of it (`reel/runtime.py:picture_budget_s`); counting
+    scenes against the whole number handed the generated shots seconds the card was already using,
+    which is half of why every "15-second" reel shipped at 15.3-17.6s. So a 20-second reel now
+    budgets 18.7s of picture and affords 4 animated shots, not 5.
+    """
+    from reel.__main__ import _scenes_for
+    from reel.runtime import picture_budget_s
+    assert _scenes_for(20.0, 10) == 4, "a 20s reel still asks for more clips than it can animate"
+    assert _scenes_for(28.0, 10) == 6
+    assert _scenes_for(40.0, 10) == 9, "a long reel is not capped below what was asked"
+    # the property behind the numbers: never more shots than the PICTURE can pay for at the
+    # video model's 4-second floor
+    for ms in (15.0, 20.0, 28.0, 40.0):
+        assert _scenes_for(ms, 10) <= max(3, int(picture_budget_s(ms) // 4.0))
+
+
+def test_an_explicit_smaller_request_still_wins():
+    """A caller may want a short cut; it just may not ask for more motion than the runtime pays for."""
+    from reel.__main__ import _scenes_for
+    assert _scenes_for(40.0, 4) == 4
+
+
+def test_the_floor_is_three_scenes():
+    from reel.__main__ import _scenes_for
+    assert _scenes_for(6.0, 10) == 3
+    # A missing duration means "no runtime given", not "a zero-second reel" — it falls back to the
+    # default runtime rather than collapsing to the floor.
+    assert _scenes_for(0.0, 10) == _scenes_for(20.0, 10)
+
+
+def test_every_scene_can_afford_a_clip_at_the_default_budget():
+    """The whole point: scenes x the minimum clip must fit the per-run ceiling, or the tail of the
+    reel is a slideshow again."""
+    from reel.__main__ import _scenes_for, _VEO_MIN_CLIP_S
+    import vertex_spend as vs
+    per_clip = vs.est_video_cost_usd(_VEO_MIN_CLIP_S)
+    n = _scenes_for(20.0, 10)
+    assert n * per_clip <= vs.veo_max_usd_per_run() + 1e-6, (
+        f"{n} scenes x ${per_clip:.2f} exceeds the ${vs.veo_max_usd_per_run():.2f} per-run budget")
+
+
+def test_the_log_reports_the_scene_count_actually_used():
+    """It printed the raw --frames flag while the call passed the derived count, so a 5-scene reel
+    logged "directing 10 scenes" — a log lying about the run it describes."""
+    import inspect
+
+    import reel.__main__ as M
+    src = inspect.getsource(M)
+    at = src.find("Opus directing")
+    line = src[src.rfind("\n", 0, at):src.find("\n", at)]
+    assert "args.frames" not in line, "the log still prints the raw flag"
+    assert "_n" in line
+
+
+def test_the_derived_count_is_computed_once():
+    """Computing it twice invites the two copies to drift, which is how the log started lying."""
+    import inspect
+
+    import reel.__main__ as M
+    src = inspect.getsource(M)
+    # Matched on the call, not on its exact argument list — the call grew a `has_insert=` argument
+    # on 2026-08-01 when the last beat became a rendered product insert, which buys back a scene.
+    # The property under test is that it is called ONCE and the log prints what it returned.
+    assert src.count("_scenes_for(args.max_seconds, args.frames") == 1
+
+
+# =====================================================================
+# motion over the still
+# =====================================================================
+
+def test_a_qa_failed_clip_is_kept_rather_than_replaced_by_a_still():
+    """OWNER: «انا مش عايزه Ken Burns في الريل». And the fallback does not cure the defect it
+    fires on: measured across three live runs, the verdicts that trigger it are about the label
+    MOVING — "the text on the product packaging morphs into garbled junk across the frames". Ken
+    Burns answers that by deleting the motion, trading the whole reason the clip exists."""
+    import inspect
+
+    import reel.compositor as comp
+    src = inspect.getsource(comp)
+    assert "KEEPING THE MOVING" in src, "a failed clip is still swapped for a still"
+    at = src.find("KEEPING THE MOVING")
+    guard = src[max(0, at - 700):at]
+    assert "REEL_ALLOW_KENBURNS" in guard, "the still has no way back for a caller who wants it"
+
+
+def test_a_scene_with_no_clip_at_all_still_falls_back():
+    """A different failure: nothing to ship, rather than something imperfect."""
+    import inspect
+
+    import reel.compositor as comp
+    src = inspect.getsource(comp)
+    at = src.find('REEL_ALLOW_KENBURNS')
+    line = src[at:src.find("\n", at)]
+    assert "raw is None" in line, "a scene that produced no clip at all has no fallback"
+
+
+def test_the_compositor_has_the_os_it_reads():
+    """Third instance today of a module reading os/logger it never imported."""
+    import reel.compositor as comp
+    assert hasattr(comp, "_os")

@@ -9,6 +9,8 @@ Governance (same shape as reviews/ and social_intel/): providers PARSE saved sna
 fixtures are the hermetic backbone (PD-3); page names are PUBLIC business identities (not
 personal PII) and stay verbatim.
 """
+from .consumer import DEFAULT_SNAPSHOTS_DIR, ad_presence_for_refs, ref_slug
 from .schemas import AdPresence, CompetitorAd, ad_presence
 
-__all__ = ["CompetitorAd", "AdPresence", "ad_presence"]
+__all__ = ["CompetitorAd", "AdPresence", "ad_presence",
+           "ad_presence_for_refs", "ref_slug", "DEFAULT_SNAPSHOTS_DIR"]

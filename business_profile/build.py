@@ -100,6 +100,22 @@ def _diagnostics_from_manifest(manifest: ScrapeManifest):
     )
 
 
+def _attach_catalog(profile, manifest) -> None:
+    """The store's real, priced items from the leaf pages the crawl already fetched.
+
+    Deterministic and free — see `scraper.catalog`. Runs on BOTH build paths (rules-only and
+    LLM) because it needs no model: a rules-only run of a shop should still know what the shop
+    sells. Never raises; a store whose pages do not parse simply gets an empty catalog."""
+    try:
+        from scraper.catalog import build_catalog
+
+        from .schemas import CatalogItem
+        items = build_catalog(manifest)
+        profile.catalog = [CatalogItem(**it) for it in items]
+    except Exception:  # noqa: BLE001 — an enrichment must never fail a profile build
+        logger.exception("catalog extraction failed")
+
+
 # ---------------------------------------------------------------------
 # Public entry points
 # ---------------------------------------------------------------------
@@ -125,6 +141,7 @@ def build_profile_no_llm(
         profile,
         scrape_diagnostics=_diagnostics_from_manifest(manifest),
     )
+    _attach_catalog(profile, manifest)
     return profile
 
 
@@ -236,6 +253,8 @@ def build_profile(
         t["output_obj"] = final_profile.extraction_meta.manifest_hash or "profile"
         t["decision"] = ("ready" if getattr(final_profile.readiness, "ready_for_strategy", False)
                          else "not_ready")
+
+    _attach_catalog(final_profile, manifest)
 
     if return_details:
         return BuildResult(

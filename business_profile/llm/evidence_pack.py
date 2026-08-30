@@ -81,8 +81,15 @@ class EvidencePack(BaseModel):
             if b.above_fold:
                 flags.append("above_fold")
             flags.append(b.tag)
-            # Use repr-style quote escaping to keep the LLM-visible format unambiguous
-            safe_text = b.text.replace("\n", " ").replace('"', "'")
+            # PROMPT-INJECTION HARDENING (P-72): the block text is UNTRUSTED scraped content. The
+            # citation format is `[block_id] (...) "text"`, so a page could embed text mimicking a
+            # `[block_id] (...) "..."` line to forge its own evidence anchor and get a fabricated
+            # claim cited. Neutralize the three characters that let text escape its quoted slot or
+            # counterfeit an anchor: newline -> space (stay on one line), " -> ' (can't close the
+            # quote early), and [ ] -> ( ) (only the framework-generated anchor can carry brackets,
+            # so a page's own "[block_9]" can never look like a real citation id).
+            safe_text = (b.text.replace("\n", " ").replace('"', "'")
+                         .replace("[", "(").replace("]", ")"))
             line = f'[{b.block_id}] ({", ".join(flags)}) "{safe_text}"'
             if max_chars and used + len(line) + 1 > max_chars:
                 break

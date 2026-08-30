@@ -7,6 +7,8 @@ bookends (intro/outro).
 """
 from __future__ import annotations
 
+from reel.motion_contract import FRAME_IS_UNPRINTED
+
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -265,7 +267,7 @@ def test_compositor_seeds_only_intro_and_outro(tmp_path: Path, monkeypatch):
     comp.render_reel(sb, provider=provider, out_path=tmp_path / "out.mp4", scale=0.25)
 
     # prompts carry the standing no-text clause since the calibration fix (2026-07-12)
-    seeded = {prompt.split(" Absolutely no readable text")[0]: ref
+    seeded = {prompt.split(FRAME_IS_UNPRINTED)[0].rstrip(): ref
               for prompt, ref in provider.seen}
     assert seeded["INTRO"] == "https://x.com/hero.jpg"
     assert seeded["OUTRO"] == "https://x.com/hero.jpg"
@@ -334,7 +336,7 @@ def test_compositor_falls_back_when_primary_provider_raises(tmp_path: Path, monk
 
     # Primary was attempted for every scene; the fallback rendered every scene.
     assert primary.calls == len(scenes)
-    assert {prompt.split(" Absolutely no readable text")[0]
+    assert {prompt.split(FRAME_IS_UNPRINTED)[0].rstrip()
             for prompt, _ in fallback.seen} == {"INTRO", "OFFER", "OUTRO"}
     assert result.fallback_used is True
     assert (tmp_path / "out.mp4").exists()
@@ -474,6 +476,7 @@ def _clear_video_env(monkeypatch):
 
 
 def test_stale_runway_key_is_fully_ignored_veo_wins(monkeypatch):
+    # Veo is the only provider now, so nothing has to be cleared for it to win.
     # Runway was REMOVED 2026-07-05 (owner directive) after a len-132 RUNWAY_API_KEY in .env
     # silently overrode Veo 3.1 and returned HTTP 400 on every scene -> Ken Burns stills. A
     # leftover RUNWAY_API_KEY must now be COMPLETELY inert: with a Vertex project present, Veo wins.
@@ -485,6 +488,7 @@ def test_stale_runway_key_is_fully_ignored_veo_wins(monkeypatch):
 
 
 def test_runway_backend_is_gone_and_falls_through_to_veo(monkeypatch):
+    # Veo is the only provider now, so nothing has to be cleared for it to win.
     # REEL_VIDEO_BACKEND=runway is no longer a selectable backend; it falls through to AUTO,
     # which picks our Vertex Veo. (No RunwayProvider exists to construct.)
     import reel.video_provider as vp
@@ -496,6 +500,7 @@ def test_runway_backend_is_gone_and_falls_through_to_veo(monkeypatch):
 
 
 def test_only_a_runway_key_and_no_vertex_is_stub_not_runway(monkeypatch):
+    # Veo is the only provider now, so nothing has to be cleared for it to win.
     # With NO Vertex/Gemini/AIML credential, a lone RUNWAY_API_KEY is NOT a fallback anymore
     # (Runway removed) — the pipeline degrades to the offline stub, never to Runway.
     from reel.video_provider import default_video_provider

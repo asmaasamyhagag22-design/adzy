@@ -551,10 +551,19 @@ def test_defaults_are_150_to_200():
     assert DEFAULT_MAX_PER_PAGE_TYPE <= DEFAULT_MAX_BLOCKS
 
 def test_leaf_detail_blocks_outrank_nav_chrome():
-    # R2 (rawafrican): 11 /products/ pages carried the priced truth but only 29/180 pack
-    # slots; leaf-detail pages now get a +3 boost so sellable items beat collection chrome.
-    from business_profile.llm.evidence_pack import _score_block  # noqa: F401  (import guard)
-    import business_profile.llm.evidence_pack as ep
-    import inspect
-    src = inspect.getsource(ep.build_evidence_pack)
-    assert "is_leaf_detail" in src and "+ (3 if" in src
+    # BEHAVIOUR, not a source grep (CS-55): a block on a LEAF-DETAIL page (an individual
+    # product/course/service) out-ranks an otherwise equally-scored block on a COLLECTION/nav page,
+    # so the items the brand actually SELLS survive the pack cap ahead of collection chrome
+    # (R2 rawafrican: 11 /products/ pages carried the priced truth but lost their pack slots).
+    leaf_url = "https://x.com/products/widget-alpha"     # is_leaf_detail -> True
+    coll_url = "https://x.com/products"                  # collection/nav -> False
+    leaf_b = _block("L1", leaf_url, "p", "Widget Alpha is a premium build unit priced at 250 EGP.")
+    coll_b = _block("C1", coll_url, "p", "Browse our full products collection across categories.")
+    # collection page FIRST so a naive stable sort would keep it — the +3 leaf boost must override.
+    m = _manifest([
+        _page(coll_url, PageType.HOMEPAGE, [coll_b]),
+        _page(leaf_url, PageType.HOMEPAGE, [leaf_b]),
+    ])
+    pack = build_evidence_pack(m, _empty_profile(), max_blocks=1)
+    kept = {b.block_id for b in pack.blocks}
+    assert kept == {"L1"}, f"the leaf-detail block should win the single slot, got {kept}"

@@ -16,6 +16,7 @@ HONESTY CONTRACT (the whole point — this must never erode zero-hallucination):
 """
 from __future__ import annotations
 
+import re
 from typing import List, Optional
 from urllib.parse import urlparse
 
@@ -28,10 +29,21 @@ def _domain(url: str) -> str:
     return host.removeprefix("www.")
 
 
+# Second-level qualifiers that precede a ccTLD (com.eg / co.uk / gov.sa / org.au ...) — not the brand.
+_SECOND_LEVEL_LABELS = {"com", "co", "org", "net", "gov", "edu", "ac", "gob", "or", "ne", "mil"}
+
+
 def _brand_guess(domain: str) -> str:
-    """Readable brand guess from a domain: 'lcwaikiki.eg' -> 'lcwaikiki'."""
+    """Readable brand guess = the REGISTRABLE domain's main label, not the leftmost (CS-124).
+    'lcwaikiki.eg' -> 'lcwaikiki'; a SUBDOMAINED brand 'store.nike.com' -> 'nike' (was 'store', a
+    meaningless subdomain token then searched on the open web); 'brand.com.eg' -> 'brand'."""
     parts = [p for p in domain.split(".") if p]
-    return parts[0] if parts else domain
+    if len(parts) <= 1:
+        return parts[0] if parts else domain
+    labels = parts[:-1]                                   # drop the TLD
+    if len(labels) >= 2 and labels[-1] in _SECOND_LEVEL_LABELS:
+        labels = labels[:-1]                              # drop a second-level ccTLD qualifier too
+    return labels[-1]                                     # the registrable main label
 
 
 def _clean_title(title: str) -> str:
@@ -43,9 +55,12 @@ def _clean_title(title: str) -> str:
 
 
 def _social_platform(url: str) -> Optional[str]:
+    # CS-93: match the social domain as an EXACT host or a proper subdomain suffix, NOT a substring
+    # (the bug links.py:67 already fixed) — `frag in host` let "box.com" match "dropbox.com",
+    # "fb.com" match unrelated hosts, etc., mislabeling non-social sites as socials.
     host = _domain(url)
     for frag, _platform in SOCIAL_DOMAINS.items():
-        if frag in host:
+        if host == frag or host.endswith("." + frag):
             return _platform
     return None
 
@@ -88,6 +103,11 @@ def gather_deep_search_evidence(
     # Query 2: the brand broadly — surfaces official socials + an about-style blurb.
     brand_hits = provider.search(brand, num=results_per_query) or []
 
+    # CS-49: track which links are FIRST-PARTY (from the site's own `site:` listing). A social
+    # profile from the BROAD brand search only counts as the brand's if it is first-party OR its
+    # handle contains the brand token — otherwise a same-named other company / a private person is
+    # attributed to the brand ("NEVER fabricates" violated).
+    _own_links = {(getattr(h, "link", "") or "") for h in own_hits}
     sources: List[DeepSearchSource] = []
     seen_links: set[str] = set()
     for hit in list(own_hits) + list(brand_hits):
@@ -117,15 +137,24 @@ def gather_deep_search_evidence(
         if getattr(top, "snippet", None):
             description = top.snippet.strip() or None
 
-    # social links: any result hosted on a known social platform.
+    # social links: a result on a known social platform THAT IS PLAUSIBLY THE BRAND'S (CS-49) —
+    # first-party (linked from the site's own listing) or a handle carrying the brand token. A
+    # bare brand-search hit for a stranger's profile is dropped, never attributed.
+    brand_tokens = {t for t in re.split(r"[^a-z0-9]+", (brand or "").lower()) if len(t) >= 3}
     social_links: List[str] = []
     seen_social: set[str] = set()
     for src in sources:
-        if _social_platform(src.url):
-            key = _domain(src.url) + urlparse(src.url).path.rstrip("/")
-            if key not in seen_social:
-                seen_social.add(key)
-                social_links.append(src.url)
+        if not _social_platform(src.url):
+            continue
+        handle = (urlparse(src.url).path or "").lower()
+        is_first_party = src.url in _own_links
+        handle_matches = any(t in handle for t in brand_tokens)
+        if not (is_first_party or handle_matches):
+            continue                              # a same-named stranger's profile — not the brand's
+        key = _domain(src.url) + urlparse(src.url).path.rstrip("/")
+        if key not in seen_social:
+            seen_social.add(key)
+            social_links.append(src.url)
 
     return DeepSearchResult(
         used=True,

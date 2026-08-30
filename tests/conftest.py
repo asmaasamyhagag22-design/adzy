@@ -23,6 +23,10 @@ def _vertex_spend_tmp_ledger(tmp_path, monkeypatch):
     # ...and the PER-RUN Veo budget (C1). Without this the shipped $8 default would silently bind
     # for any test that drives a real guard_video. Tests that exercise the ceiling set their own.
     monkeypatch.setenv("VEO_MAX_USD_PER_RUN", "100000")
+    # The final-screening viewer decodes the assembled mp4 with real ffmpeg — pointless and
+    # slow against the suite's synthetic byte-string "videos". Screening tests re-enable it
+    # explicitly by calling reel.final_screening.screen_reel directly.
+    monkeypatch.setenv("REEL_SCREENING", "0")
 
 
 @pytest.fixture(autouse=True)
@@ -108,3 +112,20 @@ def _block_external_network(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", _guarded_getaddrinfo)
     monkeypatch.setattr(socket.socket, "connect", _guarded_connect, raising=False)
     monkeypatch.setattr(socket.socket, "connect_ex", _guarded_connect_ex, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _webapp_signup_is_open_in_tests(monkeypatch):
+    """The suite exercises a deployment whose signup is deliberately OPEN.
+
+    `api.auth.guard_public_signup` closes account creation to non-loopback callers unless
+    `BASEERA_ALLOW_PUBLIC_SIGNUP=1`, because every account can trigger paid generation. Starlette's
+    TestClient reports its host as "testclient", not 127.0.0.1, so every web-app test that signs a
+    user up would otherwise 403.
+
+    This declares the fixture's CONFIGURATION rather than disabling the guard: the guard's own
+    behaviour — closed to remote by default, open only when the operator sets the flag, and a
+    request with no client info treated as remote — is asserted directly in
+    tests/test_webapp_spend_gate.py, which does not use this fixture's value.
+    """
+    monkeypatch.setenv("BASEERA_ALLOW_PUBLIC_SIGNUP", "1")

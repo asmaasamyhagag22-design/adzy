@@ -19,10 +19,15 @@ detail), which is what you show in the defense.
 
 from __future__ import annotations
 
+import logging
+import re as _re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
 from .matrix import ComparativeGapMatrix, DimensionGap, DIMENSIONS
+from .swot_priority import Priority, score_gap, score_opinion_item
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -50,6 +55,22 @@ class SWOTItem:
     #   internally_supported      — grounded in the subject's own site only
     #                               (standalone mode, unique insights)
     claim_strength: str = "internally_supported"
+    # WHERE THIS FACTOR SITS ON THE TWO MATRICES Pickton & Wright (1998) prescribe — importance x
+    # performance for S/W, probability x impact for O/T. Computed deterministically in
+    # `swot_priority`, like `claim_strength` above and never by the LLM. None only for an item
+    # built by a path that has not been taught to score yet.
+    priority: Optional["Priority"] = None
+    # A STABLE handle. TOWS used to derive S1/W2/O1/T3 from list POSITION, so sorting the quadrants
+    # — the whole point of adding priorities — silently re-pointed every strategy at a different
+    # factor. The id travels with the item instead.
+    id: str = ""
+    # HOW MANY PEERS THIS CLAIM WAS ACTUALLY CHECKED AGAINST. `brand_signals` compares a value
+    # proposition against the peers' own page words and writes the verdict into `evidence`; the
+    # scorer knew nothing about it and stamped every such item «لم يُقارَن بأحد» ("was not compared
+    # with anyone") with `peers_measured: 0`. MEASURED on Al Fouad: one item read "no compared peer
+    # promises this (2 checked)" and, in the same object, said nobody was checked. The comparison
+    # happened; only the record disagreed with itself.
+    peers_compared: int = 0
 
 
 @dataclass
@@ -60,7 +81,115 @@ class SWOT:
     threats: List[SWOTItem] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
     mode: str = "competitive"           # "competitive" | "standalone"
+    # Website mechanics — CTA counts, WhatsApp presence, social channel counts. True, useful, and
+    # NOT strategy: stated without a comparison they are the paper's "factors described broadly:
+    # lack of specificity" (broad compared to what?). The owner's ruling was to keep the
+    # information and move it out of the strategic quadrants, so it lives here.
+    site_readiness: List[SWOTItem] = field(default_factory=list)
 
+
+
+# ---------------------------------------------------------------------------
+# Derived threats + per-quadrant honesty (owner ruling, 2026-07-21)
+# ---------------------------------------------------------------------------
+
+# Signals that the CATEGORY is drawing money and attention — which means new entrants, whoever
+# writes the headline and in whatever language. Deliberately not another English keyword list:
+# `_TREND_THREAT_KEYS` is 16 English words, so "Qatar Catering Services Market Size" (a real
+# growth signal) was filed as an Opportunity and the Threats quadrant shipped empty.
+_GROWTH_SIGNALS = ("market size", "market share", "forecast", "growth", "boom", "expansion",
+                   "fastest growing", "opens", "opening", "new branch", "investment", "funding",
+                   "نمو", "توسع", "استثمار", "افتتاح", "حجم السوق")
+
+# COMMODITIZATION — the moat closing. MEASURED (nanocare, 2026-07-21): the brand's entire
+# positioning is Liposomal delivery, and the run filed "Why Liposomal Technology Is Becoming the
+# Standard" and "finally replacing traditional tablets" as OPPORTUNITIES. When the thing that makes
+# a brand special becomes the default, the differentiator stops differentiating — the single most
+# consequential fact in that whole analysis, shipped in the wrong box. Distinct from growth
+# signals: growth means more rivals, commoditization means less advantage.
+_COMMODITIZATION_SIGNALS = ("becoming the standard", "the new standard", "becomes standard",
+                            "now standard", "mainstream", "widely adopted", "replacing",
+                            "replaces", "everyone is", "commodity", "ubiquitous",
+                            "المعيار", "معيار جديد", "أصبحت شائعة", "يحل محل", "بديلاً عن")
+
+_INFERRED = "directional_not_validated"
+
+
+def derived_threats(*, trends=None, weaknesses=None, maturity=None) -> List[SWOTItem]:
+    # `weaknesses` is accepted and intentionally UNUSED — see the note below.
+    """Threats from the evidence a thin run DOES have — each labelled as inferred.
+
+    MEASURED (Volume Qatar): every one of the four real generators needs a scrapable peer or a
+    peer complaint, and with none of those the quadrant shipped empty next to five untouched market
+    signals. The owner's ruling is to derive from weaker evidence and SAY SO, so each item here
+    carries `claim_strength="directional_not_validated"` (the existing epistemic ladder, not a new
+    field) and text that names the inference out loud. Nothing is emitted without a source.
+    """
+    out: List[SWOTItem] = []
+
+    seen_kinds: set = set()
+    for t in (trends or []):
+        title = str(getattr(t, "title", "") or "").strip()
+        if not title:
+            continue
+        low = title.lower()
+        if any(sig in low for sig in _COMMODITIZATION_SIGNALS):
+            kind, text = "moat", ("اللي بيميّزك بقى معياراً في السوق — ميزتك التنافسية بتتآكل؛ "
+                                  "استنتاج من إشارة سوق، مش من منافس مقيس")
+        elif any(sig in low for sig in _GROWTH_SIGNALS):
+            kind, text = "growth", ("سوق الفئة بيكبر وبيجذب لاعبين جدد — استنتاج من إشارة سوق، "
+                                    "مش من منافس مقيس")
+        else:
+            continue
+        if kind in seen_kinds:
+            continue               # one threat per KIND; repeating the same point is noise
+        seen_kinds.add(kind)
+        url = str(getattr(t, "url", "") or "")
+        out.append(SWOTItem(text=text,
+                            citation=[u for u in [url] if u] or [title],
+                            evidence=title,
+                            claim_strength=_INFERRED))
+
+    # DELIBERATELY NOT a weakness->threat generator. The first version had one, and the existing
+    # `test_scraped_behind_standalone_emits_no_phantom_threat` caught it immediately: in standalone
+    # mode it turned "No online booking path on-site" into a threat. That breaks the framework
+    # itself — in SWOT a threat is EXTERNAL and a weakness is INTERNAL, so re-labelling your own
+    # gap as a threat is double-counting dressed as insight. Threats here come only from evidence
+    # OUTSIDE the brand: market signals and the brand's standing in its market.
+
+    level = str(getattr(maturity, "level", "") or "")
+    if level == "nascent":
+        out.append(SWOTItem(
+            text=("براند ناشئ في سوق فيه أسماء متعرّفة — خطر ضعف الوعي؛ استنتاج من إشارات النضج"),
+            citation=list(getattr(maturity, "signals", None) or []),
+            evidence=str(getattr(maturity, "disclosure", "") or "nascent brand"),
+            claim_strength=_INFERRED))
+    return out
+
+
+def disclose_empty_quadrants(swot: "SWOT", *, n_peers: int, scrapable_peers: int = 0) -> None:
+    """Say WHY a quadrant is empty — per quadrant, not for the SWOT as a whole.
+
+    MEASURED: `competitive_empty` at :190 is computed across all four quadrants, so Volume's single
+    incidental review-count strength made it False and the "Opportunities/Threats need market
+    comparison" note never fired. The deck then rendered a `0` badge and an em-dash with no
+    explanation. An empty box a client cannot interpret is not honesty, it is silence.
+    """
+    reasons = {
+        "الفرص": "الفرص محتاجة مقارنة سوق أو أصوات عملاء",
+        "التهديدات": "التهديدات محتاجة قرين له موقع قابل للفحص، أو شكاوى عملاء، أو إشارة سوق",
+        "نقاط القوة": "نقاط القوة محتاجة أبعاد مقارنة من موقعك أو من الأقران",
+        "نقاط الضعف": "نقاط الضعف محتاجة أبعاد مقارنة من موقعك أو من الأقران",
+    }
+    quads = (("نقاط القوة", swot.strengths), ("نقاط الضعف", swot.weaknesses),
+             ("الفرص", swot.opportunities), ("التهديدات", swot.threats))
+    for label, items in quads:
+        if items:
+            continue
+        swot.notes.append(
+            f"{label}: فاضية — {reasons[label]}. المتاح في التشغيلة دي: "
+            f"{n_peers} قرين، منهم {scrapable_peers} بموقع قابل للفحص."
+        )
 
 STANDALONE_LABEL = "Standalone Strategic Analysis (No Competitors Found)"
 STANDALONE_THIN_LABEL = "Standalone Strategic Analysis (competitor comparison too thin)"
@@ -72,19 +201,129 @@ _SCRAPED_CAPABILITY_KEYS = {
 }
 
 
+_CLAIM_NOISE = {
+    # Pure connective/filler in both languages. Deliberately SHORT: anything that could carry
+    # meaning ("fast", "original", "سريع") must stay, or two different claims would collide.
+    "the", "a", "an", "of", "to", "for", "and", "or", "is", "are", "we", "our", "your", "you",
+    "with", "over", "more", "than", "in", "on", "at", "by", "all", "serves", "offers", "provides",
+    "من", "في", "على", "الى", "إلى", "مع", "عن", "ال", "و", "أو", "بـ", "كل", "لكل", "أكثر",
+}
+_CLAIM_TOKEN = _re.compile(r"[0-9٠-٩]+|[^\W\d_]+", _re.UNICODE)
+
+
+def _claim_tokens(text: str) -> set:
+    """The content words of a claim, normalised: case-folded, punctuation and thousands
+    separators removed, filler dropped."""
+    raw = _CLAIM_TOKEN.findall(str(text or "").lower())
+    # "7,000+" tokenises to ["7","000"]; rejoin pure-digit runs so it matches "7000".
+    merged, buf = [], []
+    for tok in raw:
+        if tok.isdigit():
+            buf.append(tok)
+            continue
+        if buf:
+            merged.append("".join(buf))
+            buf = []
+        merged.append(tok)
+    if buf:
+        merged.append("".join(buf))
+    return {t for t in merged if t and t not in _CLAIM_NOISE}
+
+
+def _same_claim(a: str, b: str) -> bool:
+    """Do these two lines state the SAME fact?
+
+    MEASURED on alfouadpharmacies.com: the Strengths quadrant carried both "7,000+ Customers
+    Daily" (trust_signals) and "Serves over 7,000 customers daily" (other_unique_insights). The
+    de-dup compared `text.strip().lower()` — EXACT match — so a restatement from a second source
+    was invisible, and ten strengths included one strength twice.
+
+    Containment of content words, not similarity: {7000, customers, daily} is a subset of
+    {7000, customers, daily} + filler, so they collide — while "Fast Delivery" and "Broad Delivery
+    Coverage" share only "delivery" and stay apart. At least TWO shared content words are required,
+    so a single common noun can never merge two real claims.
+    """
+    ta, tb = _claim_tokens(a), _claim_tokens(b)
+    if not ta or not tb:
+        return False
+    small, large = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    return len(small) >= 2 and small.issubset(large)
+
+
+def dedupe_claims(items: List["SWOTItem"]) -> List["SWOTItem"]:
+    """Keep the FIRST statement of each fact. First, not shortest: the earlier source is the one
+    whose citation the reader will check."""
+    out: List["SWOTItem"] = []
+    for it in (items or []):
+        text = getattr(it, "text", "") or ""
+        if any(_same_claim(text, getattr(k, "text", "") or "") for k in out):
+            continue
+        out.append(it)
+    return out
+
+
+def customer_voice_note(themes, collected: int) -> str:
+    """Say why a SWOT carries nothing a customer said — when it carries nothing.
+
+    «فين الريفيو سواء في الموقع او السوشيال ميديا». On this brand the collector ran correctly and
+    had almost nothing to read: 15 Instagram posts, 4 comments in total, Instagram itself reporting
+    commentsCount 0 on most of them, and 2 of those 4 being the pharmacy's own replies. That is a
+    different fact from "we never looked", and a silent quadrant cannot tell them apart — so the
+    client is left to assume their reviews were read and found wanting.
+
+    Returns "" when real customer voice IS present; there is nothing to explain then.
+    """
+    if themes:
+        return ""
+    if not collected:
+        return ("صوت العملاء: مفيش تعليقات أو مراجعات متجمّعة لهذا البراند — "
+                "التحليل مبني على الموقع والمنافسين فقط.")
+    return (f"صوت العملاء: اتجمّع {collected} تعليق، ومفيهمش مدح أو شكوى واضحة "
+            "تصلح كدليل — التحليل مبني على الموقع والمنافسين فقط.")
+
+
 def unique_insight_texts(profile) -> List[str]:
     """Pull each `other_unique_insights` value from a BusinessProfile — works on both an
     object (full_run) and a serialized dict (API). Empty list when absent."""
     items = getattr(profile, "other_unique_insights", None)
     if items is None and isinstance(profile, dict):
         items = profile.get("other_unique_insights")
+    # PRODUCT CLAIMS ARE DROPPED HERE, because here is the only place they still CAN be.
+    # `is_product_level_claim` decides by looking at WHERE each supporting quote was found — a
+    # claim evidenced only on product detail pages describes a product, not the company. This
+    # function returned bare STRINGS, so the evidence, which is the entire discriminator, was
+    # destroyed at extraction and nothing downstream had anything left to judge with.
+    #
+    # MEASURED: the same filter already removed these from `value_propositions`, so one SWOT could
+    # drop "Carefully roasted macadamia nuts…" from one field and ship "Their dried apricots are
+    # processed without sulfur dioxide, retaining a natural dark colour" from this one, in the same
+    # Strengths column. Volume Qatar shipped "single-origin beans" and "in-house roasting" the same
+    # way. An adversarial audit called the result "arbitrary rather than principled", correctly.
+    #
+    # Conservative: no evidence -> kept. This never guesses a claim away.
+    try:
+        from .peer_words import is_product_level_claim
+    except Exception:  # noqa: BLE001 — no discriminator available -> keep everything
+        def is_product_level_claim(_x):
+            return False
     out: List[str] = []
+    dropped: List[str] = []
     for it in (items or []):
         v = getattr(it, "value", None)
         if v is None and isinstance(it, dict):
             v = it.get("value")
-        if isinstance(v, str) and v.strip():
-            out.append(v.strip())
+        if not (isinstance(v, str) and v.strip()):
+            continue
+        payload = it if isinstance(it, dict) else {
+            "value": v,
+            "evidence": [{"page_url": str(getattr(e, "page_url", "") or ""),
+                          "quote": str(getattr(e, "quote", "") or "")}
+                         for e in (getattr(it, "evidence", None) or [])]}
+        (dropped if is_product_level_claim(payload) else out).append(v.strip())
+    if dropped:
+        logger.info("[swot] %d unique insight(s) describe a PRODUCT, not the business — they "
+                    "belong to the catalog: %s", len(dropped),
+                    "; ".join(repr(d[:44]) for d in dropped))
     return out
 
 
@@ -123,6 +362,18 @@ def synthesize_swot(
     swot = SWOT()
     n_peers = len(matrix.competitors)
 
+    # SOCIAL AS A COMPARISON. The owner named three evidence sources — Places reviews, social
+    # media, competitors — and social reached this function ZERO times, despite being the widest
+    # source the system collects (82% of stored profiles carry accounts, against 29% with any
+    # Places review). Each platform becomes an ordinary gap, so the loop below and the priority
+    # scoring treat it exactly like any other measured dimension. Never raises: a social signal
+    # must not be able to break a SWOT that worked without it.
+    try:
+        from .social_gaps import social_gaps
+        matrix.gaps = list(matrix.gaps) + social_gaps(profile, matrix)
+    except Exception:  # noqa: BLE001
+        pass
+
     for gap in matrix.gaps:
         strength = _gap_strength(gap)
         if gap.verdict == "ahead":
@@ -130,21 +381,20 @@ def synthesize_swot(
                                            claim_strength=strength))
         elif gap.verdict == "behind":
             if gap.dimension.source == "scraped":
-                # Internal lens: you lack/lag on something on your own site.
+                # ONE GAP, ONE BOX — the owner's ruling. This used to emit the SAME measured gap
+                # twice: an internal Weakness and an external Threat, worded differently, scored
+                # identically, citing the same peer. The client counted one problem as two, and
+                # TOWS then paired the item with itself (`WT [W1, T1]`) and called the pairing a
+                # strategy. A shortfall on your own site is something you control, so it is a
+                # weakness; it is not additionally an outside force acting on you.
+                #
+                # The reason this duplication was tolerated was that it was the only thing filling
+                # Threats for web-discovered peers. That is no longer true: peer praise in customer
+                # comments now routes to Threats below, which is genuine external evidence rather
+                # than the same internal fact wearing a second label. And when Threats does come
+                # out empty, `disclose_empty_quadrants` says so with its cause.
                 swot.weaknesses.append(SWOTItem(gap.detail, _cite_behind(gap), gap.detail,
                                                 claim_strength=strength))
-                # External lens: a real competitor outperforming you on a site
-                # dimension is also a THREAT. This is what populates Threats for
-                # ECOMMERCE / web-discovered peers (which carry NO Places dims) —
-                # without it, an online SWOT's Threats quadrant is always empty.
-                # Grounded: cites the same leading peer(s); only when peers exist.
-                if n_peers > 0:
-                    swot.threats.append(SWOTItem(
-                        text=f"Competitors lead on {gap.dimension.label} where you are behind.",
-                        citation=_cite_behind(gap),
-                        evidence=gap.detail,
-                        claim_strength=strength,
-                    ))
             else:  # places dimension -> market-position threat
                 swot.threats.append(SWOTItem(gap.detail, _cite_places(gap), gap.detail,
                                              claim_strength=strength))
@@ -177,9 +427,17 @@ def synthesize_swot(
                 text=f"{t.text} is a recurring complaint in the category.",
                 citation=item.citation, evidence=item.evidence,
                 claim_strength=theme_strength))
-        # praise themes are kept as notes (context), not forced into a quadrant
         elif t.polarity == "praise":
-            swot.notes.append(f"Category strength to match: {t.text} ({_short(item.citation)})")
+            # A COMPETITOR BEING PRAISED BY CUSTOMERS IS A THREAT — the owner's own mapping, and
+            # the only genuinely EXTERNAL evidence the Threats quadrant has. It used to be filed as
+            # a note, so the box was left to be filled by re-labelling the brand's own site
+            # shortfalls (removed above as a double count). This is a real force acting on the
+            # brand from outside: someone else's customers saying, in their own words, that the
+            # other one is good.
+            swot.threats.append(SWOTItem(
+                text=f"Customers praise a competitor for {t.text}.",
+                citation=item.citation, evidence=item.evidence,
+                claim_strength=theme_strength))
 
     # ---- Standalone degrade -------------------------------------------------
     # The competitive synthesis above is purely peer-gap-driven, so with no peers
@@ -225,11 +483,11 @@ def synthesize_swot(
     # Unique competitive edges (profile.other_unique_insights) are STRENGTHS by nature —
     # append them grounded to the subject's own profile. Done AFTER the standalone degrade
     # so they don't suppress the 0-peer fallback (which keys on an otherwise-empty SWOT).
-    seen_strengths = {s.text.strip().lower() for s in swot.strengths}
+    # Claim-level, not string-level: "7,000+ Customers Daily" and "Serves over 7,000 customers
+    # daily" are the same fact from two sources and both used to ship.
     for ins in (unique_insights or []):
         text = (ins or "").strip()
-        if text and text.lower() not in seen_strengths:
-            seen_strengths.add(text.lower())
+        if text and not any(_same_claim(text, s.text) for s in swot.strengths):
             swot.strengths.append(SWOTItem(
                 text=text, citation=["your profile"],
                 evidence="unique competitive edge stated on the site"))
@@ -244,9 +502,66 @@ def synthesize_swot(
             from grounding import EvidenceLedger
 
             from competitor.brand_signals import strengths_from_profile, weaknesses_from_readiness
-            _ledger = EvidenceLedger.from_profile(profile)
-            brand = strengths_from_profile(profile, _ledger)
+            # P-24: wire the SUBJECT JUDGE so a disjoint-subject superlative ("The best coffee"
+            # sourced by "Best regards") is REJECTED, not leniently accepted. Without it the ledger
+            # runs in its documented lenient mode (`ledger.py:685` accepts a disjoint subject when
+            # judge is None), so the SWOT/compliance path certified fabricated superlatives.
+            # Degrades safely by construction: default_caller()->None offline, make_subject_judge(
+            # None)->None, and behaviour is unchanged (a blocked/absent caller yields a lenient gate).
+            _judge = None
+            try:
+                from business_profile.llm import default_caller
+                from grounding.subject_judge import make_subject_judge
+                _judge = make_subject_judge(default_caller(strong=False))
+            except Exception:  # noqa: BLE001
+                _judge = None
+            _ledger = EvidenceLedger.from_profile(profile, subject_judge=_judge)
+            # A SEPARATE LEDGER FOR JUDGING THE BRAND'S OWN CLAIMS, built WITHOUT them.
+            #
+            # `_gated` asks a ledger whether a value proposition is sourced, and the ordinary
+            # ledger indexes value_propositions and trust_signals AS evidence — so the answer was
+            # the claim repeating itself. MEASURED reject rate on this path: 0 of 148. The repo had
+            # already found and deleted the identical construction on the trends path; the owner's
+            # ruling here was to make it real instead of removing it, so the evidence a strength is
+            # judged against is now the page text, the offerings, the catalog and the web.
+            _self_judge_ledger = EvidenceLedger.from_profile(
+                profile, subject_judge=_judge,
+                exclude_fields=("value_propositions", "trust_signals"))
+            # THE PEERS' OWN WORDS, so a promise can be tested instead of transcribed.
+            #
+            # They ride in on the matrix columns: `lite_peer_dims` extracted them from HTML it had
+            # already downloaded (no extra request, no model), and `matrix._DIM_KEYS` now carries
+            # them through the projection that used to delete them. Without this the strengths
+            # producer cannot ask the only question that matters — does the competition promise
+            # this too? — and "Fast Delivery" ships as an advantage on a market where every rival
+            # says it.
+            _peers_words = []
+            try:
+                from competitor.peer_words import PeerWords
+                for col in (getattr(matrix, "competitors", None) or []):
+                    raw = (getattr(col, "values", None) or {}).get("peer_words")
+                    if isinstance(raw, dict):
+                        _peers_words.append((getattr(col, "name", ""), PeerWords(
+                            checked=True, reason="from the peer's page",
+                            categories=list(raw.get("categories") or []),
+                            headings=list(raw.get("headings") or []),
+                            badges=list(raw.get("badges") or []),
+                            promises=list(raw.get("promises") or []),
+                            languages=list(raw.get("languages") or []))))
+            except Exception:  # noqa: BLE001 — a peer read must never break the SWOT
+                _peers_words = []
+            brand = strengths_from_profile(profile, _self_judge_ledger, peers=_peers_words)
             rweak = weaknesses_from_readiness(profile, _ledger)
+            # P-24: the gate's weaker mode, said out loud. `make_subject_judge(None)` -> None is
+            # the documented offline degrade, and until now it happened in silence: the same items
+            # shipped under two different guarantees, and the client was told about the stronger
+            # one. Disclosure rather than enforcement on purpose — paying a model call per run is
+            # the owner's decision to make, not one to take silently in either direction.
+            if not getattr(_ledger, "strict_subject_gate", False):
+                swot.notes.append(
+                    "بوابة التفضيل الدلالية غير مُفعَّلة في هذه التشغيلة (لا يوجد حَكَم متاح): "
+                    "عبارة فيها «الأفضل» أو «الأول» تعدّي لو الدليل فيه نفس الكلمة عن شيء آخر. "
+                    "البنود المُقارَنة بالأرقام غير متأثرة.")
         except Exception:  # noqa: BLE001 — a signal-mining error must never break the SWOT
             brand, rweak = [], []
         _prepend_unique(swot.strengths, brand)   # brand-level strengths lead
@@ -280,7 +595,162 @@ def synthesize_swot(
     if not any([swot.strengths, swot.weaknesses, swot.opportunities, swot.threats]):
         swot.notes.append("No subject dimensions were known either — the scrape "
                           "yielded no comparable signal (all cells UNKNOWN).")
+    # THREATS FROM WEAKER EVIDENCE (owner ruling, 2026-07-21). Runs LAST and only into an EMPTY
+    # quadrant: measured, peer-compared threats always win, and inference never dilutes them.
+    # Volume Qatar shipped `threats: []` beside five untouched Qatar market signals because every
+    # real generator needs a scrapable peer. Each derived item is labelled `directional_not_
+    # validated` and says in its own text that it is an inference.
+    if not swot.threats:
+        try:
+            _maturity = None
+            if profile:
+                from media_plan.maturity import brand_maturity
+                _maturity = brand_maturity(profile)
+            swot.threats.extend(derived_threats(trends=trends, weaknesses=swot.weaknesses,
+                                                maturity=_maturity))
+        except Exception:  # noqa: BLE001 — inference must never break a grounded SWOT
+            pass
+
+    _prioritise(swot, matrix, n_peers=n_peers)
+
+    # Say WHY any quadrant is empty — per quadrant. The whole-SWOT check above is silenced by a
+    # single unrelated item, which is exactly how Volume's empty Threats box shipped unexplained.
+    #
+    # ORDER MATTERS AND WAS WRONG. This ran two lines BEFORE `_prioritise`, so it inspected the
+    # quadrants while they were still full and then said nothing about the ones Kotler's removal
+    # rule and the site-readiness move emptied a moment later — the exact opposite of what the
+    # disclosure exists for. It now runs last, on the boxes the client will actually see.
+    try:
+        _scrapable = sum(1 for c in matrix.competitors
+                         if getattr(c, "has_scrapable_site", False))
+    except Exception:  # noqa: BLE001
+        _scrapable = 0
+    disclose_empty_quadrants(swot, n_peers=n_peers, scrapable_peers=_scrapable)
+
+    # ONE FACT, ONE LINE — applied last so it also catches restatements that different generators
+    # contributed to the same quadrant. Runs on the boxes the client will actually read.
+    swot.strengths = dedupe_claims(swot.strengths)
+    swot.weaknesses = dedupe_claims(swot.weaknesses)
+    swot.opportunities = dedupe_claims(swot.opportunities)
+    swot.threats = dedupe_claims(swot.threats)
+
+    # WHY THERE IS NO CUSTOMER VOICE, when there is none. Silence here reads as "the reviews were
+    # read and found nothing", which is a different claim from "there were almost none to read".
+    _own_voice = [t for t in (themes or []) if getattr(t, "is_own_brand", False)]
+    _note = customer_voice_note(_own_voice, collected=len(themes or []))
+    if _note:
+        swot.notes.append(_note)
     return swot
+
+
+# ---------------------------------------------------------------------------
+# Prioritisation — Pickton & Wright (1998), the owner's paper
+# ---------------------------------------------------------------------------
+
+# Website mechanics. True facts about the site, and — stated with no comparison — not strategy:
+# "Broad offering range (5 lines)" is broad compared to WHAT? The paper calls this "factors
+# described broadly: lack of specificity". They move to `site_readiness` and stay visible there.
+# A site dimension that WAS compared against peers is a genuine competitive gap and stays in the
+# strategic quadrants, so the rule keys on whether a comparison exists, not on the topic.
+_SITE_DIMENSION_KEYS = {d.key for d in DIMENSIONS if getattr(d, "source", "") == "scraped"}
+
+
+def _is_site_mechanic(item: "SWOTItem") -> bool:
+    """Structural, not textual: the item CITES one of the scraped site dimensions.
+
+    The first version matched phrases, and an existing readiness test caught it over-reaching —
+    "on-site" also appears in "No tagline on-site", which is a brand-positioning gap, not a website
+    mechanic. The own-site generators cite the dimension key itself, so asking what an item is
+    grounded in answers the question exactly, and cannot drift when someone rewords a phrase."""
+    return any(str(c) in _SITE_DIMENSION_KEYS for c in (getattr(item, "citation", None) or []))
+
+
+def _gap_by_text(matrix: ComparativeGapMatrix) -> dict:
+    out = {}
+    for gap in getattr(matrix, "gaps", []) or []:
+        if getattr(gap, "detail", None):
+            out[str(gap.detail)] = gap
+    return out
+
+
+def _prioritise(swot: SWOT, matrix: ComparativeGapMatrix, *, n_peers: int = 0) -> None:
+    """Score, sort, separate and disclose — in that order.
+
+    Everything here is deterministic and measured off the peer set already in `matrix`. Nothing is
+    invented: an item with no comparison scores `unknown` and says so rather than receiving a
+    number that looks like analysis."""
+    by_detail = _gap_by_text(matrix)
+    dropped = 0
+
+    for prefix, quadrant in (("S", swot.strengths), ("W", swot.weaknesses),
+                             ("O", swot.opportunities), ("T", swot.threats)):
+        kept: List[SWOTItem] = []
+        moved: List[SWOTItem] = []
+        for item in quadrant:
+            gap = by_detail.get(item.evidence) or by_detail.get(item.text)
+            # An un-compared website mechanic is information, not strategy — and it is also not a
+            # CLAIM. The same test that routes it to readiness now also tells the scorer which
+            # sentence to write, so "No CTA on the page" stops being reported to the client as
+            # something the brand said about itself.
+            is_mechanic = gap is None and _is_site_mechanic(item)
+            item.priority = (
+                score_gap(gap) if gap is not None
+                else score_opinion_item(claim_strength=item.claim_strength,
+                                        kind="site_observation" if is_mechanic else "self_claim",
+                                        peers_compared=getattr(item, "peers_compared", 0)))
+            if is_mechanic:
+                moved.append(item)
+            elif item.priority.drop:
+                dropped += 1
+            else:
+                kept.append(item)
+        # Sort AFTER scoring and BEFORE assigning ids, so the id names the item's final place and
+        # `swot_item_ids` (which now reads the stored id) cannot be desynchronised by any later
+        # reordering.
+        kept.sort(key=lambda it: getattr(it.priority, "rank", 0.0), reverse=True)
+        for i, item in enumerate(kept, 1):
+            item.id = f"{prefix}{i}"
+        quadrant[:] = kept
+        swot.site_readiness.extend(moved)
+
+    for i, item in enumerate(swot.site_readiness, 1):
+        item.id = item.id or f"R{i}"
+
+    if dropped:
+        # Kotler's rule is applied, but a silent removal reads to the client as "there was nothing
+        # there". Say how many left and why.
+        swot.notes.append(
+            f"استُبعد {dropped} عنصر لضعفه على المحورين معاً (أهمية منخفضة في السوق وفجوة صغيرة) — "
+            "حسب مصفوفتَي الفرصة والتهديد عند Kotler: العنصر الضعيف على المحورين يُحذف بدل أن "
+            "يوهم بثقلٍ ليس له.")
+    if swot.site_readiness:
+        swot.notes.append(
+            f"نُقل {len(swot.site_readiness)} عنصر إلى «جاهزية الموقع» — حقائق صحيحة عن الموقع "
+            "لكنها بلا مقارنة، والقوة أو الضعف لا يكونان إلا بالمقارنة.")
+    # An empty strategic SWOT is the CORRECT answer when nothing was compared — and a blank page is
+    # a terrible way to say it. Name the cause and the one action that fixes it, so the client is
+    # not left deciding whether the analysis failed or their market is featureless.
+    #
+    # The two causes are DIFFERENT and must not share a sentence: "no competitor is registered" is
+    # fixed by naming one; "a competitor is registered but nothing could be read from it" is not,
+    # and telling that owner to add a competitor asks her to redo what she already did.
+    # The condition is "nothing was COMPARED", not "the quadrants are empty". Measured on the real
+    # nanocare profile: five self-claims filled the strengths box while zero items had been checked
+    # against any peer, so an empty-quadrant test stayed silent and the client saw what looked like
+    # a competitive analysis containing no comparison at all.
+    compared = any(getattr(getattr(it, "priority", None), "peers_measured", 0)
+                   for it in swot.strengths + swot.weaknesses + swot.opportunities + swot.threats)
+    if not compared and swot.site_readiness:
+        if n_peers:
+            swot.notes.append(
+                f"لا توجد نقاط قوة أو ضعف استراتيجية رغم وجود {n_peers} منافس مسجَّل: "
+                "لم يُقرأ من موقعه أي بُعد قابل للمقارنة (الصفحة لم تُفتح أو لا تحتوي إشارات "
+                "قابلة للقياس). جرّبي منافساً بموقع يعمل، أو راجعي الرابط المُدخَل.")
+        else:
+            swot.notes.append(
+                "لا توجد نقاط قوة أو ضعف استراتيجية في هذه التشغيلة: لم يُقَس أي منافس، "
+                "والقوة أو الضعف لا يكونان إلا بالمقارنة. أضيفي منافساً واحداً على الأقل "
+                "لتتحول قراءات «جاهزية الموقع» أعلاه إلى تحليل استراتيجي حقيقي.")
 
 
 # ---------------------------------------------------------------------------

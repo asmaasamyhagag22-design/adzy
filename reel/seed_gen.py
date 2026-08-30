@@ -29,8 +29,14 @@ logger = logging.getLogger(__name__)
 
 
 def build_seed_prompt(veo_prompt: str, *, brand_name: str = "", dna_lines: str = "",
-                      locale_line: str = "", n_refs: int = 0) -> str:
-    """The conditioned still-frame prompt: the scene lives INSIDE the brand's real world."""
+                      locale_line: str = "", n_refs: int = 0, look: str = "",
+                      product_named: bool = False) -> str:
+    """The conditioned still-frame prompt: the scene lives INSIDE the brand's real world.
+
+    `look` is the run's LOOK LOCK (`brand.look.look_lock`) — the identical camera/lighting/grade
+    sentence appended to EVERY prompt of one film. Measured on abuauf_agency_v2: a warm kitchen,
+    a cold gym and a flat studio in one 17-second reel, because each shot chose its own light.
+    No grade after the fact repairs that; the shadows are already in the pixels."""
     place_block = ""
     if n_refs:
         place_block = (
@@ -48,10 +54,43 @@ def build_seed_prompt(veo_prompt: str, *, brand_name: str = "", dna_lines: str =
         + (f"{locale_line}\n" if locale_line else "")
         + (f"The brand's visual world (themes and imagery, never colour tints): {dna_lines}\n"
            if dna_lines else "")
-        + "ABSOLUTE RULES: no text, letters, numbers, logos, watermarks or signage anywhere "
-        "in the frame; natural TRUE-TO-LIFE colours and warm realistic skin tones (no colour "
+        # THE BAN IS ON INVENTED TEXT, NOT ON THE PRODUCT'S OWN PRINTING.
+        #
+        # MEASURED A/B (Nano Care, 2026-07-27, same model / same reference / same scene): under the
+        # blanket ban the box flattened into a generic carton with a degraded sub-line; with the
+        # real label protected it matched the packshot's cube form and read cleanly. We were telling
+        # the model to erase the one thing that makes a product recognisable, it complied by
+        # inventing label-shaped marks, and scene QA then refused the clip for exactly that —
+        # "the brand name replaced by garbled, illegible text". We manufactured the defect we were
+        # rejecting.
+        #
+        # A scene with no product keeps the blanket ban: generated signage garbles, which is why
+        # every word in this product is composited afterwards.
+        + ("ABSOLUTE RULES: the attached product photograph is the REAL item — reproduce its "
+           "packaging and its own printed label exactly as photographed, sharp and legible, and "
+           "never redesign or translate it. No ADDED or INVENTED text, captions, signage, "
+           "watermarks or logos anywhere else in the frame; the only text in the picture is the "
+           "product's own label. "
+           if product_named else
+           # PHRASED AS A DESCRIPTION, NOT A LIST OF NEGATIONS — the same correction made to
+           # the Veo prompt on 2026-08-06, applied to the prompt that was actually failing.
+           #
+           # Google's guidance is explicit: "describe what you wish to exclude"
+           # affirmatively. MEASURED on the live NTI run, where every scene contains a
+           # laptop: 21 seed-gate retries and 5 real-photo fallbacks across two renders, and
+           # every rejection reason was text — "garbled pseudo-text on the laptop screen",
+           # "readable text on the bag", "the mug features a garbled logo". The ban was
+           # handed to the model in the form the vendor calls weakest, and THIS is the
+           # prompt those rejections were coming from.
+           "ABSOLUTE RULES: every surface in the frame is blank and unprinted — plain "
+           "walls, unlabelled packaging, bare screens showing only a soft abstract glow, "
+           "clean mugs and unbranded clothing. Signage and printed matter stay outside the "
+           "frame or fall far out of focus; ")
+        + "natural TRUE-TO-LIFE colours and warm realistic skin tones (no colour "
         "cast); ONE clear focal point, clean composition with natural headroom for vertical "
         "video; believable, professionally lit, ad-grade."
+        + (f"\nTHE LOOK (identical in every shot of this film): {look.strip()}"
+           if str(look or "").strip() else "")
     )
 
 
@@ -88,6 +127,39 @@ def build_seed_prompt(veo_prompt: str, *, brand_name: str = "", dna_lines: str =
 _SEED_IMAGE_MODEL = "gemini-3-pro-image-preview"
 
 
+# A scene that puts a HUMAN on screen (word-bounded so "granola bar" never casts a "bar man").
+import re as _re
+
+_PERSON_RE = _re.compile(
+    r"\b(man|woman|men|women|person|people|guy|girl|boy|lady|worker|customer|shopper|chef|"
+    r"athlete|professional|employee|family|couple|he|she)\b", _re.IGNORECASE)
+
+
+def _ensure_portrait(path: "str | Path", ratio: float = 16 / 9) -> None:
+    """Belt-and-braces after the image_config aspect: any stray landscape/square seed is
+    center-cropped to 9:16 IN PLACE. Measured need: 114 seeds on disk in three different
+    aspects while the prompt said "VERTICAL 9:16" the whole time — the letterboxed gym shot
+    the owner called «مبوّظة» is what a landscape seed becomes downstream. Never raises."""
+    try:
+        from PIL import Image
+
+        p = Path(path)
+        with Image.open(p) as im:
+            w, h = im.size
+            if w <= 0 or h <= 0 or (h / w) >= ratio - 0.08:
+                return                            # already portrait enough
+            target_w = max(1, round(h / ratio))
+            if target_w >= w:                     # squarish and small — crop height instead
+                target_h = round(w * ratio)
+                top = max(0, (h - target_h) // 2)
+                im.crop((0, top, w, min(h, top + target_h))).save(p)
+                return
+            left = max(0, (w - target_w) // 2)
+            im.crop((left, 0, min(w, left + target_w), h)).save(p)
+    except Exception:  # noqa: BLE001 — a crop failure leaves the original; the gate still judges it
+        return
+
+
 def _ref_bytes(url: Optional[str]) -> Optional[tuple[bytes, str]]:
     if not url:
         return None
@@ -101,12 +173,24 @@ def _ref_bytes(url: Optional[str]) -> Optional[tuple[bytes, str]]:
 
 def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
                          brand_dna: Any = None, out_dir: "str | Path" = "outputs/reels",
-                         caller: Any = None,
+                         caller: Any = None, ref_pool: Optional[List[str]] = None,
+                         identity_ref: Optional[tuple] = None, look: str = "",
                          log=logger.info) -> List[Tuple[Optional[str], Optional[str]]]:
     """One generated, gate-passed 9:16 seed per scene. Returns [(seed_path|None, real_ref_url)]
     aligned with creative.scenes — seed None means BOTH attempts failed the art-critic gate
     and the caller must fall back to the real photo (legacy path, logged loudly).
-    Stats are logged for the cost report: generated / retried / fell_back."""
+    Stats are logged for the cost report: generated / retried / fell_back.
+
+    `ref_pool` — the UNGATED reference pool (`reel.image_quality.reference_pool`): real brand
+    images that failed the DISPLAY gate but still carry the product's identity. Used two ways:
+    as the scene's conditioning when it has no gated photo of its own, and as a 4th "brand-world"
+    attempt after the plain attempt fails — because the measured alternative (Abu Auf) is the
+    model inventing products («فين المنتجات»). Pool refs condition generation only; the returned
+    display ref stays the GATED photo or None.
+
+    `identity_ref` — the brand's SELECTED influencer face as (bytes, mime), attached to every
+    seed via `generate_oneshot_poster(identity_ref=)` so the SAME person fronts every scene:
+    the cross-scene consistency render3 got from its CharacterSheet, without wiring render3."""
     from poster.oneshot import generate_oneshot_poster
     from reel.scene_qa import check_seed_frame
 
@@ -132,6 +216,7 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
     out_root = Path(out_dir) / "_genseeds"
     out_root.mkdir(parents=True, exist_ok=True)
     stats = {"generated": 0, "retried": 0, "fell_back": 0}
+    self_cast = identity_ref is None     # no selected influencer -> the first protagonist locks
     results: List[Tuple[Optional[str], Optional[str]]] = []
     ref_cache: dict = {}
     for i, sc in enumerate(getattr(creative, "scenes", []) or []):
@@ -140,30 +225,93 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
         if ref_url not in ref_cache:
             ref_cache[ref_url] = _ref_bytes(ref_url)
         ref = ref_cache[ref_url]
+        # No gated photo for this scene -> condition on the identity pool instead of nothing.
+        pool_refs: list = []
+        if not ref:
+            for pu in (ref_pool or [])[:2]:
+                if pu not in ref_cache:
+                    ref_cache[pu] = _ref_bytes(pu)
+                if ref_cache[pu]:
+                    pool_refs.append(ref_cache[pu])
+        # Only a hero-product scene carries the real pack, so only it may show printed text —
+        # everything else keeps the blanket ban (generated signage garbles).
+        _is_product = bool(getattr(sc, "hero_product", False))
+        # THE LOOK LOCK, WHICH THIS FUNCTION HAS ACCEPTED AND DISCARDED SINCE IT WAS WRITTEN.
+        # `look` is a parameter on line 165 and, until 2026-08-01, appeared nowhere else in the
+        # body — so `build_seed_prompt`'s look block (see :80) was unreachable and every still in
+        # every film was generated with no shared camera/lighting/grade sentence. The guarding test
+        # called `build_seed_prompt` directly, which is why it stayed green through all of it.
+        #
+        # This is the seam that matters most for a film reading as one film: `brand/look.py` opens
+        # by saying no colour pass after the fact repairs a scene that was LIT differently — the
+        # shadows are already in the pixels. The grade downstream corrects a cast; only this
+        # prevents the mismatch.
         prompt = build_seed_prompt(getattr(sc, "veo_prompt", ""), brand_name=name,
                                    dna_lines=dna_lines, locale_line=locale_line,
-                                   n_refs=1 if ref else 0)
+                                   n_refs=(1 if ref else len(pool_refs)),
+                                   product_named=_is_product, look=look)
         seed_path: Optional[str] = None
         # calibration #2 (owner: the raw distant building photo read as "قطع خالص"): a third
         # attempt drops the photo conditioning entirely — a clean on-brief scene beats a
         # world-breaking raw photo — before the caller ever considers a fallback.
+        # The unconditioned attempt needs the look MORE than the others, not less: with no photo to
+        # anchor it, the look sentence is the only thing keeping this shot in the same film.
         prompt_plain = build_seed_prompt(getattr(sc, "veo_prompt", ""), brand_name=name,
                                          dna_lines=dna_lines, locale_line=locale_line,
-                                         n_refs=0)
-        for attempt in (1, 2, 3):
+                                         n_refs=0, product_named=_is_product, look=look)
+        # Attempt plan: 1-2 conditioned on the scene photo (or the pool when there is none);
+        # 3 unconditioned ("clean on-brief beats world-breaking"); 4 pool-conditioned brand-world
+        # — the last chance to keep REAL brand identity in frame before the scene is dropped.
+        # MOTION STRATEGY (owner v2 verdict: the video model garbles any label it is asked to MOVE):
+        # only a hero_product scene carries the real pack — its motion pins the pack and moves
+        # the camera. A free-motion scene must have NO readable text to garble in the first
+        # place, so it gets neither the pack refs nor the pool.
+        hero = bool(getattr(sc, "hero_product", False))
+        for attempt in (1, 2, 3, 4):
             try:
+                if attempt == 4:
+                    if not hero:
+                        break        # a free scene has no brand-world refs worth a 4th spend
+                    if not pool_refs:
+                        for pu in (ref_pool or [])[:2]:
+                            if pu not in ref_cache:
+                                ref_cache[pu] = _ref_bytes(pu)
+                            if ref_cache[pu]:
+                                pool_refs.append(ref_cache[pu])
+                    if not pool_refs:
+                        break        # nothing left to condition on — the caller decides the drop
                 p = out_root / f"seed_{uuid.uuid4().hex[:8]}.png"
                 a_prompt = (prompt if attempt == 1
                             else prompt + "\nNatural anatomy, realistic photographic light, "
                                  "one clean focal point." if attempt == 2
-                            else prompt_plain)
+                            else prompt_plain if attempt == 3
+                            else prompt)
+                if not hero:
+                    # The retry's escalation, in the same affirmative form. Repeating a ban the
+                    # model already broke is not a request (`reel/retry_policy.py`); what changes
+                    # the picture is describing the surface we want instead.
+                    a_prompt += ("\nEvery surface in this frame is blank and unprinted: plain "
+                                 "walls, unlabelled packaging, screens dark or showing only a "
+                                 "soft abstract glow, plain mugs and unbranded clothing.")
+                attach = ([ref] if (ref and attempt < 3)
+                          else pool_refs if (attempt in (1, 2) and not ref) or attempt == 4
+                          else None)
+                if not hero:
+                    attach = None
                 generate_oneshot_poster(
                     a_prompt,
                     p, logo_bytes=None,
-                    model=_SEED_IMAGE_MODEL,          # EXPLICIT nano — never the poster's env
-                    product_images=([ref] if (ref and attempt < 3) else None))
+                    model=_SEED_IMAGE_MODEL,          # EXPLICIT pro lane (see :88) — never the poster's env
+                    product_images=(attach or None),
+                    identity_ref=identity_ref,
+                    aspect="9:16")                    # enforced in image_config — prose is ignored
+                _ensure_portrait(p)                   # belt-and-braces: crop any stray landscape
                 stats["generated"] += 1
-                v = check_seed_frame(p, caller=caller, brand_hint=name)
+                # attach non-empty = this seed was conditioned on the brand's REAL product
+                # images -> the gate must judge label text as the deliverable, not a defect
+                # (live finding 2026-07-25: the blanket ban rejected every Abu Auf seed).
+                v = check_seed_frame(p, caller=caller, brand_hint=name,
+                                     real_product_refs=bool(attach))
                 # FAIL-CLOSED (P6 #7): only an explicit PASS animates. This was
                 # `(not v.checked) or v.overall_pass` — so no vision caller, an unreadable PNG, or
                 # ONE Gemini timeout accepted the seed and spent Veo money on it, which is the
@@ -171,6 +319,18 @@ def generate_scene_seeds(creative: Any, photos: List[str], *, profile: dict,
                 # now falls back to the real photo, exactly like a judged failure.
                 if v.overall_pass is True:
                     seed_path = str(p)
+                    # SELF-CAST (owner v2 verdict: «5 رجالة في 8 مشاهد — متركب كأنه صور ولا
+                    # بعض»): with no selected influencer, the FIRST person-bearing seed that
+                    # passes the gate becomes the identity ref for every later scene — one
+                    # protagonist carries the story, exactly what the director scripted.
+                    if self_cast and identity_ref is None and _PERSON_RE.search(
+                            str(getattr(sc, "veo_prompt", "") or "")):
+                        try:
+                            identity_ref = (Path(p).read_bytes(), "image/png")
+                            log(f"[seedgen] self-cast: scene {i + 1} protagonist locked as "
+                                "the identity ref for all remaining scenes")
+                        except Exception:  # noqa: BLE001 — a failed lock never kills the seed
+                            pass
                     break
                 log(f"[seedgen] scene {i + 1} attempt {attempt} rejected ({v.reason})")
                 stats["retried"] += 1

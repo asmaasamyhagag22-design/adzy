@@ -52,6 +52,68 @@ _E164_COUNTRY = {
 }
 
 
+# ---------------------------------------------------------------------------
+# ISO-3166-1 alpha-2 for a resolved country NAME. Added 2026-07-15 (D-8) because the
+# SERP needs a country CODE ("qa") while `country_of` speaks display names ("Qatar").
+#
+# ONE inversion, HERE, in the module that owns the country facts. A second table is what
+# `poster/art_director.py:582` already is (18 MENA entries vs this module's ~60) and two
+# tables drift; a third would be worse. Derived from CCTLD_COUNTRY at import so a new ccTLD
+# entry automatically gains its code — nothing to keep in sync by hand.
+#
+# A ccTLD is USUALLY its ISO alpha-2, but not always. Verified by hand against all 62 keys
+# (pycountry is not installed here): `.uk` is the ONLY mismatch — ISO-3166-1 for the United
+# Kingdom is GB, not UK.
+#   UNVERIFIED: Google's `gl` accepts the legacy "uk" as well as "gb"; we send the ISO code
+#   because that is what the parameter is documented to take. Not exercised — no UK brand has
+#   ever been through this system (every scrape on disk is EG/SA/US).
+_CCTLD_ISO_OVERRIDE = {"uk": "gb"}
+
+
+def _build_country_codes() -> dict[str, str]:
+    """name -> ISO alpha-2. A name reachable from two different ccTLDs is AMBIGUOUS and is
+    dropped rather than resolved arbitrarily (there are none today; this keeps it true)."""
+    out: dict[str, str] = {}
+    ambiguous: set[str] = set()
+    for tld, name in CCTLD_COUNTRY.items():
+        code = _CCTLD_ISO_OVERRIDE.get(tld, tld)
+        if name in out and out[name] != code:
+            ambiguous.add(name)
+        out[name] = code
+    for name in ambiguous:
+        out.pop(name, None)
+    return out
+
+
+_COUNTRY_CODE = _build_country_codes()
+
+
+_COUNTRY_NAME = {code: name for name, code in _COUNTRY_CODE.items()}
+
+
+def country_name_for(code: str) -> str:
+    """ISO-3166 alpha-2 -> the display name `country_of` speaks: "qa" -> "Qatar". '' when the code
+    is unknown (NEVER a guess). The inverse of `country_code`; both live here beside the country
+    facts so there is exactly ONE country<->code map (D-8). Used to put the MARKET name into a trend
+    query's TEXT (trends/sources.py) — the owner measured that `gl` alone can't carry the market."""
+    return _COUNTRY_NAME.get((code or "").strip().lower(), "")
+
+
+def country_code(country: str) -> str:
+    """ISO-3166-1 alpha-2 for a country name as `country_of` returns it: "Qatar" -> "qa".
+
+    '' when the name is unknown, ambiguous, or empty — NEVER a guess. The empty string is the
+    honest answer and callers must treat it as "no country claim": `SerperTrendSource` turns it
+    into `gl=None`, so the request carries no market rather than a wrong one.
+
+    Deliberately NOT handled: `_E164_COUNTRY`'s `"+1": "the USA/Canada"` (:51) is not a
+    CCTLD_COUNTRY value, so it resolves to '' here. That is correct — a +1 phone genuinely does
+    not tell us which of the two countries the brand is in, and inventing one would be the
+    fabrication this function exists to avoid.
+    """
+    return _COUNTRY_CODE.get((country or "").strip(), "")
+
+
 def _get(obj: Any, key: str, default: Any = None) -> Any:
     val = obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
     return default if val is None else val
@@ -103,6 +165,117 @@ def country_of(profile: Any) -> str:
     return ""
 
 
+def search_locale(profile: Any) -> tuple[str, str]:
+    """(gl, hl) for a web search on the brand's behalf — both from the brand's OWN evidence.
+
+    `gl` = ISO-3166 alpha-2 of the country `country_of` resolves ("qa").
+    `hl` = the brand's DOMINANT content language, MEASURED from its own page text
+           (`scraper/language.py:detect_languages` counts langdetect proportions and emits
+           `counter.most_common()`, so the list is ordered by dominance; the profile keeps that
+           order and drops the number — `business_profile/rules/orchestrator.py:112`).
+
+    ("", "") when the evidence is silent — the caller must send NO market rather than a guessed
+    one (`SerperTrendSource` turns each "" into None, so the key is omitted entirely).
+
+    `hl` IS NOT DERIVED FROM `gl` — deliberately. "The country is Arab, therefore search in
+    Arabic" is the inference D-8 forbids: it is `strategy/builder.py:154`'s "any Arabic brand =>
+    Egyptian dialect" with the arrow reversed. A Doha cafe whose own site measures 100% English
+    gets `("qa", "en")`. The country and the language are two independent facts and each needs
+    its own evidence.
+    """
+    p = profile or {}
+    if isinstance(p, dict) and isinstance(p.get("profile"), dict):
+        p = p["profile"]
+    gl = country_code(country_of(p))
+    hl = ""
+    for x in (_get(p, "languages") or []):
+        code = getattr(x, "code", None) or (x.get("code") if isinstance(x, dict) else x)
+        code = str(code or "").strip().lower()[:2]          # "en-US" -> "en"
+        if code:
+            hl = code                                        # [0] is the dominant one
+            break
+    return gl, hl
+
+
+# The Arabic dialect/register buckets. Keyed on `country_of`'s display-name strings (note the
+# "the " prefix on some). This map lives HERE — beside `country_of` and `CCTLD_COUNTRY`, the country
+# facts it depends on — so there is exactly ONE country->dialect map. It was born in
+# `strategy/builder.py` (P-04, for the content calendar); relocated 2026-07-18 (CS-04) so the POSTER
+# copy can reuse it without a poster->strategy dependency on a private symbol, and without a fourth
+# hardcoded table (the owner's standing rule: duplicate tables ARE the disease — CS-13/P-08).
+_GULF_COUNTRIES = {"Saudi Arabia", "the UAE", "Qatar", "Kuwait", "Bahrain", "Oman"}
+_LEVANT_COUNTRIES = {"Lebanon", "Jordan", "Syria", "Palestine", "Iraq"}
+_MAGHREB_COUNTRIES = {"Morocco", "Algeria", "Tunisia", "Libya"}
+
+
+def arabic_region_of(profile: Any) -> str:
+    """The canonical Arabic dialect BUCKET for the brand's evidenced country: one of
+    'egypt' | 'gulf' | 'levant' | 'maghreb' | '' (unknown). ONE bucket source so the register
+    WORDING (`arabic_dialect_for`) and the reel's native-VOICE maps (ElevenLabs / edge-tts in
+    `reel/voiceover.py`) can never disagree about which region a country belongs to. Keyed on
+    `country_of`'s display names — the same country facts every other locale reader uses (D-8)."""
+    c = country_of(profile or {})
+    if c == "Egypt":
+        return "egypt"
+    if c in _GULF_COUNTRIES:
+        return "gulf"
+    if c in _LEVANT_COUNTRIES:
+        return "levant"
+    if c in _MAGHREB_COUNTRIES:
+        return "maghreb"
+    return ""
+
+
+def arabic_dialect_for(profile: Any) -> str:
+    """The Arabic register keyed on the brand's EVIDENCED country (P-04, D-8), with a neutral
+    default — NOT a hardcoded 'Egyptian Arabic' for every Arabic brand. A Gulf/Levantine/Maghrebi
+    brand's copy was being written in Masri; now each gets its own register, and an unknown-country
+    Arabic brand gets a neutral conversational register rather than Egyptian. Takes the whole
+    profile and resolves the region itself (via `arabic_region_of`), so callers pass `profile`.
+    """
+    return {
+        "egypt": "Egyptian Arabic (عامية مصرية)",
+        "gulf": "Gulf/Khaleeji Arabic (لهجة خليجية)",
+        "levant": "Levantine Arabic (لهجة شامية)",
+        "maghreb": "the brand's Maghrebi register (or Modern Standard Arabic)",
+    }.get(arabic_region_of(profile), "natural conversational Arabic in the brand's own regional register")
+
+
+def _casting_exclusions(profile: Any) -> str:
+    """What the people should NOT look like — DERIVED from the brand's own region.
+
+    MEASURED (2026-07-25): this used to be one fixed string, "NOT a generic 'Arab' or
+    Gulf/Khaleeji look, NOT Western/European casting", appended to every country. For a Qatari
+    brand that reads: be authentically Qatari, and do not look Khaleeji. Qatar IS the Gulf. Same
+    self-contradiction for Saudi Arabia, the UAE, Kuwait, Bahrain and Oman — every Gulf poster the
+    system has ever produced.
+
+    How it got there is this project's own failure class: the exclusion is CORRECT for the incident
+    it was written from (Egyptian brands kept being rendered with a generic Gulf look). Generalising
+    swapped the country name and left the negation fixed, so a true statement about Egypt became the
+    answer to a different question.
+
+    Now the line rules out the neighbouring Arab looks a brand is NOT part of, and never its own.
+    Western/European casting stays excluded everywhere — that exclusion is about the brand's market
+    versus the model's default, not about one region versus another."""
+    region = arabic_region_of(profile)
+    langs = [str(getattr(x, "code", None) or (x.get("code") if isinstance(x, dict) else x) or "")
+             for x in (_get(profile, "languages") or [])]
+    arabic_market = bool(region) or any(str(l).lower().startswith("ar") for l in langs)
+    if not arabic_market:
+        # CAUGHT WHILE FIXING THE GULF CASE: keeping "NOT Western/European casting" for a French or
+        # American brand is the SAME self-contradiction one level out — it tells a European brand
+        # not to look European. With no regional evidence the positive anchor ("authentically from
+        # {country}") is the honest whole instruction.
+        return ""
+    buckets = {"gulf": "Gulf/Khaleeji", "levant": "Levantine", "maghreb": "North African"}
+    # Rule out the neighbouring looks the brand is NOT part of — never its own. An Arabic-market
+    # country that falls in no bucket (Egypt, Sudan, Yemen) is not part of ANY of them, so all
+    # three are excluded; that is precisely the protection the original line was written for.
+    others = [label for key, label in buckets.items() if key != region]
+    return f"NOT a generic {' or '.join(others)} look, NOT Western/European casting"
+
+
 def brand_locale(profile: Any) -> tuple[str, str]:
     """(country, primer_line) for image prompts. The primer is the proven anti-drift wording
     (no clichés: 'their own everyday style', never named dress items). When only the LANGUAGE
@@ -113,11 +286,12 @@ def brand_locale(profile: Any) -> tuple[str, str]:
         p = p["profile"]
     country = country_of(p)
     if country:
+        excl = _casting_exclusions(p)
         return country, (
             f"PEOPLE & SETTING — every person and environment is authentically from {country}: "
-            f"real local people in their own everyday style and dress (NOT a generic 'Arab' or "
-            f"Gulf/Khaleeji look, NOT Western/European casting); architecture, streets, interiors "
-            f"and signage that belong in {country}."
+            f"real local people in their own everyday style and dress"
+            f"{f' ({excl})' if excl else ''}; "
+            f"architecture, streets, interiors and signage that belong in {country}."
         )
     langs = [str(getattr(x, "code", None) or (x.get("code") if isinstance(x, dict) else x) or "").lower()
              for x in (_get(p, "languages") or [])]

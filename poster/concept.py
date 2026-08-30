@@ -38,6 +38,7 @@ class CreativeConcept(BaseModel):
     core_benefit: str = ""
     emotional_tone: str = ""
     visual_idea: str = ""               # text-free scene for the image (brand design language)
+    product_placement: str = ""         # where the featured product physically sits in that scene
     proof_points: list[str] = Field(default_factory=list)   # 2-3 -> become the chips
     headline: str = ""                  # 2-6 words, ad copy (NOT a mission statement)
     subheadline: str = ""               # optional single supporting line
@@ -57,6 +58,7 @@ class _ConceptResponse(BaseModel):
     core_benefit: str
     emotional_tone: str
     visual_idea: str
+    product_placement: str = ""         # additive: permissive default keeps older callers valid
     proof_points: list[str]
     headline: str
     subheadline: str
@@ -109,11 +111,40 @@ def _dna_tone_lines(brand_dna: Any) -> str:
     return "; ".join(parts)
 
 
-def _concept_clean(c: CreativeConcept, *, arabic: bool, ledger: Any = None) -> CreativeConcept:
+def _concept_clean(c: CreativeConcept, *, arabic: bool, ledger: Any = None,
+                   _sense_caller: Any = None) -> CreativeConcept:
     """Drop any chip that violates the language lock (Latin in an Arabic brand) OR — when a
     grounding ledger is supplied — carries an UNSOURCED falsifiable claim (a final
     deterministic safety so a fabricated chip never ships even if the regenerate loop
     didn't clear it)."""
+    # DOES IT MEAN ANYTHING? (owner 2026-07-26: «هو إيه "وقّفي البقعة"؟ مش فاهمة أصلاً»). Six
+    # gates judged that headline — language, grounding, claims, contrast, stray text, art — and
+    # none asked the reader's own question. A native-speaker judge rewrites a meaningless line
+    # into the same message said properly; a failure with no rewrite leaves the line and is
+    # logged, never silently passed.
+    try:
+        from poster.copy_qa import sense_check
+        _sense = sense_check({"headline": c.headline, "subheadline": c.subheadline,
+                              "cta": c.cta},
+                             language=("ar" if arabic else "en"),
+                             caller=_sense_caller)   # None -> copy_qa resolves its own
+        for _f, _new in (_sense.rewrites or {}).items():
+            setattr(c, _f, _new)
+    except Exception:  # noqa: BLE001 — a judge that cannot run must not kill the concept
+        pass
+
+    # CLAIM SAFETY BEFORE STYLE (reviewer 2026-07-26): a therapeutic verb about a cosmetic is
+    # regulatory exposure, not copy flair — softened deterministically on every field, so a
+    # model that ignores the prompt's ban still cannot ship «بيعالج».
+    try:
+        from poster.copy_rules import soften_therapeutic_claims
+        for _f in ("headline", "subheadline", "cta", "single_message"):
+            _t, _ch = soften_therapeutic_claims(getattr(c, _f, "") or "")
+            if _ch:
+                setattr(c, _f, _t)
+        c.proof_points = [soften_therapeutic_claims(p)[0] for p in c.proof_points]
+    except Exception:  # noqa: BLE001 — safety net failing must not kill the concept
+        pass
     if arabic:
         c.proof_points = [p for p in c.proof_points if p and not has_latin(p)][:3]
     else:
@@ -155,6 +186,82 @@ def _grounding_problems(c: CreativeConcept, ledger: Any) -> list[str]:
 # ---------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------
+
+
+def product_facts_block(*, name: str = "", description: str = "",
+                        price: str = "", currency: str = "") -> str:
+    """The featured product's OWN facts, for the copywriter.
+
+    REVIEWER (2026-07-26): «مفيش أي إشارة لـ SPF 50+ ولا لتقنية UVMUNE… أهم selling point في
+    المنتج ضايع» and «مفيش سعر… الـ conversion path مقطوع». The writer was handed the product's
+    NAME and nothing else, so the only thing it could sell was the pharmacy.
+
+    Everything here is VERBATIM from the product's own page — the name, the page's own
+    description, and the price exactly as shown. A page with no price yields no price line: an
+    invented number on a pharmacy ad is the worst kind of hallucination, so the absence is
+    stated rather than filled."""
+    name = str(name or "").strip()
+    if not name:
+        return ""
+    lines = [
+        "\n\nTHE FEATURED PRODUCT — these facts are VERBATIM from its own product page and are "
+        "the ONLY product claims you may make:",
+        f"- name: {name}",
+    ]
+    desc = str(description or "").strip()
+    if desc:
+        lines.append(f"- what its page says: {desc[:400]}")
+    price = str(price or "").strip()
+    cur = str(currency or "").strip()
+    if price:
+        lines.append(f"- price EXACTLY as shown: {(cur + ' ' + price).strip()}")
+        lines.append("  You MAY name this price in the copy; write it exactly, never rounded, "
+                     "never as an offer or discount unless the page says so.")
+    else:
+        lines.append("- no price is shown on the page: do NOT state, imply or invent one.")
+    lines.append(
+        "Lead with what makes THIS product different (its own technology, protection factor, "
+        "actives or claim) — naming the pharmacy is not a product benefit.")
+    lines.append(
+        "If the name or page carries a SPEC (SPF50+, UVMUNE 400, a strength), that spec MUST "
+        "appear as one of the proof chips — it is the product's biggest number and it may not "
+        "live only in the pack's fine print. WRITE THE DESIGNATION EXACTLY AS PRINTED, in Latin, "
+        "even inside Arabic copy: «SPF 50+» and «UVMUNE 400» are registered marks, never "
+        "transliterate them («إس بي إف ٥٠+» is wrong). The words AROUND the designation are "
+        "Arabic; the mark itself is quoted.")
+    lines.append(
+        "Do NOT borrow medicinal vocabulary (dose, جرعة, تركيز) for a cosmetic — it invites "
+        "regulatory attention for no benefit.")
+    lines.append(
+        "CLAIM SAFETY: this is a COSMETIC ad. Never write therapeutic verbs (يعالج / يشفي / "
+        "treats / cures) about it; say what the pack says (يقلل ظهور / يحمي / anti-dark-spots).")
+    return "\n".join(lines)
+
+
+def _placement_rule(featured_product: Optional[str]) -> str:
+    """Ask the concept WHERE the featured product physically belongs in the scene it just invented.
+
+    Owner (2026-07-20): "البوستر بيحط علبة الدوا في أي مكان وبأي شكل مش مهتم هو ده مكان منطقي ولا
+    لأ." The renderer now enforces placement PHYSICS, but the creative decision — which support,
+    which moment, whose hand — belongs with the concept that authored the scene. Same model call,
+    so no extra spend.
+
+    Universal by construction (owner's D-8 correction): a box rests on a counter, but shoes sit on
+    the ground, a car on a road, a sofa in a room — so the field asks for the NATURAL SUPPORT of
+    this product's own kind, never "a surface".
+    """
+    if not (featured_product or "").strip():
+        return ""
+    return (
+        "- product_placement: ONE sentence in ENGLISH saying exactly where the featured product "
+        "physically sits inside your visual_idea, and why that spot is true to life. Name (a) the "
+        "NATURAL SUPPORT that carries a product of ITS kind — a counter, a shelf, the ground, a "
+        "road, a room's floor, a hand mid-use, worn on the body — never floating and never a blank "
+        "studio void; (b) the surrounding context that makes the moment real; (c) the person's "
+        "relation to it if a person is in the scene (holding it, reaching for it, using it). Choose "
+        "the place where this kind of product is genuinely used, kept or displayed.\n"
+    )
+
 
 def _fallback_concept(profile: dict, arabic: bool) -> CreativeConcept:
     """A grounded concept when there's no caller / all retries fail — copy comes from the
@@ -199,6 +306,8 @@ def build_creative_concept(
     research: Any = None,
     trend_context: Optional[str] = None,
     raw_facts: Optional[str] = None,
+    featured_product: Optional[str] = None,
+    product_facts: Optional[str] = None,
 ) -> CreativeConcept:
     """One coherent campaign concept + brand-language copy. Arabic brands -> Arabic copy with
     ZERO Latin (validated + regenerated). Never raises.
@@ -253,7 +362,12 @@ def build_creative_concept(
     except Exception:  # noqa: BLE001
         country = ""
     tone_block = _dna_tone_lines(brand_dna)
-    lang_name = "Egyptian Arabic (فصحى-قريبة / عامية مصرية راقية)" if arabic else "English"
+    # CS-04 (D-8): the copy register follows the brand's EVIDENCED country, not a hardcoded
+    # 'Egyptian Arabic' for every Arabic brand (a Saudi brand was commissioned in Masri). Same
+    # resolver the content calendar uses (P-04) — now the single country->dialect map in
+    # poster.locale, keyed on `country` which is already resolved at :252 above.
+    from poster.locale import arabic_dialect_for
+    lang_name = arabic_dialect_for(profile) if arabic else "English"
     vary = ""
     if variation:
         vary = (f"\nThis run's creative angle: {variation.get('mood','')}, "
@@ -333,15 +447,57 @@ def build_creative_concept(
         "company. Write visual_idea in ENGLISH — a production brief, no words in the image."
         + (f" The scene is set in {country} with authentic local people from {country} — "
            f"say so explicitly in the visual_idea." if country else "") + "\n"
-        "- proof_points: 2-3 SHORT consumer-language points that support single_message (these "
+        + _placement_rule(featured_product)
+        + str(product_facts or "")
+        + "- proof_points: 2-3 SHORT consumer-language points that support single_message (these "
         "become on-poster chips). Each must serve the message — drop anything unrelated. NOT a "
         "dump of internal/B2B product names.\n"
+        # THE CHIPS ARE AN ARGUMENT, NOT A SPEC SHEET.
+        #
+        # OWNER (2026-08-06): «الكلام اللي عالبوستر… محتاج يبقا له معنى أكتر، مش أي كلام جنب بعضه».
+        # MEASURED on the shipped NTI poster, and the two chips fail in two different ways:
+        #
+        #     headline  «زمان كنت بتسافرله. دلوقتي هو اللي جنبك.»
+        #     chip 1    «موجودين في معظم محافظات مصر»    <- the headline already said this
+        #     chip 2    «شهادات معتمدة من شركات عالمية»  <- a CATEGORY, not a fact
+        #
+        # Chip 1 spends a slot on information the reader already has; chip 2 could be printed on
+        # any training provider in the country. Meanwhile NTI's own profile carried «اعتماد المجلس
+        # الأعلى للجامعات», «شهادة Huawei Big Data Associate», «أول معمل متنقل في مصر لشهادة CCIE
+        # بالشراكة مع Cisco» and «تأسست 1983» — named, checkable, and unavailable to a competitor.
+        #
+        # The three rules below are the difference between two facts standing next to each other
+        # and two facts making a case. Nothing here is vertical-specific: "a different KIND of
+        # proof" and "the named over the categorical" hold for a pharmacy, a café or a bank.
+        + "PROOF THAT ARGUES (hard rules for proof_points — this is what makes a poster read as "
+        "an ad instead of an information panel):\n"
+        "  1. NEVER restate the headline. If the headline already tells the reader something, a "
+        "chip repeating it is a wasted slot — say the NEXT thing, the one that makes the headline "
+        "believable.\n"
+        "  2. Each chip is a DIFFERENT KIND of proof. Pick from: an AUTHORITY (who accredits, "
+        "certifies or partners), a NUMBER (years, scale, count, price, time), a NAMED SPECIFIC (a "
+        "real product, partner, place or programme by its actual name), or an ACCESS fact (where, "
+        "when, how fast, how to get it). Two chips of the same kind read as a list; two different "
+        "kinds read as a case.\n"
+        "  3. Prefer the NAMED over the categorical, always — the identity above gives you real "
+        "names. 'accredited by international companies' is what every competitor says; the actual "
+        "accrediting body, partner or certificate name is what only THIS brand can say. If the "
+        "identity does not contain a specific name for a point, drop that point rather than "
+        "writing its category.\n"
+        "  Together the chips must answer the one question the headline provokes in the reader "
+        "('really? why should I believe that?'). If they do not, they are decoration.\n"
         "BRAND-COHERENCE (HARD RULE — owner caught 'بطل مذاكرة' shipped for an education "
         "institute): the hook must NEVER mock, negate or tell people to stop the brand's own "
         "category or core activity — an education brand never disparages studying, a restaurant "
         "never says stop eating, a gym never mocks training. Tension is allowed ONLY against a "
         "PAIN the brand solves (waiting, cost, theory-without-practice, complexity) and must be "
         "phrased so the brand's own activity stays desirable.\n"
+        "- CREATIVE BAR (البند 4 — owner: 'مش كريتيف'): start from a HUMAN INSIGHT — a real "
+        "moment, tension or desire from the brand's actual pain-points/reviews — not from the "
+        "product's spec sheet. Banned shapes: 'جرب X الآن', 'X الأفضل في Y', any line a "
+        "competitor could run unchanged, and any generic benefit platitude. The idea should "
+        "make a stranger FEEL something specific before it informs them. Stay 100% inside the "
+        "real facts below — creativity is in the ANGLE, never in inventing claims.\n"
         "- headline: AD COPY — 2 to 6 words, an ENTICING hook that sells the core_benefit and "
         "stops a scroll. NOT a company mission statement, NOT generic corporate values, NOT a "
         "category platitude a competitor could run unchanged ('control in your hand', 'your unfair "
@@ -361,15 +517,32 @@ def build_creative_concept(
         "THEY DO + the SPECIFIC service + one REAL proof? Is the visual the real world of THIS "
         "service, not a stock person? If any is missing, rewrite."
     )
+    # CS-14 (P-72 pattern): scraped fields are UNTRUSTED text. Neutralize the characters that
+    # let a page's own copy break out of its slot or counterfeit prompt structure — the same
+    # 3-char neutralization the evidence pack applies (" -> ', brackets -> parens), plus a
+    # newline-collapse for inline fields. Semantic injection stays caught downstream by the
+    # spine/ledger gates.
+    def _neutral(v: str, *, inline: bool = True) -> str:
+        v = str(v or "").replace('"', "'").replace("[", "(").replace("]", ")")
+        return " ".join(v.split()) if inline else v
+
+    name = _neutral(name)
+    tagline = _neutral(tagline)
+    desc = _neutral(desc)
+    offers = [_neutral(o) for o in (offers or [])]
     raw_facts_block = (
         "\nREAL PRODUCT-PAGE FACTS (verbatim from the brand's own page — the owner's "
         "raw-data-first rule; ground the concept in THESE specifics):\n"
-        + raw_facts[:1800] + "\n") if raw_facts and raw_facts.strip() else ""
+        + _neutral(raw_facts[:1800], inline=False) + "\n") if raw_facts and raw_facts.strip() else ""
     user = (
         f"Brand: {name}\n"
         + (f"Country/market: {country}\n" if country else "")
         + (f"Tagline: {tagline}\n" if tagline else "")
         + (f"What they do: {desc[:400]}\n" if desc else "")
+        + (f"FEATURED PRODUCT/SERVICE — the ENTIRE concept is about THIS one item, the user "
+           f"picked it explicitly: {_neutral(featured_product)}. The headline or subheadline "
+           f"MUST name it (its real name; customer wording allowed) and must NOT write about "
+           f"a different product.\n" if featured_product else "")
         + (f"Real offerings (raw — may be internal jargon; render them in the words a real "
            f"customer would use, but never change what they factually ARE): {', '.join(offers)}\n"
            if offers else "")
@@ -406,6 +579,7 @@ def build_creative_concept(
             audience=resp.audience.strip(), single_message=resp.single_message.strip(),
             core_benefit=resp.core_benefit.strip(), emotional_tone=resp.emotional_tone.strip(),
             visual_idea=resp.visual_idea.strip(),
+            product_placement=(getattr(resp, "product_placement", "") or "").strip(),
             proof_points=[p.strip() for p in (resp.proof_points or []) if p.strip()],
             headline=resp.headline.strip(), subheadline=resp.subheadline.strip(),
             cta=resp.cta.strip(), language=("ar" if arabic else "en"),

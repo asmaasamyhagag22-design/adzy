@@ -31,6 +31,27 @@ T = TypeVar("T")
 # Enums
 # ---------------------------------------------------------------------
 
+class BusinessModel(str, Enum):
+    """HOW a business sells — the axis `BusinessCategory` kept conflating with WHAT it sells.
+
+    MEASURED 2026-07-21: one `category` field had to answer both questions, so it flipped between
+    them. `ecommerce` covered an online pharmacy, a jewellery house, a supplements brand and a
+    beauty brand — four unrelated markets — while Coca-Cola came out `services_b2c`. Consumers that
+    need the model (Places types, local/reach routing, search radius) and consumers that need the
+    market (trend seeds, query seeds, peer relevance) were reading the same field and one of them
+    was always wrong.
+
+    This axis stays a CLOSED enum because it genuinely is finite. The market axis is free text
+    (`market_category`) — no closed list survives contact with real markets (D-8).
+    """
+
+    ECOMMERCE = "ecommerce"          # sells online, ships; competes nationally
+    LOCAL = "local"                  # walk-in premises; competes by proximity
+    SERVICE = "service"              # delivers a service, on-site or remote
+    HYBRID = "hybrid"                # a real storefront AND a real online store
+    UNKNOWN = "unknown"              # not enough evidence — never guessed
+
+
 class BusinessCategory(str, Enum):
     RESTAURANT = "restaurant"
     CAFE = "cafe"
@@ -139,6 +160,18 @@ class Offering(BaseModel):
     page_url: Optional[str] = None
     evidence: list[EvidenceItem] = Field(default_factory=list)
     confidence: Confidence = Confidence.MEDIUM
+
+
+class CatalogItem(BaseModel):
+    """ONE real item the store sells, verbatim from its own product page.
+
+    Distinct from `Offering`, which may be a department ("Skin Care") on a large store. Every
+    field here is copied text or a URL the crawl visited — there is no model in this path, so
+    there is nothing to ground-check: `price_text` is what the page shows, currency and all."""
+    name: str
+    price_text: Optional[str] = None   # verbatim, e.g. "EGP 850" / "ر.س 120" — never parsed
+    url: Optional[str] = None          # the product's own page (canonical, query stripped)
+    image_url: Optional[str] = None
 
 
 class Location(BaseModel):
@@ -456,9 +489,22 @@ class BusinessProfile(BaseModel):
     tagline: EvidencedField[str] = Field(default_factory=EvidencedField.missing)
     description: EvidencedField[str] = Field(default_factory=EvidencedField.missing)
     category: EvidencedField[BusinessCategory] = Field(default_factory=EvidencedField.missing)
+    # The two axes `category` was conflating. Additive: `category` stays until every consumer has
+    # been moved, so nothing breaks mid-migration.
+    #   market_category — WHAT is sold, in the brand's own words ("مجوهرات يدوية", "liposomal
+    #                     supplements"). FREE TEXT by ruling: a closed list is always too small.
+    #   business_model  — HOW it sells. Closed enum; that axis really is finite.
+    market_category: EvidencedField[str] = Field(default_factory=EvidencedField.missing)
+    business_model: BusinessModel = BusinessModel.UNKNOWN
 
     # --- Offerings ---
     offerings: list[Offering] = Field(default_factory=list)
+    # The individual items the store SELLS, verbatim from its own leaf pages (name, price as
+    # shown, product URL, image). `offerings` summarizes a large store by its DEPARTMENTS —
+    # correct, and useless to a creative surface that must show one real product with a real
+    # price. Measured on Al Fouad (2026-07-26): 38 product pages crawled, 0 products in the
+    # profile. Deterministic (`scraper.catalog.build_catalog`) — no LLM, nothing to hallucinate.
+    catalog: list[CatalogItem] = Field(default_factory=list)
     pricing_visible: EvidencedField[bool] = Field(default_factory=EvidencedField.missing)
     pricing_posture: EvidencedField[PricingPosture] = Field(default_factory=EvidencedField.missing)
     # Short code explaining why pricing is unknown when a likely menu/pricing
@@ -495,6 +541,11 @@ class BusinessProfile(BaseModel):
     locations: list[Location] = Field(default_factory=list)
     service_areas: list[EvidencedField[str]] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)  # iso codes, copied from manifest
+    # WHAT THE SITE DECLARES ABOUT ITSELF (hreflang), as opposed to which edition we happened to
+    # crawl. `scraper/extractors/language.declared_languages` has read this since 2026-07-27 and
+    # it reached `competitor/matrix.py` and stopped — so the decision that sets the language a
+    # CUSTOMER HEARS never saw it, and an Egyptian pharmacy shipped an English commercial.
+    declared_languages: list[str] = Field(default_factory=list)
     hours: Optional[OpeningHours] = None
 
     # --- Contact & acquisition ---

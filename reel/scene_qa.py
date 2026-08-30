@@ -34,6 +34,7 @@ class SceneQAVerdict(BaseModel):
     faces_intact_across_motion: bool = True   # no warped/melted faces, no identity morphing
     no_morphing_artifacts: bool = True        # limbs/objects keep structure across frames
     no_junk_generated_text: bool = True       # no garbled pseudo-text rendered INTO the scene
+    no_third_party_marks: bool = True         # P-23: no competitor logo/trademark/branded product in frame
     ad_grade: bool = True                     # a professional brand would actually run this
     setting_faithful: bool = True             # the generated WORLD stays true to the seed photo
     # TRI-STATE (P6, 2026-07-15): True = PASS, False = FAIL, None = NOT_CHECKED.
@@ -52,6 +53,7 @@ class _QAResponse(BaseModel):
     faces_intact_across_motion: bool = True   # additive (permissive default until calibrated)
     no_morphing_artifacts: bool = True
     no_junk_generated_text: bool = True
+    no_third_party_marks: bool = True         # P-23 (additive, permissive default)
     ad_grade: bool = True
     setting_faithful: bool = True
     overall_pass: bool
@@ -70,7 +72,18 @@ def _extract_frames(clip_path: "str | Path", n: int = 3) -> list[bytes]:
     p = Path(clip_path)
     if not p.is_file() or p.stat().st_size == 0:
         return []
-    # probe duration; fall back to sampling by frame if unknown
+    # MEASURE THE CLIP, DON'T ASSUME IT IS FOUR SECONDS. This used to seek `frac * 4.0`, a nominal
+    # length hardcoded when every clip really was 4s. On a 6-second clip that samples 0.4s / 2.0s /
+    # 3.6s and calls them start / middle / end — so the judge never saw the last third, which is
+    # exactly where a product vanishes or a face warps. Buying ceil'd clips (2026-08-01) makes 6s
+    # and 8s ordinary, so the assumption stopped being harmless.
+    try:
+        from reel.text_overlay import _probe_duration
+        span = float(_probe_duration(p) or 0.0)
+    except Exception:  # noqa: BLE001
+        span = 0.0
+    if span <= 0:
+        span = 4.0                       # unmeasurable: the old nominal, now a stated fallback
     fracs = [0.1, 0.5, 0.9][:max(1, n)]
     out: list[bytes] = []
     import tempfile
@@ -78,10 +91,10 @@ def _extract_frames(clip_path: "str | Path", n: int = 3) -> list[bytes]:
         try:
             with tempfile.TemporaryDirectory() as td:
                 dst = Path(td) / "f.jpg"
-                # -ss before -i is fast; use a fraction of a nominal 4s clip if seek overshoots,
-                # ffmpeg clamps to the last frame, which is exactly what we want for the tail.
+                # -ss before -i is fast; on an overshoot ffmpeg clamps to the last frame, which is
+                # exactly what we want for the tail.
                 subprocess.run(
-                    [ff, "-y", "-ss", f"{frac * 4.0:.2f}", "-i", str(p),
+                    [ff, "-y", "-ss", f"{frac * span:.2f}", "-i", str(p),
                      "-frames:v", "1", "-q:v", "4", str(dst)],
                     capture_output=True, timeout=30,
                 )
@@ -143,6 +156,10 @@ def check_scene(
         "- no_junk_generated_text: the scene itself contains NO garbled pseudo-text or gibberish "
         "lettering (on signs, screens, packaging, walls). Clean DESIGNED caption overlays are "
         "allowed — judge only text rendered INTO the scene.\n"
+        "- no_third_party_marks: the frame shows NO third-party brand's logo, trademark or clearly "
+        "branded product (a competitor's swoosh, an Apple/Nike/Coca-Cola mark, a recognisable "
+        "rival product). false when any brand OTHER than the advertised one is visibly marked. "
+        "Only the advertised brand's OWN mark is allowed.\n"
         "- ad_grade: would a professional brand actually run footage of this visual quality — a "
         "coherent, believable, real-looking setting for this brand, no uncanny artifacts, no "
         "decayed/implausible environment presented as the brand's real premises? Be strict.\n"
@@ -167,6 +184,7 @@ def check_scene(
         faces_intact_across_motion=bool(resp.faces_intact_across_motion),
         no_morphing_artifacts=bool(resp.no_morphing_artifacts),
         no_junk_generated_text=bool(resp.no_junk_generated_text),
+        no_third_party_marks=bool(resp.no_third_party_marks),
         ad_grade=bool(resp.ad_grade),
         setting_faithful=bool(resp.setting_faithful),
         # COMPOUND GATE COMPUTED IN CODE (owner directive: the model never self-passes) —
@@ -174,8 +192,8 @@ def check_scene(
         overall_pass=bool(resp.overall_pass) and bool(resp.product_faithful)
         and bool(resp.product_persists) and bool(resp.action_plausible)
         and bool(resp.faces_intact_across_motion) and bool(resp.no_morphing_artifacts)
-        and bool(resp.no_junk_generated_text) and bool(resp.ad_grade)
-        and bool(resp.setting_faithful),
+        and bool(resp.no_junk_generated_text) and bool(resp.no_third_party_marks)
+        and bool(resp.ad_grade) and bool(resp.setting_faithful),
         reason=str(resp.reason or "")[:200],
         checked=True,
     )
@@ -216,10 +234,18 @@ class _SeedResponse(BaseModel):
 
 
 def check_seed_frame(image: "str | Path | bytes", *, caller: Any = None,
-                     brand_hint: str = "", log=logger.info) -> SeedVerdict:
+                     brand_hint: str = "", real_product_refs: bool = False,
+                     log=logger.info) -> SeedVerdict:
     """One generated still -> pass/fail BEFORE Veo. Degrades permissive (checked=False)
     with no caller / unreadable image / call failure — the gate never blocks a render
-    by itself; it only stops KNOWN-bad seeds from being animated."""
+    by itself; it only stops KNOWN-bad seeds from being animated.
+
+    real_product_refs: the seed was CONDITIONED on the brand's real product images (pool /
+    gated photo attached to the generation). LIVE FINDING (Abu Auf 2026-07-25): the blanket
+    no_text ban — calibrated on Veo-era invented signage — rejected EVERY such seed for
+    "readable text on the packaging", i.e. it killed the real label the owner explicitly
+    ordered kept («عايزة المنتج يجي زي ما هو بالظبط»). With refs attached, faithful label
+    text IS the deliverable; only invented/garbled text remains a defect."""
     if caller is None:
         return SeedVerdict(reason="no vision caller: seed gate skipped", checked=False)
     try:
@@ -227,6 +253,23 @@ def check_seed_frame(image: "str | Path | bytes", *, caller: Any = None,
     except Exception:  # noqa: BLE001
         return SeedVerdict(reason="could not read the seed image", checked=False)
     hint = f" The brand context: {brand_hint.strip()}." if brand_hint.strip() else ""
+    if real_product_refs:
+        # The generation attached the brand's REAL product references: readable packaging
+        # text that faithfully reproduces the real product label is CORRECT (the motion
+        # model animates around a static pack). Invented text is still a kill.
+        text_rule = (
+            "- no_text: TRUE when the only readable text in frame is the real product's own "
+            "packaging/label, reproduced faithfully from the attached reference (correct "
+            "spelling, real script). FALSE for garbled or invented pseudo-text, misspelled "
+            "brand words, or made-up signage/posters/screens on NON-product surfaces.\n")
+    else:
+        # CALIBRATION FINDING (NTI run 2026-07-12): 4/5 motion-QA failures were garbled text
+        # the motion model drew over text-bearing surfaces — kill those seeds HERE, at cents.
+        text_rule = (
+            "- no_text: the frame contains NO readable or pseudo-text of any kind — no "
+            "signage, screen text, labels, posters or logos; text-bearing surfaces must be "
+            "abstract, blurred or out of frame (the motion model garbles any text it "
+            "inherits).\n")
     system = (
         "You are a WORLD-CLASS advertising ART DIRECTOR reviewing ONE frame that is about to "
         "be animated into a brand video. Your bar: would a top brand run this frame?" + hint +
@@ -238,11 +281,7 @@ def check_seed_frame(image: "str | Path | bytes", *, caller: Any = None,
         "- composition_clean: ONE clear focal point, no clutter, no half-formed or garbled "
         "elements.\n"
         "- ad_grade: overall, professional-campaign quality for this brand.\n"
-        # CALIBRATION FINDING (NTI run 2026-07-12): 4/5 motion-QA failures were garbled text
-        # Veo drew over text-bearing surfaces — kill those seeds HERE, at cents, not there.
-        "- no_text: the frame contains NO readable or pseudo-text of any kind — no signage, "
-        "screen text, labels, posters or logos; text-bearing surfaces must be abstract, "
-        "blurred or out of frame (the motion model garbles any text it inherits).\n"
+        + text_rule +
         "- score: 1..10 as an art director.\n"
         "- reason: one short sentence naming the worst problem (or 'clean')."
     )
@@ -263,3 +302,14 @@ def check_seed_frame(image: "str | Path | bytes", *, caller: Any = None,
                        ad_grade=bool(resp.ad_grade), no_text=bool(resp.no_text),
                        score=score, overall_pass=ok,
                        reason=str(resp.reason or "")[:200], checked=True)
+
+
+def seed_may_animate(verdict: Any) -> bool:
+    """The ONE fail-CLOSED rule for spending a (paid) Veo render on a seed/clip: only an explicit
+    PASS proceeds. A NOT_CHECKED verdict (no caller, unreadable frames, or a call timeout —
+    `overall_pass=None`) and an explicit FAIL (`overall_pass=False`) both return False, so an
+    UNVETTED seed never costs Veo money (P-21 / P6 #7). This is the law seed_gen.py:172 already
+    applies inline; generate.py and compositor.py route through THIS predicate so the three
+    seed/scene gates can never drift back into a fail-OPEN reading (`if v.checked and not
+    v.overall_pass`, which skipped a NOT_CHECKED verdict and animated it). `None` -> False."""
+    return getattr(verdict, "overall_pass", None) is True

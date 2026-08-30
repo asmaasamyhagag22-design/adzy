@@ -7,7 +7,7 @@ URLs stay allowed throughout so the logo picker never regresses. `_is_logo_like`
 """
 from __future__ import annotations
 
-from scraper.fetcher import _is_logo_like, _is_tracking_request
+from scraper.fetcher import _is_logo_like, _is_tracking_request, two_phase_route_decision
 
 
 class _Req:
@@ -27,14 +27,14 @@ class _Route:
         self.continued = True
 
 
-# Re-implement the closure logic exactly as _fetch_page_once builds it, to test the decision.
+# CS-54/70 closed: this now calls the PRODUCTION decision function (scraper.fetcher.
+# two_phase_route_decision) — the closure in _fetch_page_once delegates to the same one,
+# so the suite finally covers the code that ships, not a re-implementation of it.
 def _decision(handler_block, route):
     req = route.request
-    if _is_tracking_request(req.url):
-        route.abort(); return
-    if handler_block and req.resource_type == "image" and not _is_logo_like(req.url):
-        route.abort(); return
-    route.continue_()
+    verdict = two_phase_route_decision(url=req.url, resource_type=req.resource_type,
+                                       block_below_fold=handler_block)
+    route.abort() if verdict == "abort" else route.continue_()
 
 
 def test_logo_like_matches_brand_chrome_not_products():

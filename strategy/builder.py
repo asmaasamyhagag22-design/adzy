@@ -12,6 +12,7 @@ cycles the brand's real offerings across the calendar — never empty, never fab
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
@@ -20,8 +21,61 @@ from typing import Any, Optional
 
 from pydantic import BaseModel
 
-_DEFAULT_PLATFORMS = ["instagram", "tiktok", "linkedin"]
+logger = logging.getLogger(__name__)
+
+# P-18: an unfilled template placeholder ("[Customer Name]", "[Industry]", "[Client Type]") must
+# never reach a client's calendar. Matches bracketed tokens naming a to-be-filled slot.
+_PLACEHOLDER_RE = re.compile(
+    r"\[[^\]]*\b(name|customer|client|industry|brand|company|product|service|type|city|"
+    r"location|region|audience|topic|x)\b[^\]]*\]", re.IGNORECASE)
+
+# A resolved brand name that is really the "couldn't identify the brand" fallback — never shippable.
+_FALLBACK_NAMES = {"the brand", "brand", "unknown business", "unknown", "your brand",
+                   "your business", "your company", "n/a", "none"}
+
+
+def _name_is_placeholder(name: str) -> bool:
+    return (name or "").strip().lower() in _FALLBACK_NAMES or not (name or "").strip()
+
+_DEFAULT_PLATFORMS = ["instagram", "tiktok", "linkedin"]   # last-resort only (see _platforms_for)
 _CONTENT_TYPES = ["reel", "post", "story", "carousel"]
+
+# Platforms a content calendar can actually schedule to (messaging apps / dev sites excluded).
+_CONTENT_PLATFORMS = ("facebook", "instagram", "tiktok", "linkedin", "youtube")
+
+
+def _platforms_for(profile: dict[str, Any]) -> list[str]:
+    """Pick the calendar's platforms from the BRAND'S OWN accounts + the media plan's channel
+    weights, instead of a hardcoded instagram/tiktok/linkedin trio (P-09).
+
+    The old default produced ZERO Facebook for EVERY brand while every audited brand's largest
+    page was Facebook (Egypt = 51.6M FB users), and forced a LinkedIn slot onto restaurants/
+    retailers with no LinkedIn presence — all while the system's OWN media plan weighted Facebook
+    highest. Now:
+      1. take the platforms the brand actually maintains (scraped `social_presence`),
+      2. order them by `media_plan.config.channel_weights(category)` (Facebook-heavy by design),
+      3. if the brand shows no social accounts, fall back to the category's top weighted channels
+         (which INCLUDE Facebook) — never the old trio.
+    """
+    present: list[str] = []
+    seen: set[str] = set()
+    for e in (profile.get("social_presence") or profile.get("social_links")
+              or profile.get("social_profiles") or []):
+        plat = (e.get("platform") if isinstance(e, dict) else None) or ""
+        plat = str(plat).strip().lower()
+        if plat in _CONTENT_PLATFORMS and plat not in seen:
+            seen.add(plat)
+            present.append(plat)
+    try:
+        from media_plan.config import channel_weights
+        weights = channel_weights(str(_val(profile.get("category")) or ""))
+    except Exception:  # noqa: BLE001
+        weights = {}
+    if present:
+        present.sort(key=lambda p: weights.get(p, 0.0), reverse=True)
+        return present
+    top = [p for p, w in sorted(weights.items(), key=lambda kv: kv[1], reverse=True) if w > 0]
+    return top[:4] or list(_DEFAULT_PLATFORMS)
 
 
 # ---- structured LLM output -------------------------------------------------
@@ -32,6 +86,11 @@ class _PlanItem(BaseModel):
     topic: str
     angle: str = ""
     hook: str = ""
+    # P-15: the funnel STAGE this item serves (tofu=awareness | mofu=consideration | bofu=action)
+    # + its call-to-action. A calendar without funnel intent is a list of posts, not a plan; the
+    # objective biases the mix toward BOFU when the goal is leads/sales.
+    funnel_stage: str = ""         # tofu | mofu | bofu
+    cta: str = ""
 
 
 class _PlanResponse(BaseModel):
@@ -47,6 +106,9 @@ class ContentItem:
     topic: str
     angle: str = ""
     hook: str = ""
+    # P-15: funnel intent per item — the calendar is now a funnel plan, not a flat post list.
+    funnel_stage: str = ""         # tofu | mofu | bofu
+    cta: str = ""
     # Recording ONLY (additive): what the grounding gate blanked on THIS item — so the
     # audit trail shows the item's hook/angle was fabricated and remediated (the item then
     # runs on its sourced `topic`), not that it silently vanished. Empty when nothing blanked.
@@ -87,9 +149,52 @@ _FILLER_EN = ["Brand highlight", "Customer story", "Behind the scenes", "Offer s
 _FILLER_AR = ["أبرز ما نقدّمه", "قصة عميل", "من وراء الكواليس", "عرض مميز"]
 
 
+# CS-04 (2026-07-18): the country->dialect map moved to `poster/locale.py` (beside `country_of`,
+# the country fact it depends on) so the poster copy path can reuse the SAME map instead of adding a
+# fourth hardcoded table. Kept as a thin re-export here so this module's own caller (:234) and any
+# importer of `strategy.builder._arabic_dialect_for` keep working unchanged.
+from poster.locale import arabic_dialect_for as _arabic_dialect_for
+
+
+def _cadence_for(category: str) -> int:
+    """P-14: per-category posting cadence (items/week) from media_plan.config — the same config
+    that owns channel_weights. Falls back to 4/week if the config import ever fails."""
+    try:
+        from media_plan.config import cadence_for
+        return cadence_for(category)
+    except Exception:  # noqa: BLE001
+        return 4
+
+
 def _brand_is_arabic(profile: dict[str, Any]) -> bool:
-    """True when the brand's REAL text is Arabic — so the calendar's copy and its last-resort
-    filler match the brand's language instead of defaulting to English."""
+    """True when this brand's AUDIENCE reads Arabic — asked of the resolver the reel and the
+    poster already ask, and only then falling back to counting glyphs.
+
+    MEASURED 2026-08-06 on the stored AlFouad Pharmacies record — an Egyptian pharmacy chain:
+
+        reel/poster (`audience_language_for`) -> Arabic / eg
+            ("the site declares an Arabic edition (hreflang)")
+        content calendar (this function)      -> English
+            12 of 12 topics: "Special Offers", "Bundles", "Vitamins"
+
+    Same brand, same evidence on disk, two answers depending on which surface asked — the exact
+    defect `info/STATE.md` records for the reel («نفس البراند، لغتين، حسب الباب») and closed there
+    by making the weaker calculator ask the stronger one. This was the last surface still counting
+    glyphs: the crawl reached AlFouad's ENGLISH edition, so `languages: ['en']` and the brand's own
+    stored text is Latin — the glyph count is answering "what did we happen to fetch", not "who is
+    this ad for". It matters beyond the calendar, because `poster/from_profile` can take a calendar
+    TOPIC as a headline, so an English topic leaks into an Arabic poster.
+
+    The glyph count stays as the fallback: with no audience evidence at all it is a real answer,
+    and it is the behaviour every previous run had.
+    """
+    try:
+        from reel.audience import audience_language_for
+        lang, _country, _why = audience_language_for(profile)
+        if lang:
+            return str(lang).strip().lower().startswith("ar")
+    except Exception:  # noqa: BLE001 — no resolver, no crash; count the glyphs like before
+        pass
     blob = " ".join(str(_val(profile.get(k)) or "") for k in ("name", "description", "tagline"))
     for o in (profile.get("offerings") or [])[:6]:
         blob += " " + str(_val(o.get("name") if isinstance(o, dict) else o) or "")
@@ -129,8 +234,71 @@ def _coerce_date(value) -> date:
     return date.today()
 
 
-def _persona_block(profile: dict[str, Any]) -> str:
+def _profile_prices(profile: dict[str, Any]) -> list[str]:
+    """P-10: the brand's REAL price points (offering name + price_text) — the calendar was blind to
+    these (`_profile_topics` keeps names only), so it could never write a priced/BOFU offer. Dedup,
+    order-preserving, capped. Only real scraped prices; never a fabricated one."""
+    out: list[str] = []
+    for o in (profile.get("offerings") or []):
+        if not isinstance(o, dict):
+            continue
+        name = _val(o.get("name"))
+        price = _val(o.get("price_text")) or _val(o.get("price"))
+        price = str(price).strip() if price else ""
+        if not price:
+            continue
+        out.append(f"{str(name).strip()}: {price}" if name and str(name).strip() else price)
+    seen: set[str] = set()
+    return [p for p in out if not (p in seen or seen.add(p))][:6]
+
+
+def _swot_angle(swot: Any) -> str:
+    """P-10: the strategy angle from SWOT — strengths to AMPLIFY and opportunities to SEIZE (the two
+    the calendar can act on). Accepts a dict or an object; items may be strings or {text}/{value}."""
+    if not swot:
+        return ""
+
+    def _items(key: str) -> list[str]:
+        v = swot.get(key) if isinstance(swot, dict) else getattr(swot, key, None)
+        out: list[str] = []
+        for it in (v or [])[:3]:
+            if isinstance(it, str):
+                t = it
+            elif isinstance(it, dict):
+                t = it.get("text") or it.get("value") or ""
+            else:
+                t = getattr(it, "text", None) or getattr(it, "value", None) or ""
+            if t and str(t).strip():
+                out.append(str(t).strip())
+        return out
+
+    parts: list[str] = []
+    s, o = _items("strengths"), _items("opportunities")
+    if s:
+        parts.append("Strengths to amplify: " + "; ".join(s))
+    if o:
+        parts.append("Opportunities to seize: " + "; ".join(o))
+    return "\n".join(parts)
+
+
+def _objective_of(media_plan: Any) -> str:
+    """The campaign objective from the media plan (dict or object). '' when absent."""
+    if not media_plan:
+        return ""
+    obj = media_plan.get("objective") if isinstance(media_plan, dict) else getattr(media_plan, "objective", None)
+    obj = _val(obj)
+    return str(obj).strip() if obj else ""
+
+
+def _persona_block(profile: dict[str, Any], *, swot: Any = None, media_plan: Any = None) -> str:
     lines = [f"Brand: {_profile_name(profile)}"]
+    try:
+        from poster.locale import country_of
+        country = country_of(profile)
+        if country:
+            lines.append(f"Country (anchor imagery/culture/dialect here): {country}")
+    except Exception:  # noqa: BLE001
+        pass
     for key, label in [("category", "Category"), ("tagline", "Tagline"),
                        ("audience_type", "Audience"), ("tone_of_voice", "Tone")]:
         v = _val(profile.get(key))
@@ -139,11 +307,22 @@ def _persona_block(profile: dict[str, Any]) -> str:
     offs = _profile_topics(profile)[:8]
     if offs:
         lines.append("Offerings / themes: " + "; ".join(offs))
+    prices = _profile_prices(profile)
+    if prices:
+        lines.append("Real price points (ground offer/BOFU content; NEVER invent a price): "
+                     + "; ".join(prices))
+    obj = _objective_of(media_plan)
+    if obj:
+        lines.append(f"Campaign objective (bias the calendar toward it): {obj}")
+    swot_line = _swot_angle(swot)
+    if swot_line:
+        lines.append("Strategic angle (from SWOT/TOWS):\n" + swot_line)
     return "\n".join(lines)
 
 
-def _llm_plan(profile, caller, *, days, platforms, trends, target) -> list[_PlanItem]:
-    persona = _persona_block(profile)
+def _llm_plan(profile, caller, *, days, platforms, trends, target,
+              swot=None, media_plan=None) -> list[_PlanItem]:
+    persona = _persona_block(profile, swot=swot, media_plan=media_plan)
     trend_block = ""
     if trends:
         titles = [getattr(t, "title", None) or (t.get("title") if isinstance(t, dict) else None) for t in trends]
@@ -151,13 +330,30 @@ def _llm_plan(profile, caller, *, days, platforms, trends, target) -> list[_Plan
         if titles:
             trend_block = ("\nRIDE THESE CURRENT TRENDS where they fit the brand "
                            "(tie an item to one, don't force it):\n- " + "\n- ".join(titles))
-    lang = ("Egyptian Arabic — write EVERY topic, angle and hook in Arabic, no Latin letters"
-            if _brand_is_arabic(profile) else "English")
+    lang = (f"{_arabic_dialect_for(profile)} — write EVERY topic, angle and hook in Arabic, "
+            "no Latin letters" if _brand_is_arabic(profile) else "English")
+    # P-15: the funnel mix follows the campaign objective. Leads/sales objectives weight BOFU
+    # heavier (more action content); awareness/engagement stay TOFU-led. A balanced default when
+    # no objective is set. This shapes the PLAN, never fabricates a claim (two-truth-domains).
+    obj = _objective_of(media_plan).lower()
+    if any(k in obj for k in ("lead", "sale", "purchase", "conversion")):
+        funnel_note = ("FUNNEL MIX — the objective is action-driven: weight the calendar toward "
+                       "BOFU (~40% bofu action/offer posts, ~35% mofu consideration, ~25% tofu "
+                       "awareness). Every BOFU item needs a concrete CTA tied to a REAL offering.")
+    elif any(k in obj for k in ("aware", "reach", "engage")):
+        funnel_note = ("FUNNEL MIX — the objective is top-of-funnel: weight toward TOFU (~50% "
+                       "awareness, ~30% mofu, ~20% bofu), CTAs soft (follow/learn more).")
+    else:
+        funnel_note = ("FUNNEL MIX — no objective set: keep a balanced funnel (~34% tofu, ~33% "
+                       "mofu, ~33% bofu) so the plan drives awareness AND action.")
     system = (
         "You are a senior social-media strategist. Produce a concrete, varied content "
         "calendar for the brand below — a realistic mix of formats, angles, and platforms. "
         "Ground every item in the brand's real persona/offerings; do NOT invent facts, "
         "prices, or claims. Vary content_type and angle so the feed isn't repetitive. "
+        "Every item serves a FUNNEL STAGE (tofu=awareness, mofu=consideration, bofu=action) and "
+        "carries a CTA that matches that stage — BOFU items call a concrete action on a REAL "
+        "offering (book/order/enquire), TOFU items invite (follow/learn). " + funnel_note + " "
         "When current trends are supplied, use them to shape the TIMING and ANGLE of grounded "
         "content — never to invent a fact or claim the brand can't support. A trend is a reason "
         "to feature a REAL offering now, not a license to promise something new. Most of the "
@@ -169,9 +365,10 @@ def _llm_plan(profile, caller, *, days, platforms, trends, target) -> list[_Plan
         f"Plan {target} items EVENLY spread across a {days}-day window (use the FULL range of "
         f"day_offset 0..{days-1}, not just the first days). "
         f"Platforms to use: {', '.join(platforms)}. "
-        f"content_type ∈ {{reel, post, story, carousel}}. "
-        f"Each item: day_offset, platform, content_type, topic, a one-line angle, and a "
-        f"scroll-stopping hook. Write the topic/angle/hook in {lang}."
+        f"content_type ∈ {{reel, post, story, carousel}}. funnel_stage ∈ {{tofu, mofu, bofu}}. "
+        f"Each item: day_offset, platform, content_type, funnel_stage, topic, a one-line angle, "
+        f"a scroll-stopping hook, and a stage-appropriate cta. Write the topic/angle/hook/cta "
+        f"in {lang}."
     )
     resp, _usage = caller(system, user, _PlanResponse, group_name="content_strategy")
     return list(resp.items)
@@ -231,8 +428,10 @@ def build_strategy(
     platforms: Optional[list[str]] = None,
     trends: Optional[list] = None,
     start_date=None,
-    cadence_per_week: int = 4,
+    cadence_per_week: Optional[int] = None,
     ledger: Any = None,
+    swot: Any = None,
+    media_plan: Any = None,
 ) -> ContentCalendar:
     """Build an N-day `ContentCalendar`. Uses the LLM when `caller` is given; otherwise
     (or on error) a deterministic plan over the brand's real offerings.
@@ -242,15 +441,32 @@ def build_strategy(
     falsifiable claim is blanked (drop-to-grounded — the item keeps its real `topic`, which
     the creative's headline falls back to). Pure paraphrase passes untouched. Without a
     ledger the behaviour is exactly as before."""
-    platforms = platforms or _DEFAULT_PLATFORMS
+    platforms = platforms or _platforms_for(profile)   # P-09: brand's own channels, not a trio
     start = _coerce_date(start_date)
+    # P-14: posting cadence is PER-CATEGORY (a clinic ≠ a restaurant ≠ a SaaS), not a flat 4/week.
+    # An explicit `cadence_per_week` still wins; None resolves the category default from config.
+    if cadence_per_week is None:
+        cadence_per_week = _cadence_for(str(_val(profile.get("category")) or ""))
     target = max(1, round(days / 7 * cadence_per_week))
+
+    # HARD STOP (P-18): never ship a deliverable for a brand we couldn't identify. A FALLBACK NAME
+    # ("The brand" / "Unknown Business") means the scrape failed to identify the brand — marasim
+    # shipped a calendar literally named "The brand". Return an EMPTY calendar so an advisor Gap
+    # surfaces the real problem, instead of fabricating a generic plan under a placeholder name.
+    # (A named-but-thin brand still builds — weaker content, but not a broken deliverable; unfilled
+    # "[Customer Name]"-style placeholders are scrubbed per-item below regardless.)
+    _name = _profile_name(profile)
+    if _name_is_placeholder(_name):
+        logger.warning("strategy: brand not identified (fallback name %r) -> empty calendar; "
+                       "surface an advisor Gap instead of fabricating a plan", _name)
+        return ContentCalendar(business_name=_name, start_date=start.isoformat(),
+                               days=days, items=[])
 
     plan: Optional[list[_PlanItem]] = None
     if caller is not None:
         try:
             plan = _llm_plan(profile, caller, days=days, platforms=platforms,
-                             trends=trends, target=target)
+                             trends=trends, target=target, swot=swot, media_plan=media_plan)
         except Exception:
             plan = None
     if not plan:
@@ -260,6 +476,21 @@ def build_strategy(
     for it in plan:
         off = max(0, min(days - 1, int(getattr(it, "day_offset", 0))))
         hook, angle = str(it.hook or ""), str(it.angle or "")
+        topic = str(it.topic or "")
+        cta = str(getattr(it, "cta", "") or "")
+        funnel_stage = str(getattr(it, "funnel_stage", "") or "").strip().lower()
+        if funnel_stage not in ("tofu", "mofu", "bofu"):
+            funnel_stage = ""                              # only the three valid stages survive
+        # P-18: an item whose TOPIC still carries an unfilled placeholder is unusable — skip it.
+        if _PLACEHOLDER_RE.search(topic):
+            continue
+        # Scrub unfilled placeholders from hook/angle/cta (the item keeps its grounded topic).
+        if _PLACEHOLDER_RE.search(hook):
+            hook = ""
+        if _PLACEHOLDER_RE.search(angle):
+            angle = ""
+        if _PLACEHOLDER_RE.search(cta):
+            cta = ""
         rem: list[dict] = []
         if ledger is not None:
             # Drop-to-grounded: a hook/angle carrying an UNSOURCED falsifiable claim is
@@ -276,10 +507,14 @@ def build_strategy(
             if angle and not _hook_is_grounded(angle, ledger):
                 rem.append(_blank_record("angle", angle, ledger))
                 angle = ""
+            if cta and not _hook_is_grounded(cta, ledger):
+                rem.append(_blank_record("cta", cta, ledger))
+                cta = ""
         items.append(ContentItem(
             date=(start + timedelta(days=off)).isoformat(),
             platform=str(it.platform), content_type=str(it.content_type),
-            topic=str(it.topic), angle=angle, hook=hook, remediation=rem,
+            topic=str(it.topic), angle=angle, hook=hook,
+            funnel_stage=funnel_stage, cta=cta, remediation=rem,
         ))
     items.sort(key=lambda c: (c.date, c.platform))
     return ContentCalendar(business_name=_profile_name(profile),

@@ -55,12 +55,22 @@ def main() -> int:
     from trends import top_trends, keywords_from_profile
 
     keywords = list(args.keywords)
+    # D-8 (CS-62): keep the profile so the SERP can be aimed at the brand's market (gl/hl), not
+    # Google's US/English default. Only a --profile run carries a country; a bare keyword run has
+    # no brand, so gl/hl stay "" (omitted) — the honest no-market request.
+    gl = hl = ""
     if args.profile:
         p = Path(args.profile)
         if not p.is_file():
             print(f"!! profile not found: {p}", file=sys.stderr)
             return 2
-        keywords += keywords_from_profile(json.loads(p.read_text(encoding="utf-8")))
+        _profile = json.loads(p.read_text(encoding="utf-8"))
+        keywords += keywords_from_profile(_profile)
+        try:
+            from poster.locale import search_locale
+            gl, hl = search_locale(_profile)
+        except Exception:  # noqa: BLE001
+            gl = hl = ""
 
     if not keywords:
         print("!! provide keywords or --profile", file=sys.stderr)
@@ -68,7 +78,7 @@ def main() -> int:
 
     print(f"[trends] keywords: {', '.join(keywords[:12])}", file=sys.stderr)
     items = top_trends(keywords, top_k=args.top, limit_per_source=args.per_source,
-                       require_match=args.require_match)
+                       require_match=args.require_match, gl=gl, hl=hl)
     if not items:
         print("(no trends — sources unreachable or no match)", file=sys.stderr)
         return 0

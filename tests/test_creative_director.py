@@ -85,7 +85,11 @@ def test_vertical_mode_maps_brand_to_mode():
     # a luxury TONE makes a NON-beauty vertical elegant (e.g. a jeweller tagged generic 'ecommerce')
     assert _vertical_mode({"category": {"value": "ecommerce"},
                            "tone_of_voice": {"value": "luxury"}}) == "elegant"
-    assert _vertical_mode({"category": {"value": "clinic"}}) == "generic"
+    # A CLINIC IS A SERVICE (changed 2026-08-01). It used to fall through to "generic", and every
+    # mode including generic demands "a PERSON USING THE PRODUCT" — so a clinic, a pharmacy and a
+    # school all got an ad about someone applying something. The owner named the result on a real
+    # AlFouad reel: «جايب حد بيستعمل برودكت، فين السيناريو فين الماركت».
+    assert _vertical_mode({"category": {"value": "clinic"}}) == "service"
     # a haircare/skincare brand (often just 'ecommerce') is detected as BEAUTY from its offerings
     assert _vertical_mode({"category": {"value": "ecommerce"},
                            "offerings": [{"name": "Hair Care"}, {"name": "Face Care"},
@@ -130,6 +134,24 @@ def test_prompt_requires_an_ad_arc_so_the_reel_says_what_it_advertises():
     assert "by scene 2" in p                                  # self-explanatory in the first seconds
     assert "do NOT narrate store" in p and "kiosks" in p      # no vague brand/location montage
     assert "SELF-CHECK" in p and "NAMES the brand" in p       # closing verification
+
+
+def test_prompt_demands_a_creative_strategy_before_any_scene():
+    # Owner ruling (2026-07-20): the director produced "correct" plans with no point of view —
+    # scenes collected, not directed. The fix is a STRATEGY decided BEFORE the scenes: one feeling
+    # (POV), the story that carries it (arc), and the thread that ties it (motif). Structural, so
+    # the coherence gate can re-check all three in code.
+    for lang in ("en", "ar"):
+        p = _system_prompt(5, lang, "generic")
+        assert "CREATIVE STRATEGY" in p
+        assert "creative_pov" in p and "narrative_arc" in p and "visual_motif" in p
+        assert "arc_beat" in p                       # each scene declares the beat it serves
+        # the arc is the STORY the POV cannot carry, with concrete universal patterns offered
+        assert "problem" in p and "discovery" in p
+        # the motif must be WRITTEN INTO the scenes, not merely declared
+        assert "at least 2" in p or "at least two" in p
+        # generic POVs are named and refused up front (the gate rejects them anyway)
+        assert "high quality" in p
 
 
 def test_prompt_composes_vertical_first_so_the_product_is_not_cropped():
@@ -208,20 +230,33 @@ def test_reel_says_what_the_brand_does_varies_scenes_and_paces_captions():
     assert "STRANGER TEST" in p and "WHAT IT DOES" in p
     assert "PRODUCT OR SERVICE" in p                          # the reel advertises a service, not only a product
     assert "SERVICE being delivered" in p                     # the benefit is shown in the service's real setting
-    # (2) per-scene background variety
-    assert "SCENE VARIETY" in p and "frozen wallpaper" in p
-    # (3) readable pacing + measured feeling
-    assert "LONG ENOUGH TO READ" in p and "needs >=3s" in p
+    # (2) per-scene shot variety. UPDATED 2026-08-01: this used to assert "SCENE VARIETY" +
+    # "frozen wallpaper", the wording that told the director to invent a DIFFERENT SETTING every
+    # scene. That is what produced the five unrelated worlds the owner rejected («فين السيناريو»).
+    # The owner's original complaint was a FROZEN COMPOSITION, and a wide/medium/macro of the same
+    # counter answers it without moving house — so the rule now varies the SHOT, not the address.
+    assert "SHOT VARIETY" in p and "never hold one locked composition" in p
+    assert "changing LOCATION every scene is the failure" in p
+    # (3) readable pacing + measured feeling. UPDATED 2026-08-01: the ">=3s" floor was folded
+    # into the 4-second one below — a captioned scene can no longer be shorter than any scene is,
+    # so the caption rule is now stated as the formula alone.
+    assert "LONG ENOUGH TO READ" in p and "words*0.4 + 1.5" in p
     assert "MEASURED" in p and "over-acted" in p
 
 
 def test_prompt_has_a_physics_logic_check_and_fast_cut_pacing():
     # Owner's "Logic Check": the director must verify every scene is physically possible before
-    # returning, and cut at a TikTok pace (2-4s), not linger.
+    # returning, and cut at a pace, not linger.
+    #
+    # UPDATED 2026-08-01: this used to assert "2-4" seconds. That number was never achievable —
+    # Veo's shortest billable clip is 4s, so every "2-second cut" was rendered as 4, PAID for as
+    # 4, and then trimmed. The pace now comes from the shot count and the CUT, not from asking
+    # for a length the runtime cannot produce.
     p = _system_prompt(5, "en", "generic")
     assert "PHYSICALLY POSSIBLE" in p
     assert "do NOT cram" in p                                    # one clear action per scene
-    assert "2-4" in p and "FAST TikTok cut" in p
+    assert "duration_s: 4-6" in p and "FOUR SECONDS IS THE FLOOR" in p
+    assert "Vary the lengths across the reel" in p               # never a metronome
 
 
 def test_featured_product_makes_the_whole_reel_one_product():
@@ -233,8 +268,19 @@ def test_featured_product_makes_the_whole_reel_one_product():
     p = _system_prompt(5, "en", "generic", featured="Rosemary Hair Oil",
                        product_photo_anchored=True)
     assert "Rosemary Hair Oil" in p
-    assert "SAME product" in p
-    assert "ALWAYS 0" in p                                    # every scene reuses the one seed photo
+    # OVERTURNED 2026-08-02 (Axis 1) AND MEASURED 2026-08-08. This used to assert that the
+    # anchored brief asks for the SAME product in every scene, from photo index ALWAYS 0.
+    # That brief asked a video model for four angles of a labelled pack — three live runs
+    # returned «SAV TAERMALE» for «EAU THERMALE» and «IODERMA» for BIODERMA at $2.40 each,
+    # and on the owner's Vichy link the director marked hero_product on ALL FOUR scenes, so
+    # every one composited to an insert and the "reel" was four motionless push-ins with
+    # ZERO generated footage. The contract now: the product is NEVER filmed, the film is
+    # about the person, and the real photograph is composited into one beat.
+    assert "WITHOUT EVER FILMING IT" in p, (
+        "the anchored brief no longer forbids filming the product")
+    assert "composited in post" in p
+    assert "ALWAYS 0" not in p, (
+        "the brief pins every scene to the packshot again — the four-inserts, no-footage reel")
     # featured but photo-less (a course/service): varied real photos, message-locked
     course = _system_prompt(5, "ar", "generic", featured="Fiber Course")
     assert "FEATURED OFFERING" in course and "ALWAYS 0" not in course

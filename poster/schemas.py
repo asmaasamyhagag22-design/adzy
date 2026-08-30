@@ -73,6 +73,17 @@ class PosterDesignSpec(BaseModel):
     logo_corner: Literal["top_left", "top_right", "bottom_left", "bottom_right"] = "top_left"
     headline_treatment: Literal["stacked_hero", "block", "highlight"] = "stacked_hero"
     accent_word: Literal["last", "first", "none"] = "last"
+    # HOW THE CALL TO ACTION IS DRAWN — and it is a design decision, not a constant.
+    #
+    # OWNER (2026-08-02), after four posters side by side: «نفس طريقه كتابه البوستر ثانيه في كل
+    # البوسترز؟ زرار وكلام بيحاول يتحط كويس». She was right and the CSS proved it: the CTA was
+    # hardcoded to `border-radius:999px` with a solid fill, one padding and one font size, on
+    # every poster of every brand. The layout archetype varied, the headline treatment varied,
+    # the CTA never did — an art-critic note had made it LOUDER ("the pill was a tiny footnote")
+    # and nobody made it DIFFERENT.
+    #
+    # `text_arrow` is the one that matters most: a premium poster often has no button at all.
+    cta_style: Literal["pill", "block", "outline", "text_arrow"] = "pill"
     text_align: Literal["left", "center", "right"] = "left"
     scrim_strength: float = Field(default=0.82, ge=0.0, le=1.0)
     show: list[str] = Field(default_factory=lambda: ["logo", "headline", "cta"])

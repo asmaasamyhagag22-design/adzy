@@ -53,8 +53,12 @@ class Job:
     current_stage: Optional[Stage] = None
     error: Optional[str] = None
     events: list[StageEvent] = field(default_factory=list)
-    queue: asyncio.Queue = field(default_factory=asyncio.Queue)
-    # The loop that owns `queue`. Cross-thread pushes use call_soon_threadsafe(loop, ...).
+    # CS-82: one queue PER SSE subscriber (fan-out), not a single shared queue. N concurrent
+    # viewers used to consume-split ONE queue — each event reached only one of them and the losers
+    # never got the terminal STREAM_CLOSE, so their connections hung open. append_event now pushes
+    # every event to EVERY subscriber's own queue.
+    subscribers: set = field(default_factory=set)
+    # The loop that owns the subscriber queues. Cross-thread pushes use call_soon_threadsafe.
     loop: Optional[asyncio.AbstractEventLoop] = None
     # Audit paths
     manifest_path: Optional[str] = None
@@ -63,6 +67,10 @@ class Job:
     result: Optional[dict[str, Any]] = None
     # When the job finished (terminal state). Used for TTL.
     finished_at: Optional[float] = None  # time.monotonic()
+    # Web-app fields: the brand a scrape/generate job produced, and a soft warning to surface
+    # (e.g. "scrape ok but the analysis chain degraded"). Read by GET /api/jobs/{id}.
+    domain_key: Optional[str] = None
+    warning: Optional[str] = None
 
     def is_terminal(self) -> bool:
         return self.status in (JobStatus.SUCCEEDED, JobStatus.FAILED)
@@ -100,26 +108,50 @@ class JobStore:
                 pass
             self._cleanup_task = None
 
+    def _sweep_interval(self) -> int:
+        """CS-127: the poll interval has a hard 30s FLOOR so a JOB_TTL_SECONDS of 0 (or a tiny
+        value) can never turn the cleanup loop into a busy-spin that pegs the event loop."""
+        return max(30, min(self._ttl or 0, 300))
+
+    def _stuck_grace_seconds(self) -> float:
+        """CS-83: how long a NON-terminal job may sit un-updated before it's reclaimed. A generous
+        multiple of the TTL (>=1h) so an in-flight job is never killed, but a wedged QUEUED/RUNNING
+        job can't leak for the whole process lifetime."""
+        return max(self._ttl * 4, 3600)
+
+    def _expired_ids(self, now: float, wall: float) -> list[str]:
+        """IDs to evict: terminal jobs older than the TTL, PLUS stuck non-terminal jobs whose last
+        update is older than the stuck-grace window (CS-83). Pure over the current snapshot."""
+        grace = self._stuck_grace_seconds()
+        out: list[str] = []
+        for jid, j in self._jobs.items():
+            if j.is_terminal():
+                if j.finished_at and (now - j.finished_at) > self._ttl:
+                    out.append(jid)
+            elif (wall - j.updated_at.timestamp()) > grace:
+                out.append(jid)                         # stuck QUEUED/RUNNING — reclaim it
+        return out
+
     async def _cleanup_loop(self) -> None:
-        """Evict terminal jobs older than TTL. Loops forever until cancelled."""
-        try:
-            while True:
-                await asyncio.sleep(min(self._ttl, 300))  # at most every 5 min
-                now = time.monotonic()
+        """Evict terminal jobs older than TTL and stuck non-terminal jobs. Loops until cancelled."""
+        interval = self._sweep_interval()
+        while True:
+            await asyncio.sleep(interval)
+            # CS-128: the try/except is INSIDE the loop, so ONE failed sweep is logged and the loop
+            # CONTINUES — a single exception no longer permanently disables cleanup (which used to
+            # let memory grow unbounded for the whole process lifetime with only one log line).
+            try:
+                now, wall = time.monotonic(), time.time()
                 async with self._lock:
-                    expired = [
-                        jid for jid, j in self._jobs.items()
-                        if j.is_terminal() and j.finished_at
-                        and (now - j.finished_at) > self._ttl
-                    ]
+                    expired = self._expired_ids(now, wall)
                     for jid in expired:
                         del self._jobs[jid]
                 if expired:
-                    logger.info("Evicted %d expired jobs", len(expired))
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            logger.exception("Cleanup loop crashed: %s", e)
+                    logger.info("Evicted %d expired/stuck jobs", len(expired))
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001 — one bad sweep must not kill cleanup (CS-128)
+                logger.exception("Cleanup sweep failed (continuing): %s", e)
 
     # ------------------------------------------------------------------
     # CRUD
@@ -178,17 +210,34 @@ class JobStore:
             job.status = JobStatus.SUCCEEDED
             job.current_stage = None
             job.finished_at = time.monotonic()
-        # Push to live queue (non-blocking by design — queue is unbounded)
-        try:
-            job.queue.put_nowait(event)
-        except Exception as e:  # noqa: BLE001
-            logger.exception("Queue put failed for job %s: %s", job_id, e)
-        # If terminal, push a close sentinel so the SSE stream can exit cleanly
-        if job.is_terminal():
+        # Fan out to EVERY live subscriber's own queue (CS-82) — non-blocking (queues are unbounded).
+        for q in list(job.subscribers):
             try:
-                job.queue.put_nowait(_STREAM_CLOSE)
-            except Exception:
-                pass
+                q.put_nowait(event)
+            except Exception as e:  # noqa: BLE001
+                logger.exception("Queue put failed for job %s: %s", job_id, e)
+        # If terminal, push a close sentinel to EACH subscriber so every SSE stream exits cleanly.
+        if job.is_terminal():
+            for q in list(job.subscribers):
+                try:
+                    q.put_nowait(_STREAM_CLOSE)
+                except Exception:
+                    pass
+
+    def subscribe(self, job_id: str) -> Optional[asyncio.Queue]:
+        """Register a NEW live-event queue for one SSE connection (CS-82 fan-out). Returns None for
+        an unknown job. The caller MUST unsubscribe() when the stream ends (a `finally`)."""
+        job = self._jobs.get(job_id)
+        if job is None:
+            return None
+        q: asyncio.Queue = asyncio.Queue()
+        job.subscribers.add(q)
+        return q
+
+    def unsubscribe(self, job_id: str, q: asyncio.Queue) -> None:
+        job = self._jobs.get(job_id)
+        if job is not None:
+            job.subscribers.discard(q)
 
     def emit_threadsafe(self, job_id: str, event: StageEvent) -> None:
         """Thread-safe entry point used by the runner thread.

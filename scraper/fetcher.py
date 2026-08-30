@@ -21,7 +21,9 @@ from playwright.sync_api import Error as PWError
 
 from .config import (
     ACCEPT_LANGUAGE,
+    BOT_PROTECTION_HTML_MARKERS,
     BOT_PROTECTION_TEXT_SIGNALS,
+    MIN_RENDERED_CHARS,
     NAV_TIMEOUT_MS,
     PAGE_TIMEOUT_MS,
     RETRY_ATTEMPTS,
@@ -108,7 +110,10 @@ def _salvage_partial_dom(page: Page, result: FetchResult, reason: str) -> bool:
     except Exception:
         result.rendered_text = result.rendered_text or ""
 
-    if not (result.html.strip() or result.rendered_text.strip()):
+    # CONTENT-BASED salvage (P-61): the old check kept anything with non-empty HTML, so an empty
+    # shell (`<html><body></body></html>`) that timed out was "salvaged" as usable. Require real
+    # VISIBLE TEXT — the thing extraction and readiness actually consume — not just a stripped tag.
+    if len(result.rendered_text.strip()) < MIN_RENDERED_CHARS:
         return False
 
     try:
@@ -135,13 +140,19 @@ def make_browser_context(browser: Browser) -> BrowserContext:
     so the whole scrape returned 0 pages in ~20s (MEASURED: marasimltd.com). We only READ public
     marketing content (no credentials submitted), so a cert-authority error is not a real risk and
     must not block the crawl."""
+    # One CONSISTENT identity, derived from the engine actually running (scraper/browser_identity).
+    # MEASURED 2026-07-21: the hardcoded UA claimed Chrome/131 while the engine was 147, Sec-CH-UA
+    # was empty, and navigator.languages said en-US while our header advertised Arabic too. Those
+    # contradictions are the cheapest thing for an ordinary site to block on — and they were ours.
+    from .browser_identity import browser_headers, locale_for, user_agent_for
+    version = getattr(browser, "version", "") or ""
     return browser.new_context(
-        user_agent=USER_AGENT,
+        user_agent=user_agent_for(version),
         viewport={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT},
         java_script_enabled=True,
         ignore_https_errors=True,
-        locale="en-US",
-        extra_http_headers={"Accept-Language": ACCEPT_LANGUAGE},
+        locale=locale_for(ACCEPT_LANGUAGE),
+        extra_http_headers=browser_headers(version),
     )
 
 
@@ -180,14 +191,69 @@ def _capture_screenshots(page: Page, result: FetchResult, above_fold_only: bool 
         pass
 
 
-def _detect_bot_protection(text: str, title: str) -> Optional[ErrorCode]:
+def looks_bot_protected(*, html: str = "", title: str = "", status: int = 200,
+                        text: Optional[str] = None) -> bool:
+    """Public, testable form of the interstitial check — see `_detect_bot_protection`.
+
+    Exists because the distinction it encodes cost a whole site: a protection vendor's script on a
+    fully served page is not a block (pepsi.com, 200, 35KB, real title), while the same marker on
+    an empty untitled page is.
+    """
+    import re as _re
+    body = text if text is not None else _re.sub(r"<[^>]+>", " ", html or "")
+    return _detect_bot_protection(body, title, http_status=status, html=html) is not None
+
+
+def _detect_bot_protection(text: str, title: str, *, http_status: Optional[int] = None,
+                           html: str = "", headers: Optional[dict] = None) -> Optional[ErrorCode]:
+    """Detect a WAF/anti-bot interstitial. LANGUAGE-INDEPENDENT (P-63): the old check matched only
+    English display phrases, so a non-English Cloudflare/WAF challenge served with HTTP 200 was
+    saved as if it were the brand's homepage. We now also inspect (a) HTML/challenge-JS fingerprints
+    and WAF response headers — present regardless of the challenge's language — and (b) a
+    block-status (403/429/503) returned with almost no visible text."""
     haystack = (text[:5000] + " " + (title or "")).lower()
     if "captcha" in haystack:
         return ErrorCode.CAPTCHA_DETECTED
     for sig in BOT_PROTECTION_TEXT_SIGNALS:
-        if sig in haystack:
-            # "just a moment" + cloudflare-style screen
+        if sig.lower() in haystack:
             return ErrorCode.BOT_PROTECTION
+
+    # (a) language-independent HTML / header fingerprints — but a vendor's script is NOT a block.
+    # MEASURED (pepsi.com, 2026-07-21): the site answered 200 with a full 35KB page titled
+    # "Pepsi Official Site", and we discarded the whole site because the HTML contained
+    # `_incapsula_` — Imperva's own script, which ships on every page it protects INCLUDING the
+    # ones served happily to real users. Presence-of-vendor is not refusal. The marker only counts
+    # when the page also LOOKS like an interstitial: no title and almost no rendered text (the same
+    # standard branch (b) below already applies to block statuses).
+    html_low = (html or "").lower()
+    from .config import BOT_CHALLENGE_MARKERS, BOT_VENDOR_MARKERS
+    if any(m in html_low for m in BOT_CHALLENGE_MARKERS):
+        return ErrorCode.BOT_PROTECTION          # a challenge orchestrator only loads to block us
+    if any(m in html_low for m in BOT_VENDOR_MARKERS):
+        # The vendor is present, which says nothing about whether WE were refused. Only an actual
+        # interstitial does: no title, or almost nothing rendered.
+        if not (title or "").strip() or len((text or "").strip()) < MIN_RENDERED_CHARS:
+            return ErrorCode.BOT_PROTECTION
+    hdrs = {str(k).lower(): str(v).lower() for k, v in (headers or {}).items()}
+    if "challenge" in hdrs.get("cf-mitigated", ""):
+        return ErrorCode.BOT_PROTECTION
+
+    # (b) a block status returned with almost no visible text — a block in ANY language.
+    #
+    # 429 IS NOT IN THIS LIST, AND THAT IS THE POINT. A 429 means "you are going too fast", which
+    # is a statement about timing, not about permission. Reporting it as BOT_PROTECTION printed
+    # "مش هيتفتح بإعادة المحاولة" — it will not open on a retry — to an owner whose site opens
+    # fine on the next attempt. Worse, it short-circuited the patience this file already builds
+    # for exactly this case: `_is_rate_limited` + the caller's `rate_limit_retries` budget exist
+    # to wait a 429 out, and they only run while the result is classified transient.
+    #
+    # MEASURED (alfouadpharmacies.com, 2026-07-25): HTTP 429 + 169 bytes, reported as a permanent
+    # block on a site that returns 1.3 MB and HTTP 200 over an ordinary connection.
+    #
+    # A 429 that carries a real challenge marker is still caught above, by (a) — narrowing this
+    # inference does not blind it.
+    if http_status in (403, 503) and len((text or "").strip()) < MIN_RENDERED_CHARS:
+        return ErrorCode.BOT_PROTECTION
     return None
 
 
@@ -381,6 +447,17 @@ def fetch_page(context: BrowserContext, url: str, keep_page: bool = False,
     return result
 
 
+def two_phase_route_decision(*, url: str, resource_type: str, block_below_fold: bool) -> str:
+    """The two-phase routing DECISION, extracted pure (CS-54/70: the test used to re-implement
+    this logic instead of executing it). Returns 'abort' | 'continue'. The closure inside
+    _fetch_page_once delegates here — one truth, directly testable."""
+    if _is_tracking_request(url):
+        return "abort"
+    if block_below_fold and resource_type == "image" and not _is_logo_like(url):
+        return "abort"
+    return "continue"
+
+
 def _fetch_page_once(context: BrowserContext, url: str, keep_page: bool = False,
                      light: bool = False, two_phase: bool = False) -> FetchResult:
     """Fetch one page (single attempt). Caller is responsible for the context
@@ -409,6 +486,18 @@ def _fetch_page_once(context: BrowserContext, url: str, keep_page: bool = False,
         duration_ms=0,
     )
 
+    # SSRF guard (P-60): this is the server-side fetch sink for a user/link-derived URL. Every
+    # fetch — the homepage AND every crawl-frontier subpage routes through here — so guarding the
+    # fetcher makes SSRF a property of the SCRAPER, not of one caller (api/routes/run.py only
+    # validated the entry string). Reject before opening a page for anything that resolves to a
+    # non-public IP (loopback / RFC1918 / link-local cloud-metadata 169.254.169.254 / reserved).
+    from .url_utils import is_safe_public_url
+    if not is_safe_public_url(url):
+        result.error_code = ErrorCode.BLOCKED_URL
+        result.error_message = f"blocked non-public URL: {url[:200]}"
+        result.duration_ms = int((time.monotonic() - started) * 1000)
+        return result
+
     page = context.new_page()
     page.set_default_timeout(PAGE_TIMEOUT_MS)
     page.set_default_navigation_timeout(NAV_TIMEOUT_MS)
@@ -420,10 +509,9 @@ def _fetch_page_once(context: BrowserContext, url: str, keep_page: bool = False,
     def _two_phase_route(route) -> None:
         try:
             req = route.request
-            if _is_tracking_request(req.url):
-                route.abort(); return
-            if (_img_gate["block"] and req.resource_type == "image"
-                    and not _is_logo_like(req.url)):
+            verdict = two_phase_route_decision(url=req.url, resource_type=req.resource_type,
+                                               block_below_fold=_img_gate["block"])
+            if verdict == "abort":
                 route.abort(); return
             route.continue_()
         except Exception:  # noqa: BLE001
@@ -480,6 +568,16 @@ def _fetch_page_once(context: BrowserContext, url: str, keep_page: bool = False,
                     pass
         result.final_url = page.url
 
+        # SSRF guard, post-redirect (P-60): a public host can 302 to an internal target
+        # (e.g. 169.254.169.254). page.goto follows redirects, so re-validate the FINAL url and
+        # discard the captured content before anything is saved to the manifest.
+        if result.final_url and result.final_url != url and not is_safe_public_url(result.final_url):
+            result.error_code = ErrorCode.BLOCKED_URL
+            result.error_message = f"redirect to non-public URL blocked: {result.final_url[:200]}"
+            result.html = ""
+            result.rendered_text = ""
+            return result
+
         # Wait briefly for additional content; networkidle can hang forever
         # on sites with long-poll connections, so we cap it.
         try:
@@ -514,16 +612,30 @@ def _fetch_page_once(context: BrowserContext, url: str, keep_page: bool = False,
             except Exception:  # noqa: BLE001
                 pass
 
-        # Bot protection check
-        bot_code = _detect_bot_protection(result.rendered_text, title)
+        # Bot protection check (P-63: pass status + html + WAF headers for language-independent
+        # detection, not just the English display text).
+        try:
+            _resp_headers = response.headers if response is not None else None
+        except Exception:  # noqa: BLE001 — headers may be unavailable on some responses
+            _resp_headers = None
+        bot_code = _detect_bot_protection(result.rendered_text, title,
+                                          http_status=result.http_status,
+                                          html=result.html, headers=_resp_headers)
         if bot_code is not None:
             result.error_code = bot_code
             result.error_message = f"Bot protection detected (title='{title[:80]}')"
 
-        # Empty DOM check (after possible bot detection)
-        elif not result.rendered_text.strip() and "<body" not in result.html.lower():
+        # Empty DOM check (after possible bot detection). CONTENT-BASED (P-61): the old guard was
+        # `not text AND "<body" not in html` — but almost every document has a <body> tag, so it
+        # only caught malformed HTML, never the common "body present, zero rendered content" case
+        # (a failed SPA / JS wall / blank shell). marasim shipped 0-char scrapes as pages_succeeded
+        # that way. Now flag on the visible-text length directly, regardless of the <body> tag.
+        elif len(result.rendered_text.strip()) < MIN_RENDERED_CHARS:
             result.error_code = ErrorCode.EMPTY_RENDERED_DOM
-            result.error_message = "Rendered DOM has no body or visible text"
+            result.error_message = (
+                f"Rendered DOM has too little visible text "
+                f"({len(result.rendered_text.strip())} < {MIN_RENDERED_CHARS} chars)"
+            )
 
         elif not light:
             # Screenshots — only when content is real, and only for FULL fetches. The homepage

@@ -25,14 +25,21 @@ def _clean_plan():
         concept="from clutter to control", hook="one app", cta="Order on the app",
         dialect="Egyptian colloquial", sound_design="tense -> warm -> confident",
         brand_unique_claim="built-in billing from your telecom",
+        # creative strategy (2026-07-20 contract): a declared POV, an ordered arc the scenes walk,
+        # and a motif written into the scene prompts. See tests/test_reel_creative_strategy.py.
+        creative_pov="the quiet relief of one bill replacing a drawer of invoices",
+        visual_motif="scattered invoices collapsing into one glowing screen",
+        narrative_arc=["problem", "discovery", "proof"],
         scenes=[
-            _scene(image_index=0, veo_prompt="macro of the app in a hand",
+            _scene(image_index=0, veo_prompt="macro of scattered paper invoices on a desk",
                    on_screen_text="Vodafone Business", caption_role="name", hero_product=True,
-                   sfx="impact", sound_mood="tense"),
-            _scene(image_index=1, voiceover="the Business Digital Store", on_screen_text="one bill",
-                   caption_role="benefit", sound_mood="warm"),
-            _scene(image_index=2, voiceover="order on the app", on_screen_text="Order on the app",
-                   caption_role="cta", hero_product=True, sound_mood="confident"),
+                   sfx="impact", sound_mood="tense", arc_beat="problem"),
+            _scene(image_index=1, veo_prompt="the invoices slide into one glowing screen in a hand",
+                   voiceover="the Business Digital Store", on_screen_text="one bill",
+                   caption_role="benefit", sound_mood="warm", arc_beat="discovery"),
+            _scene(image_index=2, veo_prompt="she sets the phone down, the screen calm",
+                   voiceover="order on the app", on_screen_text="Order on the app",
+                   caption_role="cta", hero_product=True, sound_mood="confident", arc_beat="proof"),
         ])
 
 

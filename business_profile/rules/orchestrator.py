@@ -16,12 +16,18 @@ from scraper.schemas import ScrapeManifest
 
 from ..schemas import (
     BusinessProfile,
+    EvidencedField,
     ExtractionMeta,
     ProfileQuality,
     SourceType,
 )
 from ..quality import compute_quality
 from .from_contact import extract_contact
+from .from_deep_search import (
+    extract_description_from_deep_search,
+    extract_name_from_deep_search,
+    extract_social_from_deep_search,
+)
 from .from_links import extract_existing_ctas, extract_social_presence
 from .from_metadata import extract_name_from_metadata
 from .from_pricing import extract_pricing_visible, pricing_extraction_note
@@ -103,6 +109,28 @@ def apply_rules(
     if social_presence:
         used.append(f"social:manifest({len(social_presence)})")
 
+    # ---- Deep-search (SERP) fallback ----
+    # When the direct scrape was blocked/empty (big brands behind Imperva/Akamai/Cloudflare),
+    # scraper.deep_search recovered the brand's identity from web search. Fill ONLY the core fields
+    # the first-party extractors couldn't — cited to the real SERP URLs, tagged rule:deep_search,
+    # SECONDARY by construction. First-party always wins (we only fall back when it found nothing).
+    description = EvidencedField.missing()   # rules don't set description otherwise; LLM fills it
+    if manifest.deep_search and manifest.deep_search.used:
+        if name.source_type == SourceType.MISSING:
+            ds_name = extract_name_from_deep_search(manifest)
+            if ds_name.value:
+                name = ds_name
+                used.append("name:deep_search")
+        ds_desc = extract_description_from_deep_search(manifest)
+        if ds_desc.value:
+            description = ds_desc
+            used.append("description:deep_search")
+        if not social_presence:
+            ds_social = extract_social_from_deep_search(manifest)
+            if ds_social:
+                social_presence = ds_social
+                used.append(f"social:deep_search({len(ds_social)})")
+
     # ---- Visual ----
     visual = extract_visual(manifest)
     if visual.palette_hex or visual.logo_url or visual.primary_logo or visual.logo_candidates:
@@ -116,6 +144,7 @@ def apply_rules(
         source_url=manifest.scrape_meta.normalized_url,
         final_url=manifest.scrape_meta.final_url,
         name=name,
+        description=description,
         category=category,
         pricing_visible=pricing_visible,
         pricing_extraction_note=pricing_note,
@@ -127,6 +156,8 @@ def apply_rules(
         social_presence=social_presence,
         visual=visual,
         languages=languages,
+        # The site's OWN declaration outranks the edition we crawled (see the field).
+        declared_languages=list(getattr(manifest, "declared_languages", None) or []),
         extraction_meta=ExtractionMeta(
             manifest_path=manifest_path,
             extracted_at=datetime.now(timezone.utc),

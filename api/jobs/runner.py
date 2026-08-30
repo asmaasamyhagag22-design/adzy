@@ -18,12 +18,12 @@ from __future__ import annotations
 import logging
 import os
 import time
-import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 # Pipeline imports — identical to what the CLI uses.
+from business_profile.build import _attach_catalog
 from business_profile.llm.caller import Caller, MockCaller, default_caller
 from business_profile.llm.embeddings import embed_texts
 from business_profile.llm.evidence_pack import build_evidence_pack
@@ -74,7 +74,9 @@ def run_pipeline_job(
     persist_to_disk: bool = True,
     caller_factory: Optional[Any] = None,  # for tests: callable returning a Caller
     scraper_fn: Optional[Any] = None,      # for tests: callable replacing scraper.scrape
-    output_root: str = "scrapes",
+    # "" = resolved by `scraper.config.scrapes_root()` inside `scrape()` — the webapp and the CLI
+    # must write to the SAME corpus, and a literal here is how they stop doing that.
+    output_root: str = "",
     use_rag: Optional[bool] = None,        # Pillar 2; default: on in prod, off when a test injects a caller
     embed_fn: Any = embed_texts,           # for tests: inject a fake embedder
 ) -> None:
@@ -122,6 +124,19 @@ def run_pipeline_job(
         emit(Stage.RULES, StageStatus.STARTED)
         t0 = time.monotonic()
         rules_profile = apply_rules(manifest, manifest_path=manifest_path)
+        # THE CATALOG, ON THE DASHBOARD PATH TOO.
+        #
+        # `business_profile.build` attaches it on both of ITS paths, and this runner is a third
+        # pipeline that never called it: `apply_rules` -> LLM -> `merge_profile` -> stored. So the
+        # CLI knew what the shop sells and the dashboard did not. MEASURED on a fresh Al Fouad
+        # scrape run from the dashboard this minute: the crawl reached 42 pages, 40 of them product
+        # pages, and `build_catalog` on that very manifest returns 24 priced items WITH images —
+        # while the stored brand said `catalog: []`. Nothing failed; a step simply was not wired
+        # into this caller, which is the defect class this whole day has been about.
+        #
+        # ONE place, not two: `merge_profile` starts with `deepcopy(rules_profile)`, so anything
+        # attached here survives the LLM merge, and the skip_llm branch returns this same object.
+        _attach_catalog(rules_profile, manifest)
         rules_ms = int((time.monotonic() - t0) * 1000)
         emit(
             Stage.RULES, StageStatus.DONE, duration_ms=rules_ms,
@@ -221,8 +236,16 @@ def run_pipeline_job(
         # call failed, emit a warning in the event payload so the SSE
         # consumer can render a red banner instead of a green check.
         llm_warning: Optional[str] = None
-        if not skip_llm and llm_result.total_calls == 0:
-            llm_warning = "llm_silent_failure: 0/4 group calls succeeded"
+        if not skip_llm:
+            total_groups = llm_result.total_calls + llm_result.total_failed
+            if llm_result.total_calls == 0:
+                llm_warning = f"llm_silent_failure: 0/{total_groups or 4} group calls succeeded"
+            elif llm_result.total_failed > 0:
+                # CS-81: a PARTIAL failure (e.g. 3/4 groups failed) previously reported SUCCEEDED
+                # with a green FINAL/DONE and NO warning — whole profile sections silently missing.
+                # Surface it so the SSE consumer renders a warning instead of a clean success.
+                llm_warning = (f"llm_partial_failure: {llm_result.total_failed}/{total_groups} "
+                               "group calls failed — some profile sections are incomplete")
         emit(
             Stage.LLM, StageStatus.DONE, duration_ms=llm_ms,
             payload={
@@ -312,10 +335,14 @@ def run_pipeline_job(
         logger.exception("Pipeline failed for job %s: %s", job_id, e)
         # Tag the error to the current stage (best effort — check job state)
         current_stage = _infer_failed_stage(store, job_id)
+        # CS-80: the /jobs/{id} route is UNAUTHENTICATED, so the client-facing error must NOT carry
+        # the full Python traceback OR the raw exception message — either can leak file paths, env
+        # values, or internal detail. The full traceback is logged server-side above; the stream
+        # gets only the safe exception CLASS name + the stage that failed.
         emit(
             current_stage, StageStatus.ERROR,
-            error=f"{type(e).__name__}: {e}",
-            payload={"traceback": traceback.format_exc(limit=8)},
+            error=f"{current_stage.value} stage failed ({type(e).__name__})",
+            payload={"error_type": type(e).__name__},
         )
 
 
@@ -331,12 +358,13 @@ def _infer_failed_stage(store: JobStore, job_id: str) -> Stage:
 
 
 def has_llm() -> bool:
-    """Used by the run route to fail fast if LLM extraction is requested but NO provider
-    is configured. True when Gemini (GCP project / Gemini key) OR OpenAI is available —
-    so a Gemini-only deployment (the default now) isn't wrongly blocked."""
+    """Used by the run route to fail fast if LLM extraction is requested but NO provider is
+    configured. CS-96: the extraction pipeline is GEMINI-ONLY (default_caller -> Vertex/Gemini;
+    Anthropic + OpenAI were removed from extraction). An OPENAI_API_KEY does NOT let the runner
+    serve a request, so it must NOT satisfy this gate — that was a fail-fast that passed for a
+    config the runner cannot actually run. Gate on Gemini credentials only."""
     return bool(
-        os.environ.get("OPENAI_API_KEY")
-        or os.environ.get("GOOGLE_CLOUD_PROJECT")
+        os.environ.get("GOOGLE_CLOUD_PROJECT")
         or os.environ.get("GEMINI_API_KEY")
         or os.environ.get("GOOGLE_API_KEY")
     )

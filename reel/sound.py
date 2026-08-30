@@ -5,20 +5,32 @@ one). So this synthesizes a tasteful, free sound bed ENTIRELY with the bundled f
 audio-synthesis filters (sine / anoisesrc / aevalsrc — VERIFIED present in imageio-ffmpeg):
   * a quiet low ambient PAD (a detuned two-note drone) so the reel never feels dead,
   * a WHOOSH on every cut (timed to the transition offsets) — the classic transition sweep,
-  * an opening IMPACT (a soft low boom) under the hero word — the "hit".
-This is sound DESIGN, not music: when a real `music_path` is supplied the compositor/motion
-engine muxes THAT instead (and the cuts beat-sync to its bpm). Never raises — on any failure
-the caller just gets a silent reel (today's behavior), so it can't break a render.
+  * an opening IMPACT (a soft low boom) under the hero word — the "hit",
+  * and, since 2026-08-01, a soft PULSE at the film's own tempo (`bpm=`), because cuts snapped to
+    a beat nobody can hear are a claim about a silence.
+This is sound DESIGN, not music: when a real `music_path` is supplied the compositor muxes THAT
+instead. Never raises — on any failure the caller just gets a silent reel (today's behavior), so
+it can't break a render.
+
+CORRECTED 2026-08-01: this used to end "(and the cuts beat-sync to its bpm)", which was not true
+of any render. The only BPM code in the repo lived in `reel/motion.py`, a separate photo engine
+with no production caller that supplies one, and the compositor had no notion of a beat at all.
+It is true NOW, and by the opposite route to the one implied: `reel/tempo.py` decides the tempo
+and the cuts are quantised to it, then this bed is authored at that same tempo. We are the
+composer, so nothing has to be detected. A SUPPLIED track is still not analysed — its cuts are
+not beat-synced, and saying so is cheaper than implying otherwise.
 """
 from __future__ import annotations
 
 import math
+import os
 import struct
 import wave
 from pathlib import Path
 from typing import Optional
 
 from reel.ffmpeg_tools import run_ffmpeg
+from reel.sfx import sfx_clip
 
 
 def _wave_impact_fallback(out_path: str | Path, total_s: float) -> Optional[Path]:
@@ -78,11 +90,17 @@ def synth_sound_bed(
     impact: bool = True,
     mood: str = "",
     sfx_beats: Optional[list[tuple[float, str]]] = None,
+    real_sfx: Optional[bool] = None,
+    bpm: Optional[float] = None,
 ) -> Optional[Path]:
     """Synthesize a sound bed (mood-tuned pad + whooshes at `cut_times` + opening impact + authored
     `sfx_beats`) into an .m4a. `mood` tunes the pad's tone; `sfx_beats` are (time_s, name) cues where
     name is whoosh | impact | chime — the reel's authored per-beat sound. Returns the path, or None on
-    failure (caller falls back to silence). Pure ffmpeg synth — no external assets, no network."""
+    failure (caller falls back to silence). Pure ffmpeg synth — no external assets, no network.
+
+    `bpm` adds a soft pulse at that tempo, so the film's cuts — which `reel/tempo.py` has snapped
+    to the same grid — land on something a listener can HEAR. Without it, "beat-synced cutting" is
+    a claim about a silence. `bpm=None` reproduces the previous bed byte for byte."""
     out_path = Path(out_path)
     total = max(1.0, float(total_s))
     cuts = [c for c in (cut_times or []) if 0.2 < c < total - 0.1]
@@ -109,20 +127,62 @@ def synth_sound_bed(
         mix_labels.append("[imp]")
         idx += 1
 
+    # 1b) the PULSE — the reel's tempo, made audible.
+    #
+    # ONE INPUT, NOT ONE PER BEAT. A 20-second reel at 100 BPM is 33 beats; 33 extra lavfi inputs
+    # would widen an `amix` that is already `pad + impact + n_cuts + n_sfx` and push the Windows
+    # command line toward its limit. A periodic expression gives the whole train in one source:
+    # `mod(t, beat)` restarts the envelope every beat and `exp(-k*·)` decays it, so it reads as a
+    # soft sub pulse rather than a metronome. Exact periodicity, zero drift by construction.
+    #
+    # The bar accent (every 4th beat, lower and slightly louder) is what makes a listener feel a
+    # phrase rather than a click. Levels are deliberately under the bed: the compositor already
+    # ducks all of this to volume=0.18 beneath the voice-over.
+    try:
+        _bpm = float(bpm) if bpm else 0.0
+    except (TypeError, ValueError):
+        _bpm = 0.0
+    if _bpm > 0:
+        beat = 60.0 / _bpm
+        bar = beat * 4.0
+        inputs += ["-f", "lavfi", "-i",
+                   f"aevalsrc=0.30*sin(2*PI*58*t)*exp(-16*mod(t\\,{beat:.6f})):"
+                   f"d={total:.2f}:s=44100"]
+        filters.append(f"[{idx}:a]lowpass=f=170,volume=0.30,"
+                       f"afade=t=in:d=0.4,afade=t=out:st={max(0.0, total - 1.0):.2f}:d=1.0[puls]")
+        mix_labels.append("[puls]")
+        idx += 1
+        inputs += ["-f", "lavfi", "-i",
+                   f"aevalsrc=0.34*sin(2*PI*44*t)*exp(-11*mod(t\\,{bar:.6f})):"
+                   f"d={total:.2f}:s=44100"]
+        filters.append(f"[{idx}:a]lowpass=f=130,volume=0.34,"
+                       f"afade=t=in:d=0.4,afade=t=out:st={max(0.0, total - 1.0):.2f}:d=1.0[bar]")
+        mix_labels.append("[bar]")
+        idx += 1
+
     # 2..) a WHOOSH per cut — pink-noise sweep, band-limited, delayed to just before the cut.
     for c in cuts:
         inputs += ["-f", "lavfi", "-i", "anoisesrc=d=0.6:c=pink:a=0.7:r=44100"]
         ms = int(max(0.0, c - 0.3) * 1000)
+        # -20dB (owner cheat-sheet #1): the whoosh PREPARES the ear for the cut — it must
+        # be felt, not heard. At volume=0.5 it competed with the voice.
         filters.append(
             f"[{idx}:a]highpass=f=320,lowpass=f=5200,"
-            f"afade=t=in:d=0.3,afade=t=out:st=0.3:d=0.3,volume=0.5,"
+            f"afade=t=in:d=0.3,afade=t=out:st=0.3:d=0.3,volume=0.1,"
             f"adelay={ms}|{ms}[w{idx}]"
         )
         mix_labels.append(f"[w{idx}]")
         idx += 1
 
-    # 3..) AUTHORED SFX beats — the plan's per-scene sfx cues (whoosh on a hard motion, impact on a
-    # reveal, chime on the pay-off), placed at their scene start times. This is the sound arc's movement.
+    # 3..) AUTHORED SFX beats — the plan's per-scene sfx cues, placed at their scene start times.
+    #
+    # REAL SOUND FIRST (2026-07-26). Everything below this line used to be the ONLY option: a
+    # 62 Hz sine for an impact, pink noise for a whoosh, two sines for a chime. Signal generators,
+    # not sound design — and the reason a technically-correct reel still sounded cheap. `sfx_clip`
+    # renders the cue with a real sound model and CACHES it; when it cannot (no key, no network,
+    # an API error) the synthesis below still covers the beat. Fail DOWN, never to silence.
+    use_real = (os.environ.get("REEL_REAL_SFX", "1") not in ("0", "false", "no")
+                if real_sfx is None else bool(real_sfx))
     for t_beat, name in (sfx_beats or []):
         try:
             t = float(t_beat)
@@ -131,6 +191,22 @@ def synth_sound_bed(
         if not (0.0 <= t < total):
             continue
         nm = (name or "").strip().lower()
+
+        clip = None
+        if use_real and nm:
+            try:
+                clip = sfx_clip(name, seconds=min(3.0, max(1.0, total - t)))
+            except Exception:  # noqa: BLE001 — a paid layer must never break a free render
+                clip = None
+        if clip is not None:
+            ms = int(t * 1000)   # a recorded sound's attack IS its first sample — no pre-roll
+            inputs += ["-i", str(clip)]
+            filters.append(f"[{idx}:a]volume=0.7,afade=t=out:st=0.9:d=0.4,"
+                           f"aresample=44100,adelay={ms}|{ms}[s{idx}]")
+            mix_labels.append(f"[s{idx}]")
+            idx += 1
+            continue
+
         if "chime" in nm or "bell" in nm or "ding" in nm:
             ms = int(t * 1000)
             inputs += ["-f", "lavfi", "-i",

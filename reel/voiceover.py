@@ -1,9 +1,19 @@
 """Voice-over track for the reel (OpenAI TTS).
 
-Turns the creative director's per-scene narration lines into ONE audio track timed
-to the scene durations: each line is synthesized, then padded with silence (or
-trimmed) to fill its scene, and the segments are concatenated so the narration
-lands in sync with the visuals. No key/SDK -> None (the reel just renders silent).
+Turns the creative director's per-scene narration lines into ONE audio track.
+
+CORRECTED 2026-08-01 — this paragraph described an implementation that is not here. It claimed
+"each line is synthesized, then padded with silence (or trimmed) to fill its scene, and the
+segments are concatenated so the narration lands in sync with the visuals". What the code does is
+ONE synthesis call over the whole joined script; `durations` is used at exactly one line, to take
+their SUM, and the resulting track is given a 250ms lead-in, an `atempo` capped at 1.12 if it runs
+long, and a pad to that total. There is no per-scene anchoring and no silence inserted at cut
+points — the narration is in sync with the FILM's length, not with each cut.
+
+Per-scene anchoring is the right fix and is deliberately not being done here: it changes the shape
+of the TTS call, multiplies calls per render, and costs money to verify. It is a ticket, not a
+line. What this note buys is that nobody reads the old paragraph and believes the sync already
+exists. No key/SDK -> None (the reel just renders silent).
 """
 from __future__ import annotations
 
@@ -12,7 +22,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .ffmpeg_tools import ffmpeg_exe, run_ffmpeg
 
@@ -38,7 +48,7 @@ _AR_RE = re.compile(r"[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]")
 
 
 def _instructions_for(lines: list[str], delivery: "str | list[str] | None" = "",
-                      tone: str = "") -> str:
+                      tone: str = "", dialect: str = "") -> str:
     """Performance brief for the narration. ONE consistent narrator, warm and expressive but
     controlled — never flat/robotic and never a news reader. Adapts to the brand TONE (a
     luxury brand reads refined & unhurried; a playful one reads bright & energetic) so the
@@ -62,13 +72,33 @@ def _instructions_for(lines: list[str], delivery: "str | list[str] | None" = "",
         else:
             mood = ("warm, confident and human — real emotion and gentle energy; "
                     "vary pace and pitch, lean into the key words, sound alive not flat")
+        # OWNER-RATIFIED HYPE (2026-07-26 listen test, sample D): when the DIRECTOR's own
+        # deliveries lean high-energy, the polite-narrator brief is the wrong register — the
+        # approved read is street-smart ad hype. Luxury brands keep their poise regardless.
+        _dl = delivery if isinstance(delivery, list) else ([delivery] if delivery else [])
+        _highs = sum(1 for d in _dl if _energy_of(str(d)) == "high")
+        if _dl and _highs * 2 >= len(_dl) and not any(
+                k in t for k in ("luxury", "premium", "elegant", "refined", "sophisticat")):
+            mood = ("street-smart AD HYPE: you just found something amazing and you are "
+                    "telling your best friend — MAXIMUM energy and pace, big smile, punchy, "
+                    "alive; an influencer ad read, NEVER a polite narrator, NEVER flat. The "
+                    "hook TEASES, the middle stays confident and warm, the closing CTA "
+                    "EXPLODES with urgency")
         is_ar = bool(_AR_RE.search(" ".join(lines or [])))
-        dialect = ("Authentic EGYPTIAN ARABIC (Cairo dialect / اللهجة المصرية). "
-                   if is_ar else "")
+        # The dialect follows the brand's EVIDENCED region (poster.locale.arabic_dialect_for),
+        # threaded in as `dialect`. NO hardcoded Egyptian: a Saudi/Gulf brand reads Khaleeji, a
+        # Levantine brand reads Shami. With no region evidence, an honest neutral register (never
+        # silently another region's dialect).
+        if is_ar:
+            dialect_clause = (f"Authentic {dialect}. " if dialect else
+                              "Authentic Arabic in the audience's OWN regional register (never "
+                              "defaulting to another region's dialect). ")
+        else:
+            dialect_clause = ""
         base = (
             "You are ONE consistent, professional human voice-over artist narrating a premium "
             f"brand film. Keep the SAME voice, character and energy from the first word to the "
-            f"last — do NOT change persona between lines. {dialect}Perform it {mood}. "
+            f"last — do NOT change persona between lines. {dialect_clause}Perform it {mood}. "
             "Never flat, never robotic, never a news anchor. PACE: measured and clear — a "
             "first-time listener must catch every word; never rush, even when energetic. "
             "PRONUNCIATION: any Latin brand or program name embedded in the Arabic (e.g. "
@@ -199,17 +229,36 @@ def _gemini_segment(client, text: str, out_wav: Path, *, voice: str, model: str,
 # brief is not applied here — the native dialect carries the read.
 # Override the voice via REEL_TTS_VOICE.
 # ---------------------------------------------------------------------
-_EDGE_VOICE_AR = "ar-EG-SalmaNeural"     # Egyptian Arabic, female (warm)
+_EDGE_VOICE_AR = "ar-EG-SalmaNeural"     # Egyptian Arabic, female (warm) — the pilot default
 _EDGE_VOICE_EN = "en-US-AriaNeural"      # default English voice
 _EDGE_RATE = os.environ.get("REEL_TTS_EDGE_RATE", "+0%")
 _EDGE_PITCH = os.environ.get("REEL_TTS_EDGE_PITCH", "+0Hz")
 
+# Native edge-tts Arabic voice PER dialect region (the FREE, keyless fallback). Keyed on the
+# canonical bucket from poster.locale.arabic_region_of so a Saudi brand gets a Gulf voice, not
+# ar-EG-Salma. Best-effort (Microsoft's standard per-locale neural voices); an unknown region
+# degrades to the pilot Egyptian voice rather than going silent.
+_EDGE_VOICE_BY_REGION = {
+    "egypt": "ar-EG-SalmaNeural",
+    "gulf": "ar-SA-ZariyahNeural",
+    "levant": "ar-SY-AmanyNeural",
+    "maghreb": "ar-MA-MounaNeural",
+}
 
-def _edge_voice_for(text: str, override: Optional[str]) -> str:
-    """Pick a native Egyptian voice for Arabic copy, else an English voice."""
+
+def _edge_voice_for(text: str, override: Optional[str], profile: Any = None) -> str:
+    """Pick a native Arabic voice for Arabic copy — REGION-aware (the brand's evidenced country),
+    not a hardcoded Egyptian voice — else an English voice. An explicit override always wins."""
     if override:
         return override
-    return _EDGE_VOICE_AR if _AR_RE.search(text or "") else _EDGE_VOICE_EN
+    if _AR_RE.search(text or ""):
+        try:
+            from poster.locale import arabic_region_of
+            reg = arabic_region_of(profile)
+        except Exception:  # noqa: BLE001
+            reg = ""
+        return _EDGE_VOICE_BY_REGION.get(reg, _EDGE_VOICE_AR)
+    return _EDGE_VOICE_EN
 
 
 def _edge_prosody_for_tone(tone: str) -> tuple[str, str]:
@@ -262,37 +311,310 @@ def narration_lines(storyboard) -> list[str]:
     return out
 
 
-_ELEVENLABS_MODEL = "eleven_multilingual_v2"
-# A native Egyptian ElevenLabs library voice id (set once the Creator plan is active). Placeholder
-# empty until the owner supplies it via REEL_ELEVENLABS_VOICE — the free tier can't use library voices.
-_ELEVENLABS_DEFAULT_VOICE = os.environ.get("REEL_ELEVENLABS_VOICE", "")
+# eleven_v3 is the most expressive model this account can reach (measured against
+# `GET /v1/models`), and expression is the whole difference between a read and a performance —
+# the owner has rejected a reel for a flat voice before. multilingual_v2 stays the documented
+# fallback shape: `synth_voiceover(model=...)` still overrides.
+_ELEVENLABS_MODEL = "eleven_v3"
+# Native ElevenLabs library voice ids PER dialect region (owner-supplied, 2026-07-18). Keyed on the
+# canonical bucket from poster.locale.arabic_region_of so a Saudi brand narrates in a real Gulf voice
+# instead of an Egyptian one. Maghreb / unknown -> "" (no id): a neutral MSA read, never another
+# region's voice. REEL_ELEVENLABS_VOICE overrides all (a single pinned voice for every reel).
+_ELEVENLABS_VOICE_BY_REGION = {
+    "egypt": "QvNF0qyyt1Tuy1YAmnzH",
+    "gulf": "t9akNmCDhz230CEXOYmn",
+    "levant": "Wim44P0dU9HtjyzNnFsv",
+}
+
+
+def _elevenlabs_voice_for(profile: Any = None, override: Optional[str] = None) -> str:
+    """The native ElevenLabs library voice id for the brand's evidenced region. Explicit override >
+    REEL_ELEVENLABS_VOICE env > per-region map > '' (no id -> the segment degrades, as before)."""
+    if override:
+        return override
+    env = os.environ.get("REEL_ELEVENLABS_VOICE")
+    if env:
+        return env
+    try:
+        from poster.locale import arabic_region_of
+        return _ELEVENLABS_VOICE_BY_REGION.get(arabic_region_of(profile), "")
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def _elevenlabs_segment(text: str, out_mp3: Path, *, voice: str, model: str,
-                        api_key: str, timeout: float = 120.0) -> bool:
+                        api_key: str, timeout: float = 120.0, delivery: str = "",
+                        _urlopen=None) -> bool:
     """One TTS segment via ElevenLabs (native Egyptian library voices — needs a Creator-tier key).
     Stdlib urllib; returns True on a written mp3, False on any failure (caller degrades)."""
     import json as _json
+    import urllib.error
     import urllib.request
     if not voice:
         logger.warning("elevenlabs: no voice id (set REEL_ELEVENLABS_VOICE); skipping")
         return False
+    # STEERED, NOT FLAT. `style: 0.0` and `stability: 0.5` are the neutral defaults — a
+    # newsreader. The owner's word for that read was «برود». Stability DOWN and style UP is what
+    # makes ElevenLabs perform; the amount comes from the director's own delivery note, so an
+    # urgent CTA and a warm middle line are not read identically.
+    _energy = _energy_of(delivery)
+    _settings = {
+        "high": {"stability": 0.34, "similarity_boost": 0.85, "style": 0.62},
+        "warm": {"stability": 0.55, "similarity_boost": 0.80, "style": 0.35},
+        "neutral": {"stability": 0.45, "similarity_boost": 0.82, "style": 0.48},
+    }[_energy]
+    _settings["use_speaker_boost"] = True
     body = _json.dumps({
         "text": text, "model_id": model or _ELEVENLABS_MODEL,
-        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75, "style": 0.0},
+        "voice_settings": _settings,
     }).encode("utf-8")
     req = urllib.request.Request(
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice}", data=body, method="POST",
         headers={"xi-api-key": api_key, "Content-Type": "application/json", "Accept": "audio/mpeg"})
+    opener = _urlopen or urllib.request.urlopen
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with opener(req, timeout=timeout) as r:
             data = r.read()
         if data:
             Path(out_mp3).write_bytes(data)
             return Path(out_mp3).is_file()
+    except urllib.error.HTTPError as e:
+        # THE STATUS AND BODY ARE THE DIAGNOSIS. This logged only `type(e).__name__`, so the
+        # 2026-07-25 Abu Auf run showed "HTTPError" and nothing else — indistinguishable between
+        # wrong-tier (a library voice on a free key), a bad key, and quota. ElevenLabs puts the
+        # cause in the JSON body (`detail.status`: voice_not_found / quota_exceeded / …).
+        try:
+            body = e.read()[:300].decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001
+            body = ""
+        logger.warning("elevenlabs TTS failed: HTTP %s %s :: %s", e.code, e.reason, body)
     except Exception as e:  # noqa: BLE001
         logger.warning("elevenlabs TTS failed: %s", type(e).__name__)
     return False
+
+
+def needs_vocalization(backend: str) -> bool:
+    """Does THIS engine need the spelling rewritten as-spoken?
+
+    Only the free `edge` voice does. It reads unvocalized dialect Arabic with MSA guesses — the
+    wrong vowels, the wrong stress — so writing the vowels in is the only lever available.
+
+    A NATIVE multilingual model already knows the dialect, and the diacritics actively hurt it:
+    MEASURED on the same voice and sentence through ElevenLabs, plain came back 82,799 bytes and
+    vocalized 105,787 — it pronounces every short vowel, so the read slows about 28% and breaks
+    into syllables. The owner heard it immediately: «كانت مية مية على 11 لاب».
+
+    `REEL_TTS_VOCALIZE=1` forces it back on for a one-off comparison."""
+    import os as _os
+    if _os.environ.get("REEL_TTS_VOCALIZE") == "1":
+        return True
+    return str(backend or "").lower() == "edge"
+
+
+def _vocalize_for_tts(lines: "list[str]", *, caller: Any = None,
+                      dialect: str = "") -> "list[str]":
+    """«طريقة كتابة الكلام بتخلي الصوت يقوله صح» — the owner's engineer, quoted twice.
+
+    A TTS voice reads UNVOCALIZED dialect Arabic with MSA guesses: wrong vowels, wrong
+    stress, dead rhythm — measured straight on the v2/v3 samples the owner rejected. Each
+    line is rewritten EXACTLY AS SPOKEN (full tashkeel on every word, phonetic dialect
+    spelling, the same words in the same order) before ANY engine hears it.
+
+    Fail-closed to the ORIGINAL lines: wrong line count (durations align per line), no
+    Arabic, no caller, REEL_TTS_VOCALIZE=0, or any call failure."""
+    parts = [str(l) for l in (lines or [])]
+    if not parts or os.environ.get("REEL_TTS_VOCALIZE") == "0":
+        return parts
+    if not _AR_RE.search(" ".join(parts)):
+        return parts
+    if caller is None:
+        try:
+            from business_profile.llm import default_caller
+            caller = default_caller(strong=False)
+        except Exception:  # noqa: BLE001
+            caller = None
+    if caller is None:
+        return parts
+
+    class _Voc:
+        _model = None
+
+        @classmethod
+        def get(cls):
+            if cls._model is None:
+                from pydantic import BaseModel
+
+                class VocalizedLines(BaseModel):
+                    lines: list[str]
+
+                cls._model = VocalizedLines
+            return cls._model
+
+    reg = dialect.strip() or "Egyptian Arabic (مصري)"
+    system = (
+        "You are a voice-over SCRIPT PHONETICIAN. Rewrite every Arabic narration line below "
+        f"EXACTLY as a native {reg} narrator pronounces it, so a TTS engine reads it right:\n"
+        "- FULL tashkeel (فتحة/ضمة/كسرة/سكون/شدة/تنوين) on EVERY Arabic word.\n"
+        "- Phonetic dialect spelling — write what is SAID (e.g. «أوي» not «قوي», «دِلْوَقْتِي»), "
+        "never 'correct' the dialect into fusha.\n"
+        # OWNER'S EAR (2026-07-26): the vocalizer wrote «عَوْف» and the voice said 'awf —
+        # the brand is pronounced ʿŌF. Names follow the STREET, not morphology.
+        "- PROPER NOUNS & BRAND NAMES are vocalized exactly as LOCALS say them: a name heard "
+        "with a long ō/ū takes ضمة + واو ساكنة («أَبُو عُوف» — NEVER «عَوْف»), a long ē/ī takes "
+        "كسرة + ياء ساكنة. When unsure, prefer the long-vowel reading over a diphthong.\n"
+        "- KEEP the same words, the same order, the same count of lines, and every ! and ؟ "
+        "mark — change ONLY the written form.\n"
+        "Return the same number of lines."
+    )
+    try:
+        resp, _u = caller(system, "\n".join(parts), _Voc.get(), group_name="tts_vocalize")
+        out = [str(l).strip() for l in (getattr(resp, "lines", None) or [])]
+        if len(out) == len(parts) and all(out):
+            return out
+    except Exception:  # noqa: BLE001 — the read must never die on a spelling pass
+        logger.warning("tts vocalization failed; using the raw spelling")
+    return parts
+
+
+def _join_script(lines: "list[str]") -> str:
+    """ONE continuous script whose EMOTIVE terminal marks survive the join.
+
+    Measured root of the owner's «الصوت برود»: the old joiner rstrip'ed " ،.!؟?" from every
+    line, so «متتنسيش!» reached the voice as flat «متتنسيش،» — the punctuation IS the
+    performance direction for every TTS engine. Neutral tails (، .) still yield to one
+    consistent cadence; ! and ؟/? stay."""
+    parts = [str(l).strip() for l in (lines or []) if l and str(l).strip()]
+    if not parts:
+        return ""
+    is_ar = bool(_AR_RE.search(" ".join(parts)))
+    joiner = "،  " if is_ar else ".  "
+    cores = [p.rstrip(" ،.") for p in parts]
+    script = ""
+    for j, core in enumerate(cores):
+        if j:
+            script += "  " if cores[j - 1].endswith(("!", "؟", "?")) else joiner
+        script += core
+    return script
+
+
+# Delivery -> ENERGY class -> edge rate/pitch. The director writes a per-line performance
+# note (`voiceover_delivery`); until v3 it reached only the PAID engines' instruction text,
+# never the free voice that actually ships — the whole reel was one flat read.
+_DELIVERY_PROSODY = {
+    "high": ("+9%", "+16Hz"),      # excited hook / urgent CTA
+    "warm": ("+2%", "+4Hz"),       # relaxed, smiling body
+    "neutral": ("+5%", "+8Hz"),    # unspecified — lightly lifted, never monotone
+}
+
+
+def _energy_of(delivery: str) -> str:
+    d = (delivery or "").lower()
+    if any(w in d for w in ("excit", "high energy", "energetic", "urgent", "punchy", "upbeat",
+                            "rising", "متحمس", "حماس", "سريع", "طاقة")):
+        return "high"
+    if any(w in d for w in ("calm", "soft", "gentle", "relaxed", "warm", "smile", "tender",
+                            "هادي", "دافي", "ابتسامة", "حنية")):
+        return "warm"
+    return "neutral"
+
+
+def _edge_read(parts: "list[str]", deliveries: "list[str]", out_mp3: Path, *,
+               voice: str, tone: str = "") -> bool:
+    """The free voice, read with the director's energy: consecutive lines that share an energy
+    class form ONE group; each group gets its own rate/pitch; groups concat into one track.
+
+    Uniform energy (or an explicit REEL_TTS_EDGE_RATE/PITCH override) collapses to the single
+    continuous call — the design that fixed the Azza-demo "changing voice / mid-word cuts"
+    bugs stays intact when there is nothing to vary."""
+    energies = [_energy_of(deliveries[k] if k < len(deliveries) else "") for k in range(len(parts))]
+    override = bool(os.environ.get("REEL_TTS_EDGE_RATE") or os.environ.get("REEL_TTS_EDGE_PITCH"))
+    if override or len(set(energies)) <= 1:
+        rate, pitch = (_edge_prosody_for_tone(tone) if override or not energies
+                       else _DELIVERY_PROSODY[energies[0]])
+        return _edge_segment(_join_script(parts), out_mp3, voice=voice, rate=rate, pitch=pitch)
+    groups: list[tuple[str, list[str]]] = []
+    for text_line, en in zip(parts, energies):
+        if groups and groups[-1][0] == en:
+            groups[-1][1].append(text_line)
+        else:
+            groups.append((en, [text_line]))
+    seg_files: list[Path] = []
+    for gi, (en, glines) in enumerate(groups):
+        seg = out_mp3.parent / f"{out_mp3.stem}_g{gi}.mp3"
+        rate, pitch = _DELIVERY_PROSODY[en]
+        if not _edge_segment(_join_script(glines), seg, voice=voice, rate=rate, pitch=pitch):
+            return False
+        seg_files.append(seg)
+    listing = out_mp3.parent / f"{out_mp3.stem}_concat.txt"
+    listing.write_text("".join(f"file '{s.as_posix()}'\n" for s in seg_files), encoding="utf-8")
+    try:
+        run_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy",
+                    str(out_mp3)])
+    except Exception:  # noqa: BLE001 — concat trouble must not silence the reel
+        rate, pitch = _edge_prosody_for_tone(tone)
+        return _edge_segment(_join_script(parts), out_mp3, voice=voice, rate=rate, pitch=pitch)
+    return Path(out_mp3).is_file()
+
+
+def _verbatik_ssml(text: str, *, voice: str = "", delivery: str = "") -> str:
+    """The SSML body for Verbatik: the language follows the SCRIPT (D-8 — not a hardcoded
+    ar-EG), and a delivery note becomes a real prosody contour so the paid read is not flat
+    either. The voice itself travels in the X-Voice-ID header per Verbatik's API docs."""
+    lang = "ar-EG" if _AR_RE.search(text or "") else "en-US"
+    inner = _xml_escape(text)
+    if (delivery or "").strip():
+        rate, pitch = _DELIVERY_PROSODY[_energy_of(delivery)]
+        inner = f'<prosody rate="{rate}" pitch="{pitch}">{inner}</prosody>'
+    return f'<speak version="1.0" xml:lang="{lang}">{inner}</speak>'
+
+
+def _verbatik_segment(text: str, out_mp3: Path, *, voice: str = "",
+                      api_key: str = "", timeout: float = 120.0,
+                      delivery: str = "", _urlopen=None) -> bool:
+    """One TTS segment via Verbatik (the owner added VERBATIK_API_KEY for the reel voice,
+    2026-07-25: «حطيت كي للصوت»). Bearer-token REST; SSML body; returns audio bytes.
+
+    Endpoint and voice are env-overridable (`VERBATIK_TTS_URL`, `REEL_VERBATIK_VOICE`) because the
+    vendor's surface is a fact about the vendor: if their path or voice ids shift, the fix is a
+    variable, not a release. Default voice is an Egyptian-Arabic one for the same reason the edge
+    fallback uses ar-EG — this project's brands are addressed in their own dialect.
+
+    Same honesty rule as ElevenLabs above: an HTTP failure logs its status AND body."""
+    import urllib.error
+    import urllib.request
+    key = api_key or os.environ.get("VERBATIK_API_KEY") or ""
+    if not key:
+        return False
+    url = os.environ.get("VERBATIK_TTS_URL", "https://api.verbatik.com/api/v1/tts")
+    voice = voice or os.environ.get("REEL_VERBATIK_VOICE", "salma-ar-eg")
+    # Per Verbatik's published API: POST /api/v1/tts, Bearer auth, the VOICE in the
+    # X-Voice-ID header (slug ids like jenny-en-us), SSML or plain text as the body.
+    ssml = _verbatik_ssml(text, voice=voice, delivery=delivery)
+    req = urllib.request.Request(
+        url, data=ssml.encode("utf-8"), method="POST",
+        headers={"Authorization": f"Bearer {key}", "X-Voice-ID": voice,
+                 "Content-Type": "application/ssml+xml", "Accept": "audio/mpeg"})
+    opener = _urlopen or urllib.request.urlopen
+    try:
+        with opener(req, timeout=timeout) as r:
+            data = r.read()
+        if data:
+            Path(out_mp3).write_bytes(data)
+            return Path(out_mp3).is_file()
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read()[:300].decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001
+            body = ""
+        logger.warning("verbatik TTS failed: HTTP %s %s :: %s", e.code, e.reason, body)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("verbatik TTS failed: %s", type(e).__name__)
+    return False
+
+
+def _xml_escape(s: str) -> str:
+    return (str(s or "").replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
 
 
 def _resolve_backend(backend: Optional[str]) -> str:
@@ -303,8 +625,12 @@ def _resolve_backend(backend: Optional[str]) -> str:
     reel always gets a voice instead of going silent. Set REEL_TTS_BACKEND=edge to force
     the free native-Egyptian voice and skip the paid TTS spend entirely."""
     b = (backend or os.environ.get("REEL_TTS_BACKEND") or "").lower()
-    if b in ("gemini", "openai", "edge", "elevenlabs"):
+    if b in ("gemini", "openai", "edge", "elevenlabs", "verbatik"):
         return b   # elevenlabs is EXPLICIT-ONLY (never auto-selected) — a paid native-EG library voice
+    # Verbatik: the owner added its key FOR the reel voice (2026-07-25), so a present key means
+    # "use it" — unlike ElevenLabs, whose library voices need a tier we cannot verify up front.
+    if os.environ.get("VERBATIK_API_KEY"):
+        return "verbatik"
     # OWNER-RATIFIED (2026-07-11 listen test): فصحى (fusha) -> Gemini Kore DIRECTED (variant 2);
     # عامية (masri) -> OpenAI gpt-audio (variant 4). The dialect itself is the USER's choice
     # (REEL_ARABIC_DIALECT / the studio UI); this only routes the ratified voice per register.
@@ -360,6 +686,7 @@ def synth_voiceover(
     api_key: Optional[str] = None,
     backend: Optional[str] = None,
     tone: str = "",
+    profile: Any = None,
 ) -> Optional[Path]:
     """Build ONE continuous narration track for the reel and TIME-FIT it to the footage.
 
@@ -400,29 +727,85 @@ def synth_voiceover(
             return None
     # chosen == "edge" needs no client/key (free, keyless).
 
+    # The brand's evidenced dialect — resolved BEFORE the voice, because the voice is chosen
+    # from it (poster.locale; never a hardcoded Egyptian read).
+    dialect_name = ""
+    if profile is not None:
+        try:
+            from poster.locale import arabic_dialect_for
+            dialect_name = arabic_dialect_for(profile)
+        except Exception:  # noqa: BLE001
+            dialect_name = ""
+
     model = model or os.environ.get("REEL_TTS_MODEL") or (
         _GEMINI_TTS_MODEL if chosen == "gemini"
         else _ELEVENLABS_MODEL if chosen == "elevenlabs" else _DEFAULT_MODEL)
     if chosen == "edge":
-        default_voice = _edge_voice_for(" ".join(lines), None)
+        default_voice = _edge_voice_for(" ".join(lines), None, profile)
     elif chosen == "gemini":
         default_voice = _GEMINI_VOICE
     elif chosen == "elevenlabs":
-        default_voice = _ELEVENLABS_DEFAULT_VOICE
+        # THE REAL CATALOGUE (2026-07-26, the hour the account was funded): four professional
+        # Egyptian voices verified against GET /v1/voices. The old per-region map guessed ids
+        # that were never in this account, which is part of why the paid path kept degrading.
+        _prev = _elevenlabs_voice_for(profile)
+        if _prev:
+            default_voice = _prev            # an explicit override/env id still wins
+        else:
+            from reel.voices import pick_voice
+            # WHO IS BEING SPOKEN TO decides the gender (owner: «سكين كير وملابس وبرفان حاجة
+            # نسائي نشغّل النسائي، رجالي يختار رجالي، غير كده هو يختار»). The category comes from
+            # the brand's own profile — both the market vertical and its offerings, since a
+            # pharmacy's `category` is "ecommerce" while its offerings say "skincare".
+            _cat = ""
+            try:
+                _p = (profile or {}).get("profile", profile) if isinstance(profile, dict) else {}
+                _bits = []
+                for _f in ("market_category", "category", "description"):
+                    _v = (_p or {}).get(_f)
+                    _v = _v.get("value") if isinstance(_v, dict) else _v
+                    if _v:
+                        _bits.append(str(_v))
+                for _o in ((_p or {}).get("offerings") or [])[:6]:
+                    _n = _o.get("name") if isinstance(_o, dict) else _o
+                    _n = _n.get("value") if isinstance(_n, dict) else _n
+                    if _n:
+                        _bits.append(str(_n))
+                _cat = " ".join(_bits)
+            except Exception:  # noqa: BLE001
+                _cat = ""
+            _v = pick_voice(dialect=dialect_name, tone=tone, category=_cat)
+            default_voice = _v["voice_id"]
+            logger.info("[voice] %s (%s, %s) for category signal %r",
+                        _v.get("name"), _v.get("gender"), _v.get("register"), _cat[:60])
     else:
         default_voice = _DEFAULT_VOICE
     voice = voice or os.environ.get("REEL_TTS_VOICE") or default_voice
 
-    # ONE continuous script, scene order preserved, joined with a natural pause. Trailing
-    # end-punctuation is stripped per line so the joiner sets one consistent cadence.
+    # ONE continuous script, scene order preserved, joined with a natural pause — but the
+    # EMOTIVE terminal marks survive (owner: «الصوت برود»; the old joiner stripped every ! and ؟).
     parts = [str(l).strip() for l in lines if l and str(l).strip()]
     if not parts:
         return None
-    is_ar = bool(_AR_RE.search(" ".join(parts)))
-    joiner = "،  " if is_ar else ".  "
-    script = joiner.join(p.rstrip(" ،.!؟?") for p in parts)
+    # THE SPELLING IS THE PERFORMANCE (owner's engineer): rewrite as-spoken before any engine.
+    _dial = ""
+    if profile is not None:
+        try:
+            from poster.locale import arabic_dialect_for
+            _dial = arabic_dialect_for(profile)
+        except Exception:  # noqa: BLE001
+            _dial = ""
+    # THE TASHKEEL BELONGS TO THE ENGINE THAT NEEDS IT (owner, 2026-07-26: «طريقة كتابتك هي اللي
+    # مبوّظة الأصوات، لأنها كانت مية مية على 11 لاب»). MEASURED, same voice and sentence through
+    # ElevenLabs: plain 82,799 bytes vs vocalized 105,787 — the diacritics make the model
+    # pronounce every short vowel, so the read slows ~28% and breaks into syllables. It was built
+    # for the FREE edge voice, which guesses MSA vowels on unvocalized dialect; a native
+    # multilingual model needs no help and is harmed by it.
+    if needs_vocalization(chosen):
+        parts = _vocalize_for_tts(parts, dialect=_dial)
+    script = _join_script(parts)
     total = sum(max(0.5, float(d)) for d in durations) or 10.0
-    instructions = _instructions_for(lines, list(deliveries or []), tone)
+    instructions = _instructions_for(lines, list(deliveries or []), tone, dialect=dialect_name)
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -436,13 +819,57 @@ def synth_voiceover(
             ok = _gemini_segment(gem_client, script, raw, voice=voice, model=model,
                                  instructions=instructions)
         elif chosen == "edge":
-            _e_rate, _e_pitch = _edge_prosody_for_tone(tone)   # tone-driven, never a flat +0%/+0Hz
-            ok = _edge_segment(script, raw, voice=voice, rate=_e_rate, pitch=_e_pitch)
+            ok = _edge_read(parts, list(deliveries or []), raw, voice=voice, tone=tone)
         elif chosen == "elevenlabs":
-            ok = _elevenlabs_segment(script, raw, voice=voice, model=model, api_key=el_key)
+            # WITH-TIMESTAMPS FIRST (owner's cheat-sheet, the last piece): same voice, same
+            # settings, same price — plus the word schedule that lets a caption word pop at the
+            # instant it is spoken. Writes `<raw>.words.json`; the caption layer picks it up.
+            # Any failure falls straight back to the plain endpoint: a reel must never lose its
+            # voice over a timestamp.
+            ok = False
+            try:
+                from reel.word_sync import tts_with_timestamps
+                _energy = _energy_of(deliveries[0] if deliveries else "")
+                _vs = {
+                    "high": {"stability": 0.34, "similarity_boost": 0.85, "style": 0.62},
+                    "warm": {"stability": 0.55, "similarity_boost": 0.80, "style": 0.35},
+                    "neutral": {"stability": 0.45, "similarity_boost": 0.82, "style": 0.48},
+                }[_energy]
+                _vs["use_speaker_boost"] = True
+                _words = tts_with_timestamps(script, raw, voice=voice,
+                                             model=model or _ELEVENLABS_MODEL, api_key=el_key,
+                                             voice_settings=_vs)
+                ok = _words is not None
+                if ok:
+                    # NEXT TO THE FINAL TRACK, not next to `raw`. `raw` lives in a
+                    # TemporaryDirectory that is destroyed on the way out of this block, so the
+                    # first version of this wrote the schedule and then deleted it — the exact
+                    # "produced, never reaches" failure this session keeps finding. MEASURED on
+                    # the first live run: no .words.json existed anywhere on disk afterwards.
+                    import json as _json
+                    Path(str(out_path) + ".words.json").write_text(
+                        _json.dumps(_words, ensure_ascii=False), encoding="utf-8")
+            except Exception:  # noqa: BLE001
+                ok = False
+            if not ok:
+                ok = _elevenlabs_segment(script, raw, voice=voice, model=model, api_key=el_key,
+                                         delivery=(deliveries[0] if deliveries else ""))
+        elif chosen == "verbatik":
+            ok = _verbatik_segment(script, raw,
+                                   delivery=(deliveries[0] if deliveries else ""))
         else:
             ok = _tts_segment(oa_client, script, raw, model=model, voice=voice,
                               instructions=instructions)
+        if not ok and chosen != "edge":
+            # NEVER-SILENT (owner ruling, after the 2026-07-25 Abu Auf reel shipped with
+            # audio=False): a paid backend failing must not cost the reel its voice. `edge` is
+            # free, keyless, and carries a native Egyptian voice — a working voice from the free
+            # tier beats silence from the paid one, every time. The primary's failure was already
+            # logged above with its HTTP status and body, so nothing is hidden by recovering.
+            logger.warning("[voiceover] %s failed -> edge fallback", chosen)
+            raw = tmpd / "vo_full.mp3"       # edge writes mp3 whatever the primary wanted
+            ok = _edge_read(parts, list(deliveries or []), raw,
+                            voice=_edge_voice_for(script, None, profile), tone=tone)
         if not ok:
             return None
 

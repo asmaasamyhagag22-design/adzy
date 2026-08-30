@@ -35,6 +35,13 @@ def main() -> int:
     if not ok:
         return 2
 
+    # D-3 (owner ruling 2026-07-19): facebook_collector/ carried PII + a .env — moved OUT of the
+    # project entirely (dev/_quarantine/facebook_collector). To run a live pull, point PYTHONPATH
+    # at the quarantine dir explicitly; nothing inside this repo imports it anymore.
+    import sys as _sys
+    _q = r"C:\Users\Admin\Desktop\dev\_quarantine"
+    if _q not in _sys.path:
+        _sys.path.insert(0, _q)
     from facebook_collector import FacebookCollector   # imports apify_client; env has the token
     result = FacebookCollector().collect(
         facebook_url=args.url, posts_limit=args.posts,

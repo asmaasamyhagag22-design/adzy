@@ -28,8 +28,33 @@ def lint_campaign(*, category, copy_surfaces: Dict[str, str]) -> PolicyLintRepor
                         surface=surface, span=m.group(0), message=rule.message,
                         suggested_rewrite=rule.suggested_rewrite))
                     break   # one finding per (surface, rule) — the first hit is enough evidence
-    verdict = "VIOLATIONS" if any(f.severity == "block" for f in findings) else "PASS"
+    if any(f.severity == "block" for f in findings):
+        verdict = "VIOLATIONS"                       # a caught violation is a violation, any language
+    elif surfaces and not _copy_is_checkable("\n".join(str(copy_surfaces[s]) for s in surfaces)):
+        # P-93: the rules are Arabic + English only. Clean copy in another language means the linter
+        # could NOT actually check it — that is NEEDS_REVIEW, never a "compliant" PASS.
+        verdict = "NEEDS_REVIEW"
+    else:
+        verdict = "PASS"
     return PolicyLintReport(verdict=verdict, findings=findings, surfaces_checked=surfaces)
+
+
+def _copy_is_checkable(text: str) -> bool:
+    """P-93: True only when the copy is in a language the rule set covers (Arabic or English). Any
+    Arabic script counts as ar-covered; Latin copy is checkable only if langdetect calls it English.
+    Pure/offline (langdetect), deterministic (seeded)."""
+    import re as _re
+    if _re.search(r"[؀-ۿ]", text):         # any Arabic script -> the ar rules apply
+        return True
+    letters = _re.sub(r"[^A-Za-zÀ-ɏ]", "", text)   # Latin incl. accented
+    if len(letters) < 8:                             # too short to judge -> assume checkable (en-ish)
+        return True
+    try:
+        from langdetect import DetectorFactory, detect
+        DetectorFactory.seed = 0
+        return detect(text) == "en"
+    except Exception:  # noqa: BLE001 — detector unavailable/fails -> don't block, assume checkable
+        return True
 
 
 def surfaces_from_compliance_sheet(sheet: Optional[dict]) -> Dict[str, str]:

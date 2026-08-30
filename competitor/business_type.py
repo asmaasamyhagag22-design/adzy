@@ -119,9 +119,25 @@ def classify_business_type(profile, manifest=None) -> BusinessTypeResult:
     # ecommerce structural evidence (any strong signal, or repeated weaker ones)
     ecom_structural = cart_or_checkout or priced >= 2 or product_paths >= 2
 
-    reach = category in _REACH_CATEGORIES
-    local = has_address or category in _LOCAL_CATEGORIES
-    ecom = category in _ECOMMERCE_CATEGORIES or ecom_structural
+    # process.md §8.11: `business_model` answers HOW a business sells directly. When present it
+    # drives the three routing axes instead of re-deriving them from the conflated `category` via
+    # hand-kept sets. Absent/unknown -> the legacy category-set behaviour still runs, so an
+    # un-migrated profile routes exactly as before.
+    model = _unwrap(_get(profile, "business_model"))
+    model = str(getattr(model, "value", model) or "").strip().lower()
+
+    if model == "ecommerce":
+        reach, local, ecom = False, has_address, True
+    elif model == "local":
+        reach, local, ecom = False, True, ecom_structural
+    elif model == "service":
+        reach, local, ecom = True, has_address, False
+    elif model == "hybrid":
+        reach, local, ecom = False, True, True
+    else:  # "unknown" or absent -> the pre-split signals
+        reach = category in _REACH_CATEGORIES
+        local = has_address or category in _LOCAL_CATEGORIES
+        ecom = category in _ECOMMERCE_CATEGORIES or ecom_structural
 
     # A REACH CATEGORY wins over the weak ecom_structural signal: an education/services brand
     # trips priced_offerings>=2 just by listing course/service fees, but it is NOT an ecommerce

@@ -7,8 +7,8 @@ COMPLIANCE sheet, the U4 policy-lint verdict, the U5 missing-info report, a prer
 and a DRAFT `approval.json` whose token is sha256-bound to the exact plan (a human promotes
 DRAFT -> APPROVED; nothing auto-approves).
 """
-from launch_bundle.bundle import assemble_launch_bundle
+from launch_bundle.bundle import approve_bundle, assemble_launch_bundle
 from launch_bundle.schemas import ApprovalDraft, CampaignPlanJSON, LaunchBundle, PrereqChecklist
 
 __all__ = ["CampaignPlanJSON", "PrereqChecklist", "ApprovalDraft", "LaunchBundle",
-           "assemble_launch_bundle"]
+           "assemble_launch_bundle", "approve_bundle"]

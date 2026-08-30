@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import random
 from typing import Any, Literal, Optional
 from urllib.parse import urlparse
@@ -7,6 +8,8 @@ from urllib.parse import urlparse
 from pydantic import BaseModel
 
 from poster.schemas import PosterArtDirection, PosterBrief, PosterDesignSpec
+
+logger = logging.getLogger(__name__)
 
 
 # Which on-poster elements the LLM may choose to show (validated against this set).
@@ -508,7 +511,15 @@ Brand color palette: {palette}.""".strip()
             f"anywhere in the image. {_calm_zone_instruction(zone)} Keep a clean corner for a logo."
         )
 
-    return f"{concept}\n\n{text_block}\n\nVertical 4:5 poster, centered composition, advertising-campaign style."
+    # CS-02: this static fallback (used when there's no caller / the LLM failed / returned empty)
+    # never carried the ad-safety gate either, so a clinic falling back here shipped ungated. Add
+    # it in the same \n\n-separated style. Empty (compliance_for -> "") for non-regulated categories.
+    from poster.contracts import compliance_for
+    _c = compliance_for(brief.category)
+    tail = "Vertical 4:5 poster, centered composition, advertising-campaign style."
+    if _c:
+        tail = f"{_c}\n\n{tail}"
+    return f"{concept}\n\n{text_block}\n\n{tail}"
 
 
 class _CreativeConceptResponse(BaseModel):
@@ -577,28 +588,17 @@ def _brandbook_style_lines(brand_book: Any) -> str:
     return "\n".join(parts)
 
 
-# ccTLD -> country, so we depict the brand's ACTUAL nationality (owner: "this hijab is
-# Gulf/Arab, not Egyptian"). Generic "Arab" is not specific enough — a .eg brand is Egyptian.
-_CCTLD_COUNTRY = {
-    "eg": "Egypt", "sa": "Saudi Arabia", "ae": "the UAE", "ma": "Morocco",
-    "jo": "Jordan", "kw": "Kuwait", "qa": "Qatar", "lb": "Lebanon", "dz": "Algeria",
-    "tn": "Tunisia", "iq": "Iraq", "om": "Oman", "bh": "Bahrain", "ly": "Libya",
-    "sy": "Syria", "ye": "Yemen", "sd": "Sudan", "ps": "Palestine",
-}
-
-
 def _country(profile: dict[str, Any] | None) -> str:
-    """The brand's country from its source URL ccTLD (most reliable signal)."""
-    url = str((profile or {}).get("source_url") or "")
-    host = ""
+    """The brand's country. CS-13/P-08 (2026-07-18): this used to carry its OWN 18-entry MENA ccTLD
+    table (a subset of poster.locale's 60) and read the ccTLD ONLY — a .com brand lost its region
+    anchor. Route through the SINGLE, richer resolver (ccTLD -> service_areas -> phone e164 -> "")
+    that the oneshot poster engine already trusts, so both engines depict the same nationality and
+    there is one country map to maintain, not two that drift."""
     try:
-        host = urlparse(url if "://" in url else "https://" + url).netloc.lower()
-    except Exception:
-        host = ""
-    for tld, country in _CCTLD_COUNTRY.items():
-        if host.endswith("." + tld):
-            return country
-    return ""
+        from poster.locale import country_of
+        return country_of(profile or {})
+    except Exception:  # noqa: BLE001 — never break generation over a locale lookup
+        return ""
 
 
 def _region_line(brief: PosterBrief, profile: dict[str, Any] | None) -> str:
@@ -703,7 +703,25 @@ def _brand_dna_lines(brand_dna: Any) -> str:
         block += "\nDO: " + "; ".join(do)
     if dont:
         block += "\nDO NOT: " + "; ".join(dont)
-    return block
+
+    # THE DNA HAS TWO AUDIENCES AND THIS ONE IS THE SCENE. Learned from the brand's real
+    # creatives — which include its PACKS — the block arrives full of packaging-design
+    # instructions, and this function used to paste all of it into a prompt whose next paragraph
+    # says "DO NOT DRAW THE PRODUCT" and "NO logos anywhere". MEASURED on one real assembled
+    # prompt: 39 rule clauses, one every 26 words, with logo/product/text each simultaneously
+    # demanded and forbidden. The model resolved that the only way it can — it drew a pack.
+    # `brand.dna_scope` keeps what a photograph can obey and drops what only a pack designer can.
+    try:
+        from brand.dna_scope import dropped_clauses, scene_safe
+        trimmed = scene_safe(block)
+        dropped = dropped_clauses(block)
+        if dropped:
+            # Never a silent filter: a brand whose DNA is ALL packaging should be visible as such.
+            logger.info("[dna] %s packaging/layout clause(s) withheld from the scene prompt "
+                        "(e.g. %s)", len(dropped), (dropped[0] or "")[:70])
+        return trimmed
+    except Exception:  # noqa: BLE001 — a filter failure must not cost the brand its whole DNA
+        return block
 
 
 def build_llm_concept_prompt(
@@ -864,6 +882,14 @@ def build_llm_concept_prompt(
             + f"{_calm_zone_instruction(zone)} No text, letters, numbers, logos, "
             "or signage anywhere. Vertical 4:5 advertising poster."
         )
+    # CS-02: the ad-safety COMPLIANCE was computed at :788 and injected into the concept LLM's
+    # `user` block (:792) — then this function rebuilt `lead` from scratch and dropped it, so the
+    # prompt that actually reaches the IMAGE MODEL carried no gate (a clinic could ship before/after
+    # imagery). Append it here, AFTER both `lead` branches, so it survives into both returns exactly
+    # once. Empty for non-regulated categories (compliance_for -> "") == no change.
+    if _compliance:
+        lead = f"{lead} {_compliance}"
+
     # NO free-metaphor secondary cue. The LLM's surreal scene was the main WANDER source
     # — it leaked off-brand objects (a clay sculpture on NTI) and pulled toward a generic
     # "bohemian/editorial" look. The grounded lead (real people + the brand's real modern
@@ -889,6 +915,21 @@ class _DesignSpecResponse(BaseModel):
         "top_anchor", "center_editorial", "magazine_hero",
     ]
     headline_treatment: Literal["stacked_hero", "block", "highlight"]
+    # HOW THE CALL TO ACTION IS DRAWN — and it was the one composition decision the director was
+    # never allowed to make.
+    #
+    # MEASURED 2026-08-06: this field did not exist, so every LLM-designed poster fell through to
+    # `PosterDesignSpec.cta_style`'s default — `"pill"`. `poster/template.py` offers four real
+    # treatments and its own comment explains why the fourth matters: "A premium poster often HAS
+    # no button, and a system that can only draw buttons cannot make one." The system could only
+    # draw buttons. The other three were reachable only from the no-LLM fallback, which the full
+    # pipeline never takes. (Owner: «الزرار ده مش منطقي ينزل نفس الشكل مرة».)
+    #
+    # OPTIONAL, deliberately. Making it required means a model that skips the field fails
+    # VALIDATION — the whole design call dies and the pipeline drops to its no-LLM fallback,
+    # which is a far worse outcome than a missing button style. `None` lets the answer through
+    # and the per-run seed decides, which is exactly the degrade this was built for.
+    cta_style: Optional[Literal["pill", "block", "outline", "text_arrow"]] = None
     accent_word: Literal["last", "first", "none"]
     text_align: Literal["left", "center", "right"]
     scrim_strength: float
@@ -953,7 +994,7 @@ def build_design_spec(
     # Imported here (not at module top) to avoid any import-order coupling; template
     # imports only schemas, so there is no cycle.
     from poster.template import (
-        default_design_spec, _is_rtl, _LOGO_CORNER_BY_LAYOUT, _ZONE_BY_LAYOUT,
+        default_design_spec, _is_rtl, _CTA_STYLES, _LOGO_CORNER_BY_LAYOUT, _ZONE_BY_LAYOUT,
     )
     from poster.variation import design_variation_cue, variation_seed_int
 
@@ -978,6 +1019,14 @@ def build_design_spec(
         "- headline_treatment: stacked_hero (a short punchy headline as a bold word-stack), "
         "block (a clean single line), or highlight (one key word sits in a brand-colored "
         "block — punchy/editorial)\n"
+        "- cta_style: HOW the call to action is drawn — pick from the brand's REGISTER, not by "
+        "habit. pill (a solid rounded button — loud, retail, direct-response); block (a "
+        "sharp-cornered slab — editorial, modern, reads as designed rather than clicked); "
+        "outline (the brand colour as a hairline border on transparent — quiet, premium); "
+        "text_arrow (NO button at all: the words with a rule under them and an arrow — what a "
+        "luxury or institutional poster actually does). A government institute, a heritage house "
+        "or a clinic rarely wears a loud button; a retail offer usually does. Do not default to "
+        "pill.\n"
         "- accent_word: which headline word takes the brand color (last/first/none)\n"
         "- text_align: left/center/right (Arabic/RTL reads right)\n"
         "- scrim_strength: 0..1 darkness behind the text for legibility (lower when the "
@@ -1058,7 +1107,15 @@ def build_design_spec(
     logo_xy = _valid_coords(getattr(resp, "logo_xy", None), 2)
     zone = _zone_from_box(text_box) if text_box else _ZONE_BY_LAYOUT.get(layout, "bottom")
 
+    # The director's own choice, with the per-run seed as the fallback so an older model that
+    # omits the field still VARIES instead of collapsing back to a pill on every poster.
+    _cta = str(getattr(resp, "cta_style", "") or "").strip()
+    if _cta not in _CTA_STYLES:
+        _seeded = default_design_spec(brief, density="full",
+                                      variation_seed=variation_seed_int(variation))
+        _cta = _seeded.cta_style
     return PosterDesignSpec(
+        cta_style=_cta,
         layout=layout,
         logo_corner=_LOGO_CORNER_BY_LAYOUT.get(layout, "top_left"),
         headline_treatment=resp.headline_treatment,

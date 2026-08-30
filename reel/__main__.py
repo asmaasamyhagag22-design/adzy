@@ -12,6 +12,13 @@ optional music with ffmpeg.
 from __future__ import annotations
 
 import argparse
+# MODULE-LEVEL, and the reason is a live bug it was hiding. `os.environ.get(...)` is read on the
+# SHIP DECISION in two places — the platform-envelope override — while `os` was only ever imported
+# locally as `_os` inside two other functions. So the moment a reel actually failed the envelope,
+# the line deciding whether the owner's override applies raised NameError instead of reading it:
+# REEL_ALLOW_BELOW_GRADE has never worked, and the failure path crashed rather than stopping
+# cleanly. Same class as the missing `logger` in reel/endcard.py, found the same way.
+import os
 import sys
 from pathlib import Path
 
@@ -33,18 +40,260 @@ def _load_env() -> None:
         pass
 
 
+def _finalize(reel_path) -> dict:
+    """THE ONE PASS THAT DECIDES THE DELIVERED CONTAINER (directive §2). Everything upstream
+    encodes however it likes; this rewrites the file to 1080x1920 / yuv420p / bt709-tv with
+    normalised audio and MEASURES what it wrote. A failed envelope is a REJECT, never a
+    warning — the platform's transcoder destroys grading and loudness work silently."""
+    try:
+        from reel.encode_profile import finalize_delivery
+        v = finalize_delivery(reel_path)
+    except Exception:  # noqa: BLE001 — a finalise that cannot run must not lose the render
+        return {"value": None, "reason": "finalise unavailable", "issues": []}
+    if v.get("value") is True:
+        o = v.get("observed") or {}
+        print(f"     + delivery container {o.get('width')}x{o.get('height')} · "
+              f"{o.get('audio_hz')} Hz · bt709", file=sys.stderr)
+    elif v.get("value") is False:
+        print(f"     ! container: {v.get('reason')}", file=sys.stderr)
+    else:
+        print(f"     ! container NOT finalised ({v.get('reason')})", file=sys.stderr)
+    return v
+
+
+def _final_screening(reel_path) -> "int | None":
+    """The last viewer before the owner: screen the ASSEMBLED film (letterboxing, silence,
+    endcard state). Returns 3 to stop the ship on a failed screening, None to proceed.
+    REEL_SCREENING=0 skips (the hermetic suite sets it); REEL_ALLOW_BELOW_GRADE=1 reports the
+    issues but ships anyway. A reel that COULD NOT be screened ships with a loud note — the
+    gate blocks on measured defects, never on its own blindness."""
+    import os as _os
+    if _os.environ.get("REEL_SCREENING") == "0":
+        return None
+    try:
+        from reel.final_screening import screen_reel
+        v = screen_reel(reel_path, log=lambda m: print(f"     {m}", file=sys.stderr))
+    except Exception:  # noqa: BLE001 — the viewer failing is not the film failing
+        return None
+    if not v.checked:
+        print("     ! screening could not run — the reel ships UNSCREENED", file=sys.stderr)
+        return None
+    if v.passed:
+        print("     + final screening: clean", file=sys.stderr)
+        return None
+    if _os.environ.get("REEL_ALLOW_BELOW_GRADE") == "1":
+        print("     ! shipping BELOW GRADE by explicit override", file=sys.stderr)
+        return None
+    print(f"[X] final screening FAILED ({len(v.issues)} issue(s) above) — not shipping. "
+          "Set REEL_ALLOW_BELOW_GRADE=1 to override.", file=sys.stderr)
+    return 3
+
+
+def _qa_caller():
+    """A multimodal caller for the last viewer, or None. Built HERE rather than threaded through
+    the render so the critic costs nothing on a run that never reaches the ship decision."""
+    try:
+        from business_profile.llm import default_caller
+        return default_caller(strong=True)
+    except Exception:  # noqa: BLE001 — no caller simply means nobody watched
+        return None
+
+
+def _watch(profile: dict, reel_path, creative=None, *, caller=None):
+    """The critic's verdict on one film — the raw judgement, before any ship decision."""
+    try:
+        from reel.audience import audience_language_for
+        from reel.film_critic import critique_film
+        lang, country, _why = audience_language_for(profile)
+        name = (profile or {}).get("name")
+        scenes = list(getattr(creative, "scenes", None) or [])
+        return critique_film(
+            reel_path, caller=caller,
+            brand=str((name.get("value") if isinstance(name, dict) else name) or ""),
+            audience_language=lang, country=country,
+            voiceover=" ".join(getattr(s, "voiceover", "") or "" for s in scenes).strip(),
+            captions=[getattr(s, "on_screen_text", "") or "" for s in scenes],
+            scenes=scenes)
+    except Exception:  # noqa: BLE001 — the critic failing is not the film failing
+        return None
+
+
+def _revise_once(profile, brief, photos, args, result, creative, verdict, *, caller):
+    """ONE revision pass: apply the critic's notes, render again, keep the better film.
+
+    THE HALF THAT MAKES A CRITIC WORTH HAVING (owner: «لما آخده لـGoogle Flow… طلع تحفة فنية»).
+    The model is the same one; what a person adds is watching, forming a note, changing the thing
+    the note is about, and looking again. A gate that only refuses burns a whole render to report
+    something a sentence could have changed.
+
+    ONE pass, deliberately. A loop that re-renders until a model is satisfied spends $1.60 a clip
+    until something else stops it. Returns (result, verdict) — the ORIGINAL pair unless the second
+    film is measurably better on the same axes.
+    """
+    from reel.revision import better_of, revise_plan
+    revised = revise_plan(creative, verdict)
+    if revised is None:
+        return result, verdict, False
+    for note in (verdict.fixes or []):
+        print(f"     -> revising on: {note}", file=sys.stderr)
+    try:
+        # Imported HERE: the module-level name lives inside main()'s scope, and relying on that
+        # would make this function work only when called from there.
+        from reel.creative import render_creative_reel
+        from reel.video_provider import default_video_provider
+        out2 = Path(str(result.reel_path)).with_name(
+            Path(str(result.reel_path)).stem + "_rev.mp4")
+        r2, c2 = render_creative_reel(
+            profile, brief, photos, provider=default_video_provider(), out_path=out2,
+            n_scenes=len(getattr(revised, "scenes", None) or []) or 5, scale=args.scale,
+            language=args.language, include_logo=not args.no_logo, music_path=args.music,
+            with_voiceover=not args.no_voiceover, featured_product=args.product_name,
+            plan_override=revised.model_dump(), photo_subjects=None,
+            max_seconds=args.max_seconds,
+            hero_product_url=str(getattr(args, "product", None) or ""))
+    except Exception as exc:  # noqa: BLE001 — a failed revision keeps the film we already have
+        print(f"     ! the revision could not render ({type(exc).__name__}); keeping the first cut",
+              file=sys.stderr)
+        return result, verdict, False
+    if r2 is None:
+        return result, verdict, False
+    _append_brand_endcard(profile, r2.reel_path, enabled=not args.no_logo)
+    _finalize(r2.reel_path)
+    v2 = _watch(profile, r2.reel_path, c2, caller=caller)
+    if better_of(verdict, v2) == "second":
+        print(f"     + the revision is better (score {getattr(v2, 'score', '?')} vs "
+              f"{verdict.score}) — shipping it", file=sys.stderr)
+        return r2, v2, True
+    print(f"     ! the revision did not improve it (score {getattr(v2, 'score', '?')} vs "
+          f"{verdict.score}) — keeping the first cut", file=sys.stderr)
+    return result, verdict, False
+
+
+def _film_critique(profile: dict, reel_path, creative=None, *, caller=None,
+                   verdict=None) -> "int | None":
+    """THE LAST VIEWER IS A CREATIVE DIRECTOR, not a file checker.
+
+    `_final_screening` above asks whether the FILE is broken — letterboxing, silence, a missing
+    endcard — and it is deliberately code-only. It has never asked whether the AD is any good,
+    which is how a reel shipped with an English voiceover for an Egyptian pharmacy, a problem
+    dramatised as visible flakes, a browser that was not theirs, and a resolution nobody's product
+    caused. Five defects the owner found in five seconds, past four gates that each judged a part.
+
+    Blocks on the four HARD axes only, and never on its own blindness: no caller, unreadable
+    frames, or a failed call all ship with a note rather than stopping the delivery."""
+    if os.environ.get("REEL_FILM_CRITIC") == "0":
+        return None
+    # The caller has usually just watched this film to decide whether to revise it. Watching it
+    # again would be a second paid viewing of the same frames for the same answer.
+    v = verdict if verdict is not None else _watch(profile, reel_path, creative, caller=caller)
+    if v is None:
+        return None
+    from reel.film_critic import failed_axes
+    if not v.checked:
+        print(f"     ! the film was NOT watched ({v.reason})", file=sys.stderr)
+        return None
+    _write_reel_sidecar(reel_path, {"film_critique": v.model_dump()})
+    if v.passed:
+        print(f"     + film critique: an ad worth running (score {v.score})", file=sys.stderr)
+        return None
+    for axis in failed_axes(v):
+        print(f"     ! {axis}", file=sys.stderr)
+    for fix in v.fixes:
+        print(f"       -> {fix}", file=sys.stderr)
+    if os.environ.get("REEL_ALLOW_BELOW_GRADE") == "1":
+        print("     ! shipping a film the critic rejected, by explicit override", file=sys.stderr)
+        return None
+    print(f"[X] the film is not an ad worth running (score {v.score}): {v.reason} — not shipping. "
+          "Set REEL_ALLOW_BELOW_GRADE=1 to override.", file=sys.stderr)
+    return 3
+
+
+def _write_reel_sidecar(reel_path, fields: dict) -> None:
+    """MERGE `fields` into the reel's ONE sidecar, `<reel>.path.json`.
+
+    There used to be two: the template branch wrote `<reel>.mp4.path.json` while the endcard
+    stamp and the final screening read `<reel>.path.json`, so neither file ever held the whole
+    truth about a run. Never raises — a sidecar must not kill a finished reel."""
+    from pathlib import Path as _P
+    side = _P(str(reel_path)).with_suffix(".path.json")
+    try:
+        import json as _json
+        data = {}
+        if side.is_file():
+            try:
+                data = _json.loads(side.read_text(encoding="utf-8")) or {}
+            except Exception:  # noqa: BLE001
+                data = {}
+        data.update(fields)
+        side.write_text(_json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _append_brand_endcard(profile: dict, reel_path, *, enabled: bool) -> None:
     """Append the branded END-CARD (real logo on the brand colour) to a finished reel — the owner:
-    "the reel must END with the logo and the brand colour". Best-effort: the helper existed but was
-    NEVER wired into either reel path, so every reel shipped without it (the "no logo" complaint)."""
+    "the reel must END with the logo and the brand colour".
+
+    THREE STATES, stamped into the reel's sidecar (v2 lesson: the card silently failed on a dims
+    mismatch and the owner found out from the SCREEN — «الاند مش في الفيديو»): "appended",
+    "failed", or "disabled". A failure also prints, so the shipping log never reads clean over a
+    card-less reel."""
+    def _stamp(state: str) -> None:
+        _write_reel_sidecar(reel_path, {"endcard": state})
+
     if not enabled:
+        _stamp("disabled")
         return
+    ok = False
     try:
         from reel.endcard import append_endcard_to_reel
-        if append_endcard_to_reel(profile, reel_path):
-            print("     + branded end-card (logo on the brand colour)", file=sys.stderr)
+        ok = bool(append_endcard_to_reel(profile, reel_path))
     except Exception:  # noqa: BLE001 — the end-card is a nicety, never fail the reel over it
-        pass
+        ok = False
+    _stamp("appended" if ok else "failed")
+    if ok:
+        print("     + branded end-card (logo on the brand colour)", file=sys.stderr)
+    else:
+        print("     ! ENDCARD FAILED — the reel has no closing brand card", file=sys.stderr)
+
+
+# Veo's shortest clip. It SNAPS to 4/6/8 seconds, so a 2-second scene is billed — and rendered —
+# as four. Nothing downstream can recover the difference.
+_VEO_MIN_CLIP_S = 4.0
+
+# Imported rather than repeated: the insert's length is decided in the module that renders it, and
+# a second copy of the number here would drift the moment either side is tuned.
+from reel.insert_shot import INSERT_S as _INSERT_S  # noqa: E402
+
+
+def _scenes_for(max_seconds: float, requested: int, *, has_insert: bool = False) -> int:
+    """How many scenes a reel of this length can actually afford to ANIMATE.
+
+    THE OWNER'S COMPLAINT, and it was arithmetic all along: «انا مش عايزه الفيديو غير Veo لقطات
+    واحدة بس بتتحرك، انا عايزه الفيديو كله بيتحرك». MEASURED across two live runs — the director
+    was asked for 10 scenes for a 20-second reel, so each scene is 2 seconds, but Veo's minimum
+    clip is 4. The run therefore paid for 40 SECONDS of video to deliver 20, the per-run budget
+    ran out at scene 4, and every scene after that fell back to a Ken Burns still. Half the film
+    was a slideshow because the scene count was set by a flag that had never heard of the runtime.
+
+    Deriving it costs nothing and makes the whole reel move: 20s / 4s = 5 clips, which the same
+    $8 budget covers completely. Fewer, longer scenes also break the metronomic pacing the craft
+    checks flag. An explicit --frames still wins when it is SMALLER — a caller may want a short
+    cut — it just cannot ask for more motion than the runtime can pay for.
+
+    `has_insert` says the LAST beat is a rendered product insert (`reel/insert_shot.py`), which
+    buys back a whole scene: it costs no Veo seconds and is not bound by the 4-second minimum, so
+    a 15-second film is 3 generated shots plus it, rather than 3 shots and nothing to cut to.
+    """
+    # THE END CARD IS NOT THE SCENES' TO SPEND. `max_seconds` is the DELIVERED length and the
+    # branded close takes its share of it, so counting scenes against the whole number hands the
+    # generated shots time the card is already using. See `reel/runtime.py:picture_budget_s`.
+    from reel.runtime import picture_budget_s
+    budget_s = picture_budget_s(float(max_seconds or 20.0))
+    if has_insert:
+        budget_s = max(_VEO_MIN_CLIP_S, budget_s - _INSERT_S)
+    affordable = max(3, int(budget_s // _VEO_MIN_CLIP_S)) + (1 if has_insert else 0)
+    return min(max(3, int(requested)), affordable)
 
 
 def main() -> int:
@@ -71,13 +320,26 @@ def main() -> int:
                          "number of real photos the scrape found")
     ap.add_argument("--music", default=None, help="optional audio track to mux (mp3/m4a/wav)")
     ap.add_argument("--scale", type=float, default=1.0, help="resolution scale (0.5 = fast preview)")
-    ap.add_argument("--max-seconds", type=float, default=28.0, help="cap total reel length")
+    # 15 SECONDS IS THE FORMAT (owner, 2026-08-01: «الريل الطبيعي 15 ثانية»). It was 28, which is
+    # not a length any platform sells and not a length anyone watches — it is 7 scenes' worth of
+    # Veo minimum, so the film sprawled and the budget paid for the sprawl.
+    ap.add_argument("--max-seconds", type=float, default=15.0, help="cap total reel length")
     ap.add_argument("--no-logo", action="store_true", help="skip the logo overlay")
+    # OFF by default (brief rule 3): a 35mm border on a 9:16 ad eats the vertical space the
+    # product, the platform's safe zones and the kinetic captions all need.
+    ap.add_argument("--film-frame", action="store_true",
+                    help="overlay a 35mm film border (off by default — it costs canvas)")
     ap.add_argument("--static-scene", action="store_true",
                     help="skip the LLM art-director; use deterministic per-category scenes")
     ap.add_argument("--no-select", action="store_true",
                     help="skip the vision photo-curator (use ALL scraped content images; "
                          "may include partner logos / QR codes / icons)")
+    ap.add_argument("--template", action="store_true",
+                    help="use the OLD deterministic field-presence storyboard instead of the "
+                         "creative director (kept for debugging; the director is the default).")
+    ap.add_argument("--allow-template-fallback", action="store_true",
+                    help="if the creative director fails, degrade to the template storyboard "
+                         "instead of exiting — the degraded reel is stamped in its audit.")
     ap.add_argument("--creative", action="store_true",
                     help="CREATIVE mode: Opus directs the reel (per-scene Veo 3.1 "
                          "prompts + voice-over) from the identity + real photos. Veo 3.1 "
@@ -97,6 +359,9 @@ def main() -> int:
                     help="a content_plan.json (from `python -m strategy`) to drive this reel.")
     ap.add_argument("--item", type=int, default=0,
                     help="with --from-plan: which calendar item index to render (default 0).")
+    ap.add_argument("--product", default=None,
+                    help="URL of ONE product page — the film is about THAT item (the insert cuts "
+                         "to its packshot, matched in the catalogue or fetched if absent)")
     ap.add_argument("--product-image", default=None,
                     help="FEATURE one product: use this real product image as the reel's footage "
                          "(the user picked it from the scraped catalogue) instead of the whole set.")
@@ -108,6 +373,13 @@ def main() -> int:
     if not profile_path.is_file():
         print(f"!! profile not found: {profile_path}", file=sys.stderr)
         return 2
+
+    # CS-92: a reel render spends the MOST (paid Veo video + vision selection + TTS). Refuse under a
+    # no-spend context (pytest / BASEERA_NO_SPEND) so a reel can never render by accident — this is
+    # also the owner's standing rule ("رندر الريل بإيدها"): only a real human CLI run may spend.
+    from spend_tripwire import refuse_if_no_spend
+    refuse_if_no_spend("renders a reel via paid Veo video + vision/TTS calls",
+                       alternative="use the hermetic reel tests (MockCaller + fake TTS)")
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
 
     # LLM art-director: the scene is derived from the brand persona. Falls back to
@@ -197,15 +469,30 @@ def main() -> int:
 
     out = Path(args.out) if args.out else Path("outputs/reels") / f"{profile_path.stem}.mp4"
 
-    # CREATIVE MODE: Opus directs + Veo 3.1 executes + TTS narrates. Falls through to
-    # the deterministic storyboard below if Opus can't design a reel (no key / no photos).
-    if args.creative:
+    # THE CREATIVE DIRECTOR IS THE DEFAULT (owner ruling 2026-07-25: «عايزة البرفكت ريل زي ما
+    # الوكالات الكبيرة بتعمل»). The 2026-07-25 Abu Auf reel shipped story-less because this block
+    # ran only on --creative and the CLI run didn't pass it — the field-presence template rendered
+    # five disconnected scenes while the director sat unused. --creative is now a no-op alias
+    # (the dashboard passes it); --template opts into the old path explicitly.
+    if not args.template:
         from reel.creative import render_creative_reel
         photos = selected if selected is not None else \
             ((profile.get("visual") or {}).get("content_images") or [])
         provider = StubVideoProvider() if args.no_video else default_video_provider()
-        print(f"[creative] Opus directing {args.frames} scenes from {len(photos)} real photos; "
-              f"provider={provider.name}", file=sys.stderr)
+        # PRINT WHAT IS ACTUALLY USED. This line printed the raw --frames flag while the call
+        # below passes `_scenes_for(...)`, so the moment the count started being derived the log
+        # began reporting 10 for a 5-scene reel — a log that lies about the run it is describing,
+        # which is the same class of defect this session has been closing all day.
+        # Whether the film can END ON THE PRODUCT is a fact about this brand's photos, so it is
+        # resolved here — before the scene count, which it changes — and not guessed later.
+        from reel.insert_shot import product_candidates
+        _hero = str(getattr(args, "product", None) or "")
+        _has_insert = bool(product_candidates(profile, hero_url=_hero))
+        _n = _scenes_for(args.max_seconds, args.frames, has_insert=_has_insert)
+        print(f"[creative] Opus directing {_n} scenes from {len(photos)} real photos; "
+              f"provider={provider.name}; last beat="
+              + ("a rendered product insert" if _has_insert
+                 else "generated (no real packshot to cut to)"), file=sys.stderr)
         plan_override = None
         if getattr(args, "plan_file", None):
             try:
@@ -215,16 +502,43 @@ def main() -> int:
                       file=sys.stderr)
             except Exception as exc:
                 print(f"[creative] could not read --plan-file: {type(exc).__name__}", file=sys.stderr)
-        result, creative = render_creative_reel(
-            profile, brief, photos, provider=provider, out_path=out,
-            n_scenes=max(3, args.frames), scale=args.scale,
-            language=args.language,
-            include_logo=not args.no_logo, music_path=args.music,
-            with_voiceover=not args.no_voiceover,
-            featured_product=args.product_name,
-            plan_override=plan_override,
-            photo_subjects=photo_subjects or None,
-        )
+        try:
+            result, creative = render_creative_reel(
+                profile, brief, photos, provider=provider, out_path=out,
+                n_scenes=_n, scale=args.scale,
+                language=args.language,
+                include_logo=not args.no_logo, music_path=args.music,
+                with_voiceover=not args.no_voiceover,
+                featured_product=args.product_name,
+                plan_override=plan_override,
+                photo_subjects=photo_subjects or None,
+                max_seconds=args.max_seconds,
+                hero_product_url=_hero,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # البند 5 (spent-but-failed honesty): a failure mid-render may have ALREADY paid for
+            # seeds/TTS/partial Veo. Sweep the scratch (seeds + audio stems) into _failed/ so the
+            # owner can see what her money bought, and say so — never a silent generic failure.
+            import shutil as _sh
+            import time as _t
+            out_dir = Path(out).parent
+            failed_dir = out_dir / "_failed" / f"{Path(out).stem}_{int(_t.time())}"
+            swept = []
+            for scratch in [out_dir / "_genseeds", Path(str(out) + ".vo.m4a"),
+                            Path(str(out) + ".bed.m4a"),
+                            out_dir / (Path(out).stem + ".vo.m4a"),
+                            out_dir / (Path(out).stem + ".bed.m4a")]:
+                try:
+                    if scratch.exists():
+                        failed_dir.mkdir(parents=True, exist_ok=True)
+                        _sh.move(str(scratch), str(failed_dir / scratch.name))
+                        swept.append(scratch.name)
+                except Exception:  # noqa: BLE001
+                    pass
+            note = f" (تم حفظ نواتج جزئية مدفوعة في {failed_dir})" if swept else ""
+            print(f"[X] reel failed: {exc}{note}", file=sys.stderr)
+            print("    الإنفاق الفعلي مسجَّل في runs/vertex_spend.jsonl", file=sys.stderr)
+            return 3
         if result is not None:
             _append_brand_endcard(profile, result.reel_path, enabled=not args.no_logo)
             # per-asset trail (poster parity): copy audit + scene-QA verdicts + the
@@ -234,13 +548,49 @@ def main() -> int:
                 build_reel_audit(profile, creative, render_result=result), result.reel_path)
             if audit_p:
                 print(f"     audit trail -> {audit_p}")
+            # THE CONTAINER IS DECIDED HERE, once, on the file about to ship.
+            _env = _finalize(result.reel_path)
+            _stop = _final_screening(result.reel_path)
+            # ...and then somebody watches it as an ad. The screening above asks whether the FILE
+            # is broken; this asks whether the film is worth running. Only the creative path gets
+            # it — the template path has no plan to judge the copy against.
+            if _stop is None:
+                _critic = _qa_caller()
+                _v = _watch(profile, result.reel_path, creative, caller=_critic)
+                # WATCH, NOTE, CHANGE, LOOK AGAIN — the loop a person closes by hand. Only when
+                # the first cut actually failed: a film the critic passed has nothing to act on,
+                # and re-rendering it would spend a full render chasing a higher score.
+                if (_v is not None and _v.checked and _v.passed is False
+                        and os.environ.get("REEL_REVISION") != "0"):
+                    result, _v, _revised = _revise_once(
+                        profile, brief, photos, args, result, creative, _v, caller=_critic)
+                    if _revised:
+                        _final_screening(result.reel_path)
+                _stop = _film_critique(profile, result.reel_path, creative,
+                                       caller=_critic, verdict=_v)
+            if _env.get("value") is False and _stop is None:
+                print("[X] the delivery container failed the platform envelope — not shipping. "
+                      "Set REEL_ALLOW_BELOW_GRADE=1 to override.", file=sys.stderr)
+                _stop = None if os.environ.get("REEL_ALLOW_BELOW_GRADE") == "1" else 3
+            if _stop is not None:
+                return _stop
             print(f"\n[ok] CREATIVE reel -> {Path(result.reel_path).resolve()}")
             print(f"     concept: {creative.concept[:90]}")
             print(f"     {result.width}x{result.height}  {result.duration_s}s  "
                   f"audio={result.has_audio}  provider={result.provider}")
             return 0
-        print("   [creative] Opus could not design a reel; falling back to storyboard.",
+        if not args.allow_template_fallback:
+            # A weak reel that LOOKS directed is worse than a failed run — the owner reads the
+            # output, not the logs, and the silent fall to the template is exactly how the
+            # story-less Abu Auf reel shipped. Fail loudly; the flag restores the old degrade.
+            print("!! the creative director could not design this reel — stopping rather than "
+                  "shipping a template reel. Re-run with --allow-template-fallback to accept "
+                  "the degraded path explicitly.", file=sys.stderr)
+            return 1
+        print("   [creative] director failed; degrading to the TEMPLATE storyboard "
+              "(--allow-template-fallback) — the audit is stamped path=template_fallback.",
               file=sys.stderr)
+        _audit_path_stamp = "template_fallback"
 
     storyboard = build_storyboard(
         brief, profile=profile, caller=caller,
@@ -297,6 +647,20 @@ def main() -> int:
 
     _append_brand_endcard(profile, result.reel_path, enabled=not args.no_logo)
 
+    # A template reel must never masquerade as a directed one: the sidecar records which path
+    # actually produced this file, so a degraded run is visible in the artifact itself.
+    _path_kind = (locals().get("_audit_path_stamp")
+                  or ("template_explicit" if args.template else "template"))
+    _write_reel_sidecar(result.reel_path, {"path": _path_kind})
+
+    _env = _finalize(result.reel_path)
+    _stop = _final_screening(result.reel_path)
+    if _env.get("value") is False and _stop is None:
+        print("[X] the delivery container failed the platform envelope — not shipping. "
+              "Set REEL_ALLOW_BELOW_GRADE=1 to override.", file=sys.stderr)
+        _stop = None if os.environ.get("REEL_ALLOW_BELOW_GRADE") == "1" else 3
+    if _stop is not None:
+        return _stop
     print(f"\n[ok] reel -> {Path(result.reel_path).resolve()}")
     print(f"     {result.width}x{result.height}  {result.duration_s}s  "
           f"audio={result.has_audio}  provider={result.provider}")

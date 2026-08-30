@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from poster.schemas import PosterBrief
 from reel.creative import build_creative_storyboard
 from reel.creative_director import CreativeReel, CreativeScene
@@ -32,7 +34,10 @@ def test_seed_prompt_carries_conditioning_and_bans():
                           n_refs=1)
     assert "REAL PLACE" in p and "unmistakably lives THERE" in p
     assert "Do NOT paste" in p                       # fresh frame, not a photo copy
-    assert "no text, letters, numbers, logos" in p   # the poster-grade no-text contract
+    # THE BAN IS STILL THERE — it just describes the frame instead of listing negations
+    # (2026-08-06). Google's guidance is "describe what you wish to exclude" affirmatively, and
+    # the measured NTI run rejected 21 seeds in a row on text, every one of them from THIS prompt.
+    assert "blank and unprinted" in p and "out of focus" in p
     assert "Set in Egypt." in p and "modern tech campus" in p
     assert "9:16" in p and "a student coding in the lab" in p
     assert "REAL PLACE" not in build_seed_prompt("x", n_refs=0)   # honest without refs
@@ -87,8 +92,15 @@ def test_seedless_scenes_drop_and_dead_tail_fits(monkeypatch, tmp_path):
     sb = captured["sb"]
     assert len(sb.scenes) == 3                                # the seedless scene DROPPED
     assert all(s.seed_image_url and s.seed_image_url.endswith(".png") for s in sb.scenes)
-    # dead-tail fit: 3 scenes x 4 words -> speech ~ 6.75s -> video ~ 8.75s, not 3x6=18s
-    assert sb.total_duration_s <= 9.5
+    # THE FILM IS THE FORMAT, and a short script no longer shortens it.
+    #
+    # This used to assert `<= 9.5` — the dead-tail fit shrank the picture to `speech + 2s`, which
+    # is how a fifteen-second format shipped at 9.40s and 11.00s (MEASURED). The film now lands on
+    # the runtime that was asked for; a script that does not fill it is a WRITING problem and is
+    # REPORTED (`runtime.narration_fit`), not absorbed by cutting the ad short. The beats without
+    # narration are scored, not silent — the bed covers the whole film including the card.
+    from reel.runtime import picture_budget_s
+    assert sb.total_duration_s == pytest.approx(picture_budget_s(15.0), abs=1e-2)
     assert all(s.duration_s >= 2.0 for s in sb.scenes)        # per-scene floor holds
     assert len(captured["vo"]) == 3                           # VO lines follow the drop
 
@@ -121,7 +133,7 @@ def test_generate_scene_seeds_gate_retry_and_fallback(monkeypatch, tmp_path):
                      SeedVerdict(overall_pass=False, checked=True,      # plain 3rd: fail
                                  reason="still warped")])
     monkeypatch.setattr("reel.scene_qa.check_seed_frame",
-                        lambda p, caller=None, brand_hint="", log=None: next(verdicts))
+                        lambda p, caller=None, brand_hint="", log=None, **kw: next(verdicts))
 
     out = generate_scene_seeds(_plan(), ["https://x/real0.jpg", "https://x/real1.jpg"],
                                profile={"name": {"value": "NTI"}}, out_dir=tmp_path,
@@ -152,7 +164,7 @@ def test_an_UNJUDGED_seed_never_animates(monkeypatch, tmp_path):
     monkeypatch.setattr(sg, "_ref_bytes", lambda url: (b"refbytes", "image/jpeg"))
     # the gate could not run — the exact shape scene_qa returns on no-caller / unreadable / timeout
     monkeypatch.setattr("reel.scene_qa.check_seed_frame",
-                        lambda p, caller=None, brand_hint="", log=None:
+                        lambda p, caller=None, brand_hint="", log=None, **kw:
                         SeedVerdict(checked=False, reason="seed gate call failed (TimeoutError)"))
 
     out = generate_scene_seeds(_plan(), ["https://x/real0.jpg", "https://x/real1.jpg"],
@@ -188,7 +200,7 @@ def test_the_seed_lane_is_chosen_EXPLICITLY_not_inherited(monkeypatch, tmp_path)
     monkeypatch.setattr("poster.oneshot.generate_oneshot_poster", _fake_gen)
     monkeypatch.setattr(sg, "_ref_bytes", lambda url: None)
     monkeypatch.setattr("reel.scene_qa.check_seed_frame",
-                        lambda p, caller=None, brand_hint="", log=None:
+                        lambda p, caller=None, brand_hint="", log=None, **kw:
                         SeedVerdict(overall_pass=True, checked=True))
 
     generate_scene_seeds(_plan(), ["https://x/real0.jpg", "https://x/real1.jpg"],
@@ -215,7 +227,7 @@ def test_the_POSTERS_env_cannot_move_the_seed_lane(monkeypatch, tmp_path):
     monkeypatch.setattr("poster.oneshot.generate_oneshot_poster", _fake_gen)
     monkeypatch.setattr(sg, "_ref_bytes", lambda url: None)
     monkeypatch.setattr("reel.scene_qa.check_seed_frame",
-                        lambda p, caller=None, brand_hint="", log=None:
+                        lambda p, caller=None, brand_hint="", log=None, **kw:
                         SeedVerdict(overall_pass=True, checked=True))
 
     generate_scene_seeds(_plan(), ["https://x/real0.jpg"], profile={"name": {"value": "NTI"}},
@@ -244,5 +256,6 @@ def test_the_pro_seed_lane_is_justified_by_measurement_not_inheritance():
     import reel.seed_gen as sg
     assert sg._SEED_IMAGE_MODEL == "gemini-3-pro-image-preview"
     assert vs.est_image_cost_usd(1, sg._SEED_IMAGE_MODEL) == 0.12   # the premium, eyes open
-    # and the ban the hypothesis was built on really is in the prompt (it was never the issue)
-    assert "no text, letters, numbers, logos" in sg.build_seed_prompt("x", n_refs=0)
+    # and the ban the hypothesis was built on really is in the prompt (it was never the issue).
+    # Rephrased affirmatively 2026-08-06 — same rule, the form the vendor says lands.
+    assert "blank and unprinted" in sg.build_seed_prompt("x", n_refs=0)

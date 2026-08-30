@@ -76,10 +76,18 @@ def main() -> None:
               f"{r['max_ms']:>7.0f} {r['prod_links']:>6} {r['prod_crawled']:>9}   {r['top_types']}")
     if ecom:
         avg_pg = sum(r["avg_ms"] for r in ecom) / len(ecom)
+        # CS-52: use the REAL live e-commerce budget from scraper.config, not a stale hardcoded 150s
+        # (the old value). At 560s the budget fits ~50 pages, so the page CAP and the time budget
+        # bind together — the honest conclusion is that BOTH matter, not "speed is the only lever".
+        try:
+            from scraper.config import ECOMMERCE_BUDGET_SECONDS as BUDGET_S
+        except Exception:  # noqa: BLE001
+            BUDGET_S = 560
+        fits = BUDGET_S / (avg_pg / 1000) if avg_pg else 0
         print("-" * 110)
         print(f"AGGREGATE: avg per-page render = {avg_pg:.0f} ms (~{avg_pg/1000:.1f}s)  "
-              f"-> the 150s budget fits only ~{150/(avg_pg/1000):.0f} pages "
-              f"(render SPEED is the lever for adaptive depth, NOT the page cap).")
+              f"-> the {BUDGET_S}s budget fits ~{fits:.0f} pages "
+              f"(render SPEED and the page CAP bind together — both are levers for adaptive depth).")
         print(f"  product pages crawled across {len(ecom)} stores: {sum(r['prod_crawled'] for r in ecom)} "
               f"(of {sum(r['prod_links'] for r in ecom)} product links discovered).")
 

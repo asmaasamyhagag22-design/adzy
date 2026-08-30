@@ -72,12 +72,20 @@ _STRENGTH_ORDER = {"validated": 0, "directional_not_validated": 1, "internally_s
 
 
 def swot_item_ids(swot: SWOT) -> Dict[str, SWOTItem]:
-    """Stable ids for the SWOT's items: S1..Sn / W1..Wn / O1..On / T1..Tn (list order)."""
+    """Ids for the SWOT's items: S1..Sn / W1..Wn / O1..On / T1..Tn.
+
+    The id now travels ON the item. It used to be derived from LIST POSITION, which made every
+    TOWS strategy and priority action an index into a list nobody was allowed to reorder — and
+    ordering the quadrants by priority is exactly what the analysis needs to do. A positional id
+    would have re-pointed each strategy at a different factor with no error anywhere.
+
+    Items produced before ids existed (or by a path not yet taught to assign one) still fall back
+    to position, so a stored SWOT from an earlier run keeps working."""
     ids: Dict[str, SWOTItem] = {}
     for prefix, items in (("S", swot.strengths), ("W", swot.weaknesses),
                           ("O", swot.opportunities), ("T", swot.threats)):
         for i, item in enumerate(items, 1):
-            ids[f"{prefix}{i}"] = item
+            ids[getattr(item, "id", "") or f"{prefix}{i}"] = item
     return ids
 
 
@@ -111,9 +119,17 @@ _MAX_PER_TYPE = {"SO": 3, "ST": 2, "WO": 2, "WT": 2}
 
 
 def _quadrant(swot: SWOT, prefix: str) -> List[Tuple[str, SWOTItem]]:
+    """(id, item) pairs — reading the id OFF the item, exactly as `swot_item_ids` does.
+
+    `swot_item_ids` was taught to prefer the stored id; this function, which is what actually
+    supplies the anchors for every strategy and every priority action, was left deriving them from
+    `enumerate`. So the two disagreed the moment a quadrant was reordered by priority — and
+    ordering by priority is the entire point of the prioritisation pass. The visible symptom: step
+    1 of the plan cited the anchor that had been in position 1 BEFORE sorting, which after sorting
+    was a different factor. Same fallback as `swot_item_ids` for items stored before ids existed."""
     items = {"S": swot.strengths, "W": swot.weaknesses,
              "O": swot.opportunities, "T": swot.threats}[prefix]
-    return [(f"{prefix}{i}", it) for i, it in enumerate(items, 1)]
+    return [(getattr(it, "id", "") or f"{prefix}{i}", it) for i, it in enumerate(items, 1)]
 
 
 def _rules_strategies(swot: SWOT, ids: Dict[str, SWOTItem]) -> List[TowsStrategy]:
@@ -268,7 +284,16 @@ def build_tows(swot: SWOT, *, caller: Any = None, profile: Any = None) -> TowsRe
     if profile is not None:
         try:
             from grounding import EvidenceLedger
-            ledger = EvidenceLedger.from_profile(profile)
+            # P-24: wire the subject judge (from the caller build_tows already receives) so a
+            # disjoint-subject superlative is rejected, not leniently accepted. caller=None ->
+            # make_subject_judge(None) -> None -> the ledger's documented lenient mode (unchanged).
+            _judge = None
+            try:
+                from grounding.subject_judge import make_subject_judge
+                _judge = make_subject_judge(caller)
+            except Exception:  # noqa: BLE001
+                _judge = None
+            ledger = EvidenceLedger.from_profile(profile, subject_judge=_judge)
         except Exception:  # noqa: BLE001
             ledger = None
 

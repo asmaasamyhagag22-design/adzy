@@ -27,6 +27,12 @@ _PRODUCT_TYPES = {"product", "productmodel", "individualproduct", "productgroup"
 class ProductInfo(BaseModel):
     name: str = ""
     image: str = ""
+    # EVERY candidate image the page shows, best-first. MEASURED (Al Fouad × La Roche,
+    # 2026-07-26): `image` is the og:image, and for this product that is a composed marketing
+    # BANNER — gradient ground, its own heart prop — which cannot be keyed into a cut-out, so
+    # the poster shipped with no product at all. The gallery holds clean pack shots; nothing
+    # ever looked at them.
+    images: list[str] = []
     url: str = ""
     description: str = ""
     price: str = ""
@@ -160,6 +166,27 @@ def parse_product(html: str, url: str) -> Optional[ProductInfo]:
                 getattr(meta, "meta_description", "") or getattr(meta, "description", "")
                 or getattr(meta, "og_description", "") or "").strip()
 
+    # The gallery: every <img> that looks like a product asset, og:image first.
+    try:
+        from bs4 import BeautifulSoup
+        from urllib.parse import urljoin
+        soup = BeautifulSoup(html, "html.parser")
+        seen, gallery = set(), []
+        for src in ([info.image] if info.image else []) + [
+                (t.get("src") or t.get("data-src") or "") for t in soup.find_all("img")]:
+            u = str(src or "").strip()
+            if not u or u.startswith("data:"):
+                continue
+            u = urljoin(url, u)
+            base = u.split("?", 1)[0].lower()
+            if base in seen or not base.endswith((".png", ".jpg", ".jpeg", ".webp")):
+                continue
+            seen.add(base)
+            gallery.append(u)
+        info.images = gallery[:8]
+    except Exception:  # noqa: BLE001 — the gallery is an enrichment
+        info.images = [info.image] if info.image else []
+
     if not info.name:                                 # last resort: the first <h1>
         try:
             from bs4 import BeautifulSoup
@@ -174,28 +201,45 @@ def parse_product(html: str, url: str) -> Optional[ProductInfo]:
     return info if info.usable else None
 
 
+def _fetch_with_browser(url: str, http2: bool):
+    """One Playwright fetch of `url` at the chosen transport. Raises on launch/fetch trouble —
+    the caller decides whether that is a retry or a give-up."""
+    from playwright.sync_api import sync_playwright
+
+    from scraper.browser_launch import launch_chromium
+    from scraper.fetcher import fetch_page, make_browser_context
+    with sync_playwright() as pw:
+        browser = launch_chromium(pw, http2=http2)
+        try:
+            return fetch_page(make_browser_context(browser), url, keep_page=False)
+        finally:
+            browser.close()
+
+
 def scrape_product_page(url: str) -> Optional[ProductInfo]:
     """Fetch ONE product page (Playwright, so JS-rendered stores work) and parse it. Used when the
-    user gives a direct product link for an item the crawl didn't reach. None on any failure."""
+    user gives a direct product link for an item the crawl didn't reach. None on any failure.
+
+    HTTP/2 STAYS ON unless the transport itself fails — the same law the crawler follows, now
+    from the shared helper. MEASURED on the owner's own link (2026-07-26): the old global
+    `--disable-http2` returned 169 bytes where HTTP/2 returned 974,865, and the client was told
+    «مقدرناش نفتح صفحة المنتج دي» about a page the site serves happily."""
+    from scraper.browser_launch import looks_like_http2_failure
     from scraper.url_utils import ensure_scheme
     u = ensure_scheme((url or "").strip())
     if not u.lower().startswith(("http://", "https://")):
         return None
-    try:
-        from playwright.sync_api import sync_playwright
-
-        from scraper.fetcher import fetch_page, make_browser_context
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True, args=["--disable-http2"])
-            try:
-                context = make_browser_context(browser)
-                res = fetch_page(context, u, keep_page=False)
-            finally:
-                browser.close()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("scrape_product_page: fetch failed: %s", exc)
-        return None
-    html = getattr(res, "html", "") or ""
-    if not html.strip():
-        return None
-    return parse_product(html, getattr(res, "final_url", u) or u)
+    res = None
+    for http2 in (True, False):
+        try:
+            res = _fetch_with_browser(u, http2)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("scrape_product_page: fetch failed (http2=%s): %s", http2, exc)
+            res = None
+        html = (getattr(res, "html", "") or "").strip() if res is not None else ""
+        if html:
+            return parse_product(html, getattr(res, "final_url", u) or u)
+        if not (res is not None and looks_like_http2_failure(res)):
+            break            # a real failure, not the transport — HTTP/1.1 would not help
+        logger.warning("scrape_product_page: HTTP/2 protocol error — retrying over HTTP/1.1")
+    return None

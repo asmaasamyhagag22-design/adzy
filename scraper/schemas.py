@@ -134,6 +134,10 @@ class LinkRecord(BaseModel):
     category: LinkCategory
     # For social links, the platform name (facebook, instagram, ...)
     platform: Optional[str] = None
+    # CS-56: a SYNTHESISED URL (inferred from a next_data slug template), NOT a real discovered
+    # anchor. The contract is "recorded but NOT fetched" — it stays in the link INVENTORY but the
+    # crawl frontier must SKIP it (the URL may not exist; the template can be brand-specific).
+    inferred: bool = False
 
 
 # ---------------------------------------------------------------------
@@ -468,6 +472,16 @@ class ScrapeManifest(BaseModel):
     robots: RobotsRecord
     readiness: ReadinessReport
     languages: list[LanguageEntry] = Field(default_factory=list)
+    # What the SITE declares about itself via <link rel="alternate" hreflang>. Distinct
+    # from `languages`, which is what the crawl happened to READ: alfouadpharmacies.com
+    # declares ar+en on all 41 pages, the crawler opened only /en/, and the analysis then
+    # told the client their site was single-language.
+    declared_languages: list[str] = Field(default_factory=list)
+    # Reviews printed on the brand's OWN site, with the name recovered from the portrait's
+    # alt text. Text extraction drops alt, so an attributed review reached the LLM stage
+    # looking anonymous and its "attribution required" rule correctly refused it — nine real
+    # customer reviews sat unread in a page we had already downloaded.
+    testimonials: list[dict] = Field(default_factory=list)
     pages: list[PageRecord] = Field(default_factory=list)
     site_metadata: SiteMetadata = Field(default_factory=SiteMetadata)
     visual: VisualIdentity = Field(default_factory=VisualIdentity)
@@ -479,6 +493,7 @@ class ScrapeManifest(BaseModel):
     # PR-1: optional diagnostics counts. Older manifests load with this as None.
     scrape_diagnostics: Optional[ScrapeDiagnostics] = None
     # Tier-3 Deep Search fallback (secondary evidence). None on a normal scrape;
-    # populated only when the direct scrape was blocked/empty. Supplementary —
-    # it does NOT make the scrape 'ready_for_extraction'.
+    # populated only when the direct scrape was blocked/empty. A deep_search recovery IS an
+    # independent readiness path (readiness.compute_readiness) — business_profile then builds a
+    # SECONDARY, SERP-grounded profile from it (rules/from_deep_search), cited to the source URLs.
     deep_search: Optional[DeepSearchResult] = None

@@ -127,3 +127,69 @@ def test_BOTH_entrypoints_route_their_peer_set_through_the_registry():
     for mod in (api_swot, cli):
         src = inspect.getsource(mod)
         assert "stable_competitors" in src, f"{mod.__name__} bypasses the competitor registry"
+
+
+def test_client_facing_swot_outputs_use_the_approved_set_not_raw_pool():
+    """P-79: the OLD guard above only greps for `stable_competitors` — it passed while review
+    THEMES, the client competitor LIST, and the COUNT still came from the raw `result.competitors`
+    pool, so the set shown to the client drifted every run even though the matrix was stable. This
+    pins the actual wiring: the client-facing outputs must reference the APPROVED variable, and the
+    raw-pool anti-patterns must be gone.
+
+    CS-91: the greps below are the WIRING pin (cheap tripwire); the BEHAVIOR itself is executed
+    by test_stable_competitors_behavior_survives_pool_drift — production code, not source text."""
+    import inspect
+
+    import api.routes.swot as api_swot
+    import competitor.full_run as cli
+    api_src = inspect.getsource(api_swot)
+    cli_src = inspect.getsource(cli)
+
+    # API route: themes, client list, and count all use `peers` (the approved set).
+    assert "extractor(peers)" in api_src
+    assert "for c in peers:" in api_src
+    assert "competitor_count=len(peers)" in api_src
+    assert "extractor(result.competitors)" not in api_src, "themes reverted to the raw pool"
+
+    # CLI: themes + output list + count use `matrix_competitors` (the approved set).
+    assert "ReviewThemeExtractor()(matrix_competitors)" in cli_src
+    assert "for c in matrix_competitors" in cli_src
+    assert '"competitor_count": len(matrix_competitors)' in cli_src
+    assert "ReviewThemeExtractor()(result.competitors)" not in cli_src, "themes reverted to raw pool"
+    assert "for c in result.competitors]" not in cli_src, "output list reverted to the raw pool"
+
+
+def test_stable_competitors_behavior_survives_pool_drift(tmp_path):
+    """CS-91 (behavioral, executes production code): run 1 establishes the baseline from the
+    live pool; run 2 arrives with a DRIFTED pool — the client-facing set must be the APPROVED
+    baseline's members, not the new strangers. This is the invariant the source-greps above
+    could only gesture at."""
+    from competitor.registry import stable_competitors
+
+    def _peer(name, website):
+        return {"candidate": {"name": name, "website": website},
+                "selection": {"name": name, "website": website}}
+
+    run1 = [_peer("Alpha Clinic", "https://alpha.example/"),
+            _peer("Beta Clinic", "https://beta.example/")]
+    got1, diff1 = stable_competitors("brand_x", run1, store_dir=str(tmp_path), now="t1")
+    assert [p["candidate"]["name"] for p in got1] == ["Alpha Clinic", "Beta Clinic"]
+
+    run2 = [_peer("Alpha Clinic", "https://alpha.example/"),
+            _peer("Stranger Co", "https://stranger.example/")]   # drift: Beta gone, Stranger in
+    got2, diff2 = stable_competitors("brand_x", run2, store_dir=str(tmp_path), now="t2")
+
+    # A re-hydrated peer comes back as a real CompetitorProfile (built from the registry entry),
+    # while one the live pool supplied is whatever the pool passed in — here a dict. Read both.
+    def _name(p):
+        return p["candidate"]["name"] if isinstance(p, dict) else p.candidate.name
+
+    names2 = [_name(p) for p in got2]
+    assert "Stranger Co" not in names2            # a newcomer NEVER auto-joins the client set
+    assert "Alpha Clinic" in names2               # the approved member persists
+    # AND BETA COMES BACK (2026-08-01). This is the invariant the docstring above always claimed —
+    # "the client-facing set must be the APPROVED baseline's members" — and which the code did not
+    # keep: `approved_competitors` is a FILTER over the live pool, so an approved peer the pool
+    # stopped returning was silently dropped. Measured on AlFouad: three approved peers, discovery
+    # returned zero (the Google project was billing-blocked), SWOT peers=0, weaknesses=0.
+    assert "Beta Clinic" in names2, "an approved peer vanished because the live pool forgot it"

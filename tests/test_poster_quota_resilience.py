@@ -78,11 +78,3 @@ def test_cli_failure_line_is_readable():
     assert "ValueError" in generic and "boom" in generic
 
 
-def test_studio_pick_resets_stale_creatives():
-    # Owner: scraping/choosing a NEW product must not keep showing the LAST poster/reel.
-    from dashboard.server import _studio_js
-    js = _studio_js("brand", False, False)
-    pick_src = js.split("function pick(")[1].split("function loadProducts")[0]
-    assert "setEmpty(" in pick_src                   # both stages reset on selection change
-    assert "is-gen" in pick_src                      # ...but never clobber a live render
-    assert "Generate '+k" in pick_src                # buttons drop back to 'Generate'

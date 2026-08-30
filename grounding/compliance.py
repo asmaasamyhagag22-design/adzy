@@ -57,7 +57,18 @@ def build_compliance_sheet(audit: Any) -> Optional[dict]:
         return None
     final = audit.get("final_copy")
     if not isinstance(final, dict):
-        return None
+        # CS-121: the CALENDAR audit (strategy/audit.py) ships items[].shipped_copy.fields —
+        # same per-field claim rows, different envelope. Aggregate them into one sheet so the
+        # calendar finally gets the (claim -> source) trail the poster always had.
+        fields = []
+        for it in (audit.get("items") or []):
+            sc = it.get("shipped_copy") if isinstance(it, dict) else None
+            if isinstance(sc, dict):
+                fields.extend(f for f in (sc.get("fields") or []) if isinstance(f, dict))
+        if fields:
+            final = {"fields": fields}
+        else:
+            return None
 
     rows: list[dict] = []
     verified = unverified = clean_fields = 0

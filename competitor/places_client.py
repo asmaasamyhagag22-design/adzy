@@ -9,10 +9,11 @@ Endpoints (verified against the current Places API New, field masks required):
 Field-mask rules: for search the paths are prefixed with `places.`; for Place
 Details they are NOT prefixed. Reviews are capped at 5 per place by Google.
 
-The API key is read from the environment (GOOGLE_MAPS_API_KEY by default). The
-key is never logged and never placed in a URL query string for the Places calls
-(it goes in the X-Goog-Api-Key header). You must supply your own key with the
-Places API (New) and Geocoding API enabled and billing configured.
+The API key is read from the environment (GOOGLE_MAPS_API_KEY by default). We never
+log it and never put it in a URL query string (it goes in the X-Goog-Api-Key header)
+— but GOOGLE ECHOES IT BACK in some error bodies, so every error message this module
+raises is passed through `_redact_secrets` first. You must supply your own key with
+the Places API (New) and Geocoding API enabled and billing configured.
 
 Requires: requests  (pip install requests)
 """
@@ -20,6 +21,7 @@ Requires: requests  (pip install requests)
 from __future__ import annotations
 
 import os
+import re
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -30,6 +32,27 @@ from .models import Candidate, Review
 
 _PLACES_BASE = "https://places.googleapis.com/v1"
 _GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+
+# WE never log the key — but GOOGLE ECHOES IT BACK. A suspended-key 403 body reads
+#     "Permission denied: Consumer 'api_key:AIza…' has been suspended."
+# and that body went straight into the PlacesError message, so the module docstring's
+# promise ("the key is never logged") was true about our code and false about our errors.
+# Any caller that logged the exception wrote a live credential to disk. Redact where the
+# message is BUILT, so every consumer inherits the guarantee instead of re-implementing it.
+_SECRET_RE = re.compile(
+    r"(AIza[0-9A-Za-z_\-]{10,})"           # Google API keys
+    r"|(?<=api_key[:=])\s*[^\s'\"&]+"      # anything Google labels as the key
+    r"|(?<=[?&]key=)[^\s&'\"]+",           # a key that reached a query string
+)
+
+
+def _redact_secrets(text: str) -> str:
+    """Replace anything that looks like an API key with a marker.
+
+    Redaction is deliberately over-broad: a false positive costs one unreadable token in a
+    log line, a false negative costs a leaked credential.
+    """
+    return _SECRET_RE.sub("[REDACTED]", text or "")
 
 # Fields requested from search calls (Basic + a little Atmosphere). Keep this lean
 # to control billing — every extra SKU-tier field costs more.
@@ -72,7 +95,12 @@ def _load_dotenv() -> None:
 class PlacesClient:
     def __init__(self, api_key: Optional[str] = None, *,
                  timeout: int = 15, max_retries: int = 3,
-                 language_code: str = "ar", region_code: str = "EG"):
+                 language_code: str = "", region_code: str = ""):
+        # P-81 (D-8): defaults are NEUTRAL now, not "ar"/"EG". The old defaults meant every
+        # competitor search for a Saudi/Qatari/US brand was run in the EGYPTIAN market in Arabic
+        # (both live entrypoints used PlacesClient() with no args). The caller passes the brand's
+        # OWN evidenced market (poster.locale.search_locale); when unknown, empty -> omitted from
+        # the request -> Google's own default, never a guessed (wrong) market.
         if not api_key:
             _load_dotenv()
         self.api_key = api_key or os.environ.get("GOOGLE_MAPS_API_KEY") \
@@ -93,6 +121,16 @@ class PlacesClient:
         self.last_geocode_error: Optional[str] = None
         self._session = requests.Session()
 
+    def _locale_body(self) -> dict:
+        """languageCode/regionCode for a request body, OMITTED when empty (P-81) — an empty market
+        is 'no bias', never a wrong one, byte-identical to a pre-D-8 request that guessed nothing."""
+        out: dict = {}
+        if self.language_code:
+            out["languageCode"] = self.language_code
+        if self.region_code:
+            out["regionCode"] = self.region_code
+        return out
+
     # -- low-level POST with simple backoff on 429/5xx --
     def _post(self, url: str, body: dict, field_mask: str) -> dict:
         headers = {
@@ -107,8 +145,10 @@ class PlacesClient:
             if resp.status_code in (429, 500, 502, 503, 504) and attempt < self.max_retries - 1:
                 time.sleep(1.5 * (attempt + 1))
                 continue
-            raise PlacesError(f"{resp.status_code} from {url}: {resp.text[:300]}")
-        raise PlacesError(f"exhausted retries for {url}")
+            raise PlacesError(
+                f"{resp.status_code} from {_redact_secrets(url)}: "
+                f"{_redact_secrets(resp.text)[:300]}")
+        raise PlacesError(f"exhausted retries for {_redact_secrets(url)}")
 
     def _get(self, url: str, params: dict, field_mask: Optional[str]) -> dict:
         headers = {"X-Goog-Api-Key": self.api_key}
@@ -121,8 +161,10 @@ class PlacesClient:
             if resp.status_code in (429, 500, 502, 503, 504) and attempt < self.max_retries - 1:
                 time.sleep(1.5 * (attempt + 1))
                 continue
-            raise PlacesError(f"{resp.status_code} from {url}: {resp.text[:300]}")
-        raise PlacesError(f"exhausted retries for {url}")
+            raise PlacesError(
+                f"{resp.status_code} from {_redact_secrets(url)}: "
+                f"{_redact_secrets(resp.text)[:300]}")
+        raise PlacesError(f"exhausted retries for {_redact_secrets(url)}")
 
     # ----------------------------------------------------------------- geocode
     def geocode_via_places(self, query: str) -> Optional[Tuple[float, float]]:
@@ -132,11 +174,7 @@ class PlacesClient:
         enabled, not the separate Geocoding API. We just need an approximate
         center point for the nearby search, so the first match is good enough.
         """
-        body = {
-            "textQuery": query,
-            "languageCode": self.language_code,
-            "regionCode": self.region_code,
-        }
+        body = {"textQuery": query, **self._locale_body()}
         data = self._post(f"{_PLACES_BASE}/places:searchText", body,
                           "places.location,places.formattedAddress,places.displayName")
         places = data.get("places") or []
@@ -151,7 +189,9 @@ class PlacesClient:
         """Address string -> (lat, lng) via the (separate) Geocoding API. Returns
         None on failure and stores the reason in self.last_geocode_error so the
         caller can tell 'API not enabled' apart from 'no results'."""
-        params = {"address": address, "key": self.api_key, "region": self.region_code}
+        params = {"address": address, "key": self.api_key}
+        if self.region_code:                                   # P-81: omit when no evidenced market
+            params["region"] = self.region_code
         data = self._get(_GEOCODE_URL, params, field_mask=None)
         status = data.get("status")
         if status == "OK" and data.get("results"):
@@ -188,8 +228,7 @@ class PlacesClient:
             "includedTypes": included_types,
             "maxResultCount": min(max_results, 20),  # Nearby Search caps at 20
             "rankPreference": rank,                  # "POPULARITY" or "DISTANCE"
-            "languageCode": self.language_code,
-            "regionCode": self.region_code,
+            **self._locale_body(),                   # P-81: brand's market, omitted when unknown
             "locationRestriction": {
                 "circle": {"center": {"latitude": lat, "longitude": lng}, "radius": radius_m}
             },
@@ -202,11 +241,7 @@ class PlacesClient:
                     radius_m: float = 5000, max_results: int = 20) -> List[Candidate]:
         """For online-only businesses (no useful location) or category text search.
         Supports nextPageToken pagination up to `max_results`."""
-        body: Dict = {
-            "textQuery": text_query,
-            "languageCode": self.language_code,
-            "regionCode": self.region_code,
-        }
+        body: Dict = {"textQuery": text_query, **self._locale_body()}
         if included_type:
             body["includedType"] = included_type
         if lat is not None and lng is not None:
@@ -231,8 +266,8 @@ class PlacesClient:
     def get_reviews(self, place_id: str) -> List[Review]:
         """Up to 5 reviews for a place (Google's hard cap)."""
         url = f"{_PLACES_BASE}/places/{place_id}"
-        data = self._get(url, params={"languageCode": self.language_code},
-                         field_mask=_REVIEWS_FIELD_MASK)
+        params = {"languageCode": self.language_code} if self.language_code else {}  # P-81
+        data = self._get(url, params=params, field_mask=_REVIEWS_FIELD_MASK)
         reviews: List[Review] = []
         for r in (data.get("reviews") or []):
             text = (r.get("text") or {}).get("text") \

@@ -62,10 +62,27 @@ def test_hitl_approved_plan_is_never_replaced_by_the_eval(monkeypatch, tmp_path)
         provider=None, out_path=tmp_path / "r.mp4",
         plan_override=plan.model_dump(), with_voiceover=False)
     assert result == {"ok": True}
-    # the APPROVED prompts render verbatim — nothing was swapped
-    assert [s.visual_prompt for s in captured["sb"].scenes] == \
-        ["APPROVED SHOT ONE", "APPROVED SHOT TWO"]
+    # THE APPROVED CREATIVE IS UNTOUCHED AND LEADS. Nothing was swapped, nothing reordered,
+    # nothing rewritten — which is the betrayal this test was written to catch.
+    prompts = [s.visual_prompt for s in captured["sb"].scenes]
+    assert [p.split("\n")[0] for p in prompts] == ["APPROVED SHOT ONE", "APPROVED SHOT TWO"]
     assert creative.scenes[0].voiceover == "بتجمع شهادات ومش لاقي فرصة؟"
+
+    # UPDATED 2026-08-01. This used to assert byte-equality, and byte-equality made the LOOK LOCK
+    # impossible to carry — an approved plan rendered with no shared lighting/grade sentence, so
+    # every shot of an owner-approved film was lit differently and no post pass could repair it
+    # (`brand/look.py`: the shadows are already in the pixels).
+    #
+    # "Verbatim" protects CREATIVE choices: what happens in the shot, how it moves, what is said.
+    # It has never meant "no technical constraint may be appended" — `compositor.py` already adds
+    # its no-readable-text ban to every prompt, approved or not, for the same reason. The look is
+    # that species. So the law is now stated as: the approved text leads and survives intact, and
+    # the ONLY thing that may follow it is the look clause.
+    from reel.creative import _LOOK_MARK
+    for original, rendered in zip(["APPROVED SHOT ONE", "APPROVED SHOT TWO"], prompts):
+        extra = rendered[len(original):]
+        assert not extra or extra.lstrip().startswith(_LOOK_MARK), \
+            f"an approved prompt gained something that is not the look lock: {extra[:80]!r}"
 
 
 def test_non_approved_render_routes_through_the_coherence_gate(monkeypatch, tmp_path):
@@ -278,7 +295,17 @@ def test_director_carries_scenario_screen_guard_and_tts_rules():
 
 def test_featured_offering_without_photo_uses_varied_photos():
     anchored = _system_prompt(6, "ar", "generic", featured="X", product_photo_anchored=True)
-    assert "ALWAYS 0" in anchored               # real product photo -> same-item shots
+    # OVERTURNED 2026-08-02 (Axis 1) AND MEASURED 2026-08-08. This used to assert that the
+    # anchored brief asks for the SAME product in every scene, from photo index ALWAYS 0.
+    # That brief asked a video model for four angles of a labelled pack — three live runs
+    # returned «SAV TAERMALE» for «EAU THERMALE» and «IODERMA» for BIODERMA at $2.40 each,
+    # and on the owner's Vichy link the director marked hero_product on ALL FOUR scenes, so
+    # every one composited to an insert and the "reel" was four motionless push-ins with
+    # ZERO generated footage. The contract now: the product is NEVER filmed, the film is
+    # about the person, and the real photograph is composited into one beat.
+    assert "WITHOUT EVER FILMING IT" in anchored
+    assert "ALWAYS 0" not in anchored, (
+        "the brief pins every scene to the packshot again — the four-inserts, no-footage reel")
     unanchored = _system_prompt(6, "ar", "generic", featured="Fiber Course",
                                 product_photo_anchored=False)
     assert "ALWAYS 0" not in unanchored         # photo-less course: never one photo x6

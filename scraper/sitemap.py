@@ -213,6 +213,12 @@ def _fetch_sitemap_bytes(url: str) -> Optional[bytes]:
     transparently. Never raises.
     """
     try:
+        # SSRF guard (P-60): a sitemap URL can be attacker-influenced (robots.txt Sitemap: line
+        # or a guessed path on a redirected host). Never urlopen a non-public target.
+        from .url_utils import is_safe_public_url
+        if not is_safe_public_url(url):
+            logger.debug("sitemap fetch blocked (non-public URL): %s", url)
+            return None
         req = Request(
             url,
             headers={

@@ -92,8 +92,8 @@ def test_top_trends_puts_on_topic_first_then_ranks():
 def test_require_match_filters_unrelated_trends():
     now = 1_000_000.0
     src = _FakeSource("hn", [
-        TrendItem("Cooking tips", "u", "hn", score=100, created_ts=now - 3600),
-        TrendItem("Jewelry trends 2026", "u", "hn", score=5, created_ts=now - 3600),
+        TrendItem("Cooking tips", "u1", "hn", score=100, created_ts=now - 3600),
+        TrendItem("Jewelry trends 2026", "u2", "hn", score=5, created_ts=now - 3600),
     ])
     items = top_trends(["jewelry"], sources=[src], now=now, require_match=True)
     assert [it.title for it in items] == ["Jewelry trends 2026"]
@@ -136,8 +136,91 @@ def test_tech_feeds_only_for_tech_brands():
 def test_serper_trend_source_builds_a_vertical_query_and_is_offline_safe(monkeypatch):
     from trends.sources import SerperTrendSource
     src = SerperTrendSource(["ecommerce", "rings", "earrings", "necklaces"])
-    assert src._query() == "rings earrings necklaces trends 2026"   # drops the generic 'ecommerce'
+    q = src._query()
+    assert q.startswith("rings earrings necklaces")       # drops the generic 'ecommerce'
+    # UPDATED 2026-08-02. This asserted the seed was "trends", which made the whole thing a
+    # SHOPPING query — MEASURED, 6/6 of Abu Auf's returned URLs were retailer category pages and
+    # the SWOT shipped them as opportunities, Carrefour (a channel that stocks Abu Auf) among them.
+    # The seed now asks a market question and the shopping surface is excluded at the query.
+    assert "market trends report" in q
+    assert "2026" in q
+    assert "-buy" in q and "-shop" in q
     # No provider configured / any failure -> [] (never raises).
     import competitor.search_providers as sp
     monkeypatch.setattr(sp, "get_default_search_provider", lambda: None)
     assert src.fetch(10) == []
+
+
+class _CapturingProvider:
+    """Records exactly what reaches the SERP provider. The seam these tests assert at."""
+    name = "capture"
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def search(self, query, *, num=10, gl=None, hl=None):
+        self.calls.append({"query": query, "num": num, "gl": gl, "hl": hl})
+        return []
+
+
+def test_serper_trend_source_sends_the_brands_country_to_the_serp(monkeypatch):
+    """D-8: a Qatari brand's "market signals" must come from QATAR's SERP.
+
+    THE BUG THIS PINS (found 2026-07-15 while shipping a real Doha deliverable):
+    `SerperTrendSource.fetch` called `prov.search(q, num=...)` with NEITHER `gl` nor `hl`.
+    `SerperProvider.search` only adds them when truthy (search_providers.py:78-81), so the
+    payload was `{q, num}` and Serper served its **US/English default** — which the dashboard
+    then labelled "إشارات السوق الحيّة · Live market signals" for a Doha cafe.
+
+    Same family as the 42 and the "Rising interest" else-branch: the citation TRACES (a real
+    URL, a real article) while the claim — "this is a signal for YOUR market" — does not,
+    because the search asked about a different market. A true link answering a question
+    nobody asked.
+    """
+    import competitor.search_providers as sp
+    from trends.sources import SerperTrendSource
+
+    cap = _CapturingProvider()
+    monkeypatch.setattr(sp, "get_default_search_provider", lambda: cap)
+
+    SerperTrendSource(["coffee", "roastery"], gl="qa", hl="ar").fetch(10)
+
+    assert len(cap.calls) == 1
+    assert cap.calls[0]["gl"] == "qa"      # the country reaches the SERP
+    assert cap.calls[0]["hl"] == "ar"      # so does the language
+
+
+def test_serper_trend_source_omits_gl_and_hl_when_there_is_no_country_evidence(monkeypatch):
+    """The honest default: no evidence of a country -> NO `gl`. Never a guessed one, and
+    never a silent US default dressed up as the brand's market.
+
+    This also keeps the no-country request byte-identical to the pre-D-8 behaviour: both
+    values stay None, so `SerperProvider` adds neither key to the payload.
+    """
+    import competitor.search_providers as sp
+    from trends.sources import SerperTrendSource
+
+    cap = _CapturingProvider()
+    monkeypatch.setattr(sp, "get_default_search_provider", lambda: cap)
+
+    SerperTrendSource(["coffee", "roastery"]).fetch(10)          # no gl/hl supplied at all
+
+    assert len(cap.calls) == 1
+    assert cap.calls[0]["gl"] is None
+    assert cap.calls[0]["hl"] is None
+
+
+def test_serper_trend_source_never_sends_an_empty_string_as_a_country(monkeypatch):
+    """`country_of` returns "" (not None) when the evidence carries no country
+    (poster/locale.py:103). An empty string must degrade to None, never reach the payload as
+    `gl=""` — an empty `gl` is a malformed request, not an honest absence."""
+    import competitor.search_providers as sp
+    from trends.sources import SerperTrendSource
+
+    cap = _CapturingProvider()
+    monkeypatch.setattr(sp, "get_default_search_provider", lambda: cap)
+
+    SerperTrendSource(["coffee"], gl="", hl="").fetch(10)         # the country_of("") shape
+
+    assert cap.calls[0]["gl"] is None
+    assert cap.calls[0]["hl"] is None

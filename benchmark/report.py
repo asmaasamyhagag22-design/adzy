@@ -73,12 +73,21 @@ def aggregate(grade_sets: List[UrlGradeSet], metadata: dict, thresholds: dict) -
     ready_fraction = ready_count / total if total else 0.0
     overall_avg_swot = _mean([r["avg_swot"] for r in per_url]) or 0.0
 
+    # P-32: the average silently ignores SWOT-critical fields that had no ground-truth label
+    # (score=None) — so "0.88" can be a mean over 4 of 7 fields. Carry the coverage so the report
+    # can state the real denominator instead of implying all SWOT-critical fields were scored.
+    swot_scored = sum(1 for gs in grade_sets for g in gs.grades
+                      if g.swot_critical and g.score is not None)
+    swot_total = sum(1 for gs in grade_sets for g in gs.grades if g.swot_critical)
+
     overall = {
         "total": total,
         "ready_count": ready_count,
         "ready_fraction": ready_fraction,
         "avg_swot_critical": overall_avg_swot,
         "avg_all": _mean([r["avg_all"] for r in per_url]),
+        "swot_critical_scored": swot_scored,
+        "swot_critical_total": swot_total,
     }
     by_vertical = _group_stats(per_url, "vertical")
     by_tier = _group_stats(per_url, "tier")
@@ -144,7 +153,10 @@ def write_report_md(grade_sets, aggregations, run_meta, path) -> None:
         f"- URLs graded: **{o['total']}**",
         f"- Ready: **{o['ready_count']}/{o['total']}** "
         f"({o['ready_fraction']:.0%})",
-        f"- Avg SWOT-critical score: **{o['avg_swot_critical']:.2f}**",
+        f"- Avg SWOT-critical score: **{o['avg_swot_critical']:.2f}**"
+        + (f" — averaged over **{o['swot_critical_scored']}/{o['swot_critical_total']}** scored "
+           f"SWOT-critical fields (interpretive fields without ground-truth labels are excluded)"
+           if o.get("swot_critical_total") else ""),
         f"- Threshold check: **{'PASS' if tc['passed'] else 'FAIL'}**",
         "",
     ]

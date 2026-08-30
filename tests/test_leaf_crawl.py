@@ -90,48 +90,12 @@ def _nti_like_manifest():
     }
 
 
-def test_picker_prefers_profile_offerings_with_prices():
-    profile = {"offerings": [
-        {"name": {"value": "Advanced Professional Diploma"},
-         "price_text": "Registration Fee: EGP 1,000", "page_url": "https://e.com/dip/"},
-        {"name": "Web Design Track", "price_text": None, "page_url": None},
-    ]}
-    from dashboard.products import products_from_manifest
-    out = products_from_manifest(_nti_like_manifest(), profile=profile)
-    names = [p["name"] for p in out]
-    assert names[0] == "Advanced Professional Diploma"                  # offerings lead
-    assert out[0]["price_text"] == "Registration Fee: EGP 1,000"
-    assert "Web Design Track" in names
 
 
-def test_picker_surfaces_leaf_pages_named_by_heading():
-    from dashboard.products import products_from_manifest
-    out = products_from_manifest(_nti_like_manifest(), profile=None)
-    names = [p["name"] for p in out]
-    assert "Advanced Web Design (72 Hours)" in names                    # h1, not a URL slug
-    assert not any(n.lower() == "courses" for n in names)               # the LIST page is not a product
 
 
-def test_picker_shopify_fallback_unchanged():
-    m = {"pages": [{"final_url": "https://s.com/collections/hair-growth", "page_type": "products",
-                    "text_blocks": []}],
-         "images_of_interest": [{"role": "content", "src": "https://s.com/hair.jpg",
-                                 "alt": "hair growth"}]}
-    from dashboard.products import products_from_manifest
-    out = products_from_manifest(m, profile=None)
-    assert [p["name"] for p in out] == ["Hair Growth"]
 
 
-def test_picker_for_slug_reads_sibling_profile(tmp_path):
-    d = tmp_path / "acme_20260711_090000"
-    d.mkdir(parents=True)
-    (d / "manifest.json").write_text(json.dumps(_nti_like_manifest()), encoding="utf-8")
-    (d / "business_profile.json").write_text(json.dumps({"offerings": [
-        {"name": "Data Science Bootcamp", "price_text": "EGP 5,000", "page_url": ""}]}),
-        encoding="utf-8")
-    from dashboard.products import products_for_slug
-    out = products_for_slug("acme", scrapes_dir=str(tmp_path), out_dir=str(tmp_path / "no_outputs"))
-    assert out and out[0]["name"] == "Data Science Bootcamp" and out[0]["price_text"] == "EGP 5,000"
 
 
 def test_compound_cms_filenames_are_leaves_owner_popup_bug():

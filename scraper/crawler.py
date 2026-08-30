@@ -38,6 +38,7 @@ from .config import (
     TWO_PHASE_IMAGE_FETCH,
     VIEWPORT_HEIGHT,
     VIEWPORT_WIDTH,
+    scrapes_root,
 )
 from .classify.page_type import classify_homepage, classify_url, is_leaf_detail, is_product_detail  # noqa: F401
 from .errors import ErrorCode
@@ -49,6 +50,10 @@ from .extractors.metadata import extract_metadata, merge_metadata
 from .extractors.text_blocks import extract_text_blocks
 from .extractors.visual import build_visual_identity, extract_from_page
 from .fetcher import fetch_page, make_browser_context
+
+
+from .browser_launch import launch_chromium as _launch_chromium
+from .browser_launch import looks_like_http2_failure as _looks_like_http2_failure
 from .language import detect_languages
 from .readiness import compute_readiness
 from .robots import can_fetch, load_robots
@@ -160,6 +165,8 @@ def _select_subpages_to_fetch(
     tier_rank = {PageTier.HIGH: 0, PageTier.MEDIUM: 1, PageTier.LOW: 2, PageTier.SKIP: 99}
 
     for link in homepage_links:
+        if getattr(link, "inferred", False):
+            continue                        # CS-56: synthesised next_data URL — inventory only, never fetched
         if link.category not in (LinkCategory.INTERNAL, LinkCategory.CTA):
             continue
         if not same_registrable_host(link.href, site_url):
@@ -256,6 +263,8 @@ def _bfs_new_candidates(
     for link in (sub_links or []):
         if len(out) >= max_new:
             break
+        if getattr(link, "inferred", False):
+            continue                        # CS-56: synthesised next_data URL — inventory only, never fetched
         if getattr(link, "category", None) not in (LinkCategory.INTERNAL, LinkCategory.CTA):
             continue
         href = getattr(link, "href", "") or ""
@@ -263,9 +272,10 @@ def _bfs_new_candidates(
             continue
         try:
             norm = normalize_url(href)
-        except Exception:
-            continue
-        if norm in frontier_norms:
+            key = dedup_key(href)          # CS-94: dedup on the SAME scheme/slash-insensitive key
+        except Exception:                  # `_select_subpages_to_fetch` uses (was normalize_url here,
+            continue                       # so http/https + trailing-slash twins slipped back in)
+        if key in frontier_norms:
             continue
         try:
             pt, tier = classify_url(href, getattr(link, "anchor_text", "") or "")
@@ -273,7 +283,7 @@ def _bfs_new_candidates(
             continue
         if tier not in tier_rank:
             continue
-        frontier_norms.add(norm)
+        frontier_norms.add(key)
         out.append((norm, pt, tier, getattr(link, "anchor_text", "") or ""))
     out.sort(key=lambda c: (0 if is_leaf_detail(c[0]) else 1, tier_rank[c[2]]))
     return out
@@ -371,10 +381,11 @@ def _register_fetched_or_skip(final_url: str, fetched_final_norms: set[str]) -> 
     Returns True if this page's FINAL (post-redirect) url normalizes to one we already
     fetched — the caller then skips it WITHOUT counting it as a kept page (it is
     duplicate content that would waste a budget slot and double-count in the evidence
-    pack). Otherwise records it and returns False. Normalizing via `normalize_url`
-    collapses http/https, trailing-slash and redirect variants onto one key. Pure so the
-    crawl-loop guard is hermetically testable (MEASURED: daturial fetched its homepage
-    5x; 12/110 corpus manifests carried duplicate final urls)."""
+    pack). Otherwise records it and returns False. CS-125: `normalize_url` delivers ONE
+    canonical form (host lower-cased, default port + fragment + trailing slash dropped);
+    the REDIRECT collapse comes from keying on the FINAL url, not from the normalizer. It
+    does NOT fold http↔https — that is `dedup_key`'s job (used by the fetch frontier). Pure,
+    so this guard is hermetically testable (MEASURED: daturial fetched its homepage 5x)."""
     key = normalize_url(final_url or "")
     if key in fetched_final_norms:
         return True
@@ -650,7 +661,7 @@ def _process_fetched_page(
 # Top-level scrape entry point
 # ---------------------------------------------------------------------
 
-def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
+def scrape(input_url: str, output_root: str = "", *, light: bool = False,
            thorough: bool = False) -> tuple[ScrapeManifest, Path]:
     """Scrape one business URL and return (manifest, output_dir).
 
@@ -664,6 +675,11 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
     thorough=True: restore the OLD load-every-homepage-image behaviour (disables the two-phase
     below-fold image-byte block). The default is the lighter two-phase footprint (owner ruling).
     """
+    # ONE RESOLVER FOR THE CORPUS ROOT. `""` (the default) means "wherever the config says",
+    # which is `scrapes` unless BASEERA_SCRAPES_DIR moves it off a slow synced drive. Repeating
+    # the literal here is how a caller ends up writing to a different corpus than the one the
+    # CLI reads — see `scraper/config.py:DEFAULT_OUTPUT_ROOT`.
+    output_root = str(output_root or scrapes_root())
     two_phase = TWO_PHASE_IMAGE_FETCH and not thorough
     started = time.monotonic()
     # Validate the USER INPUT once, here at the boundary (ensure_scheme no longer validates,
@@ -733,12 +749,26 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
     all_next_data_phones: list = []
 
     with sync_playwright() as pw:
-        # --disable-http2: some servers/CDNs reset HTTP/2 from headless Chromium,
-        # causing net::ERR_HTTP2_PROTOCOL_ERROR before any page can load (MEASURED
-        # on lcwaikiki.eg, 2026-06-11: 1 page attempted, 0 succeeded, RENDER_ERROR).
-        # Forcing HTTP/1.1 is a universally-safe transport fallback (works
-        # everywhere, marginally slower) — NOT anti-bot evasion.
-        browser = pw.chromium.launch(headless=True, args=["--disable-http2"])
+        # HTTP/2 STAYS ON UNTIL A SITE ACTUALLY BREAKS ON IT.
+        #
+        # `--disable-http2` was added for one measured case — lcwaikiki.eg reset HTTP/2 from
+        # headless Chromium (net::ERR_HTTP2_PROTOCOL_ERROR, 1 page attempted, 0 succeeded) — and
+        # was then applied to every site on the grounds that HTTP/1.1 is "universally safe". It is
+        # not. Forcing HTTP/1.1 changes our connection fingerprint, and MEASURED on
+        # alfouadpharmacies.com (2026-07-25, same URL, seconds apart, the flag the only difference):
+        #
+        #     args = []                   ->  HTTP 200 · 1,328,616 bytes · 5,570 chars rendered
+        #     args = ['--disable-http2']  ->  HTTP 429 ·       169 bytes ·     18 chars rendered
+        #
+        # and that 429 was then reported to the owner as "this site blocks crawlers, retrying will
+        # not help" — about a site that serves us 1.3 MB happily. A workaround for one site had
+        # become a handicap on the rest.
+        #
+        # So: try HTTP/2 first, and fall back to HTTP/1.1 only when the homepage fails with the
+        # protocol error that motivated the flag in the first place. lcwaikiki still works; nobody
+        # else pays for it.
+        browser = _launch_chromium(pw)
+        _http2_disabled = False
         try:
             context = make_browser_context(browser)
             try:
@@ -750,6 +780,32 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
                                          rate_limit_retries=HOMEPAGE_RATE_LIMIT_RETRIES,
                                          two_phase=two_phase)
                 manifest.scrape_meta.pages_attempted += 1
+
+                # THE HTTP/2 FALLBACK, now fired by the error that motivated it rather than by
+                # default. lcwaikiki.eg resets HTTP/2 from headless Chromium and cannot load a
+                # single page; when we see that specific transport error, relaunch on HTTP/1.1 and
+                # try once more. Every other site keeps HTTP/2 — and keeps the 200 that forcing
+                # HTTP/1.1 was costing it.
+                if not home_result.ok and _looks_like_http2_failure(home_result) \
+                        and not _http2_disabled:
+                    manifest.notes.append("http2_protocol_error_retried_over_http1")
+                    if home_result._page is not None:
+                        try:
+                            home_result._page.close()
+                        except Exception:
+                            pass
+                    try:
+                        context.close()
+                        browser.close()
+                    except Exception:
+                        pass
+                    browser = _launch_chromium(pw, http2=False)
+                    _http2_disabled = True
+                    context = make_browser_context(browser)
+                    home_result = fetch_page(context, home_fetch_url, keep_page=True,
+                                             rate_limit_retries=HOMEPAGE_RATE_LIMIT_RETRIES,
+                                             two_phase=two_phase)
+                    manifest.scrape_meta.pages_attempted += 1
                 if deep_root and not home_result.ok and home_fetch_url != normalized:
                     manifest.notes.append(
                         f"root_anchor_unreachable_fell_back_to_seed:{home_result.error_code}")
@@ -906,7 +962,11 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
                 # course (catID=205 -> 2631.html) died on the cap with 140s of budget unused.
                 # The time budget remains the real bound.
                 _AJAX_MAX = 120
-                frontier_norms = {normalize_url(s[0]) for s in subpages}
+                # CS-94: the runtime frontier de-dupes on the SAME scheme/slash-insensitive key as
+                # `_select_subpages_to_fetch` (dedup_key), not normalize_url — otherwise a URL that
+                # collapses under dedup_key but differs under normalize_url (http/https, trailing
+                # slash) re-entered the frontier via the BFS/ajax feeds and was fetched twice.
+                frontier_norms = {dedup_key(s[0]) for s in subpages}
                 # FIX-A: depth per frontier URL (homepage=0, its links=1). Links found on a
                 # depth-d page re-seed the frontier at d+1, up to MAX_CRAWL_DEPTH.
                 depth_by_norm = {normalize_url(s[0]): 1 for s in subpages}
@@ -925,7 +985,14 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
                         from .ajax_details import discover_ajax_details
                         pos = insert_at
                         for du in discover_ajax_details(page_html, page_final_url, fetch=_cached_js):
-                            ndu = normalize_url(du)
+                            # CS-49→CS-79: the Ajax feed must enforce the SAME same-host guard the
+                            # three other frontier feeds do (crawler.py:165,183,262) — otherwise an
+                            # Ajax-discovered off-site URL gets crawled and its content attributed to
+                            # this brand. `_same_origin` inside discover_* is netloc-exact; use the
+                            # registrable-host check the rest of the crawler trusts.
+                            if not same_registrable_host(du, normalized):
+                                continue
+                            ndu = dedup_key(du)          # CS-94: one frontier key everywhere
                             if ndu in frontier_norms:
                                 continue
                             frontier_norms.add(ndu)
@@ -1151,6 +1218,28 @@ def scrape(input_url: str, output_root: str = "scrapes", *, light: bool = False,
         )
     manifest.links = build_inventory(all_links)
     manifest.languages = detect_languages(all_page_texts, html_lang_hints)
+    # The site's OWN answer, union over every page that published an alternate.
+    try:
+        from .extractors.language import declared_languages
+        _declared = set()
+        for _html in (all_html_by_page or {}).values():
+            _declared.update(declared_languages(_html))
+        manifest.declared_languages = sorted(_declared)
+    except Exception:  # noqa: BLE001 — a missing tag must never break a crawl
+        manifest.declared_languages = []
+    try:
+        from .extractors.testimonials import extract_testimonials
+        _seen, _revs = set(), []
+        for _html in (all_html_by_page or {}).values():
+            for _t in extract_testimonials(_html):
+                _k = (_t["author"], _t["quote"][:60])
+                if _k in _seen:
+                    continue
+                _seen.add(_k)
+                _revs.append(_t)
+        manifest.testimonials = _revs
+    except Exception:  # noqa: BLE001 — an unreadable review section must never break a crawl
+        manifest.testimonials = []
 
     if not visual_built:
         # Should not happen since homepage build is required, but guard

@@ -1,0 +1,35 @@
+# Seed terms for promotion detection (multi-language: EN + common EG Arabic transliterations).
+# These are SEEDS for the pattern/embedding matcher, not a closed list.
+# The NLP layer expands this set per-brand using embedding similarity against
+# each caption, so a brand-specific phrase never seen here can still match.
+
+discount:
+  - discount
+  - off
+  - "% off"
+  - khasm
+  - "خصم"
+coupon:
+  - coupon
+  - promo code
+  - "كود خصم"
+sale:
+  - sale
+  - clearance
+  - "تخفيضات"
+free_shipping:
+  - free shipping
+  - "شحن مجاني"
+bundle:
+  - bundle
+  - combo
+  - "عرض"
+limited_time:
+  - limited time
+  - limited offer
+  - today only
+  - "لفترة محدودة"
+bogo:
+  - buy one get one
+  - "bogo"
+  - "اشتري واحد واحصل"

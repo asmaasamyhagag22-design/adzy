@@ -122,8 +122,32 @@ def extract_content_quality(html: str, page_url: str) -> tuple[Optional[str], bo
     return (cleaned, _is_meaningful(cleaned))
 
 
+def _is_spaceless_char(ch: str) -> bool:
+    """A character from a script that does NOT delimit words with spaces (CJK, Japanese kana,
+    Korean, Thai). Such text has ~no whitespace, so word-splitting under-counts it badly."""
+    o = ord(ch)
+    return (
+        0x4E00 <= o <= 0x9FFF        # CJK Unified Ideographs
+        or 0x3400 <= o <= 0x4DBF     # CJK Extension A
+        or 0x3040 <= o <= 0x30FF     # Hiragana + Katakana
+        or 0xAC00 <= o <= 0xD7AF     # Hangul syllables
+        or 0x0E00 <= o <= 0x0E7F     # Thai
+    )
+
+
 def _is_meaningful(text: str) -> bool:
-    """Density gate. See module docstring for the thresholds."""
+    """Density gate. See module docstring for the thresholds.
+
+    P-68 (D-8): the char/word/avg-word-length gates assume whitespace-delimited scripts. A
+    Chinese/Japanese/Thai page has few or no spaces AND packs a word of meaning into each
+    ideograph, so `text.split()` returns ~1 giant "word" and the 120-char English-prose floor
+    over-counts ~5x — real CJK content is rejected. When the text is predominantly a space-less
+    script, gate on CHARACTER count instead (checked BEFORE the English _MIN_CHARS floor)."""
+    spaceless = sum(1 for ch in text if _is_spaceless_char(ch))
+    non_space = sum(1 for ch in text if not ch.isspace())
+    if non_space and spaceless / non_space >= 0.3:
+        # predominantly a space-less script: each ideograph ~ a word.
+        return spaceless >= _MIN_WORDS
     if len(text) < _MIN_CHARS:
         return False
     words = text.split()

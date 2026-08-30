@@ -129,6 +129,23 @@ def _merge_scalar(
     return _scalar_to_evidenced_field(llm_scalar)
 
 
+def _merge_identity_axes(p, *, market, model) -> None:
+    """Write the two split axes (process.md §8.11) onto the profile, in place.
+
+    `market_category` (WHAT is sold) is free text → an EvidencedField. `business_model` (HOW it
+    sells) is the BusinessModel enum. Each is written only when the LLM actually supplied a value,
+    so a missing axis never overwrites what is already there (rules or a prior run). Accepts the
+    validator's ValidatedScalarField OR any object with `.value`, so both production and tests fit.
+    """
+    if market is not None and getattr(market, "value", None):
+        try:
+            p.market_category = _scalar_to_evidenced_field(market)
+        except Exception:  # noqa: BLE001 — a duck-typed test field: keep the raw value
+            p.market_category = EvidencedField(value=str(getattr(market, "value")))
+    if model is not None and getattr(model, "value", None):
+        p.business_model = getattr(model, "value")
+
+
 def _merge_category(
     rules_field: EvidencedField,
     llm_scalar: Optional[ValidatedScalarField],
@@ -193,6 +210,11 @@ def merge_profile(
         p.description = _merge_scalar(p.description, payload.identity.description,
                                        rules_wins_if_present=False)
         p.category = _merge_category(p.category, payload.identity.category)
+        # The two split axes (process.md §8.11). Both are LLM-only for now (rules don't yet derive
+        # them), so a present value is written and an absent one leaves the field as it was.
+        _merge_identity_axes(p,
+                             market=getattr(payload.identity, "market_category", None),
+                             model=getattr(payload.identity, "business_model", None))
         # name: rules ALWAYS wins. We don't even consult the LLM.
 
     # ---- Offerings ----

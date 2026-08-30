@@ -132,11 +132,13 @@ def main(argv: list[str]) -> int:
         bucket["unsourced"] += rep.total_unsourced
         bucket["bad_fields"] += len(rep.unsourced_fields)
 
+    n_loaded = 0
     for path in CORPUS:
         raw = _load(path)
         if raw is None:
             print(f"\n=== {path}: MISSING ===")
             continue
+        n_loaded += 1
         profile = _unwrap(raw)
         name = ""
         nm = profile.get("name")
@@ -189,6 +191,13 @@ def main(argv: list[str]) -> int:
                        encoding="utf-8")
         print(f"\nExportable audit-trail sample (the agency-facing artifact) -> {out}")
 
+    # CS-53: an INCOMPLETE run (some corpus profiles missing on disk) must NOT exit 0 "success" —
+    # a rate computed over 3 of 6 brands is not the corpus result. Report it and fail the run.
+    missing = len(CORPUS) - n_loaded
+    if missing:
+        print(f"\n[INCOMPLETE] measured {n_loaded}/{len(CORPUS)} corpus profiles — {missing} "
+              f"missing on disk. The rate above is NOT over the full corpus; re-run with all files.")
+        return 1
     return 0
 
 

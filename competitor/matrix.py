@@ -38,6 +38,29 @@ from .models import CompetitorProfile
 _DIM_KEYS = [
     "online_booking", "whatsapp", "shows_reviews", "cta_count",
     "offerings_count", "bilingual", "trust_count", "social_count",
+    # THE PEER'S SOCIAL IDENTITY, WHICH THIS LIST USED TO DESTROY.
+    #
+    # `lite_scrape.lite_peer_dims` returns both, with a comment explaining exactly why the
+    # ADDRESSES matter and not just the count ("'instagram' is not something a comment pull can be
+    # aimed at — `instagram.com/<handle>` is"). Then `extract_scraped_dimensions` below projects
+    # every peer through this list, both keys fell off, and the consequence was silent and total:
+    # `social_gaps._peer_platforms` skips any column without `social_platforms`, so it returned {}
+    # for every peer, `social_gaps()` returned [] on every run, and `swot.py` added ZERO social
+    # gaps. Competitor social has never once reached a SWOT.
+    #
+    # MEASURED across the six stored brands before this line existed: weaknesses 1-2 and threats
+    # 0-1 against strengths 4-11. Both starved quadrants are the COMPARATIVE ones, and this was one
+    # of the comparisons.
+    #
+    # Safe to widen: `DIMENSIONS` (below) is a separate list and `_gap_for` scores only from it, so
+    # these two ride through as projected VALUES and become no scored dimension. A list value can
+    # never reach that scalar comparison.
+    "social_platforms", "social_urls",
+    # And what the peer PROMISES, so a strength can be tested for differentiation. Same reason as
+    # the two above: `lite_peer_dims` derives it from HTML it already holds, and this projection is
+    # the only thing standing between that and the SWOT. Not a scored dimension — see the note
+    # above; it rides through as a value.
+    "peer_words",
 ]
 
 
@@ -168,7 +191,9 @@ def _dims_from_business_profile(profile) -> Dict[str, Any]:
         "shows_reviews": _as_bool(shows_reviews) if shows_reviews is not None else None,
         "cta_count": len(ctas) if ctas else (0 if ctas == [] else None),
         "offerings_count": len(offerings) if offerings is not None else None,
-        "bilingual": _is_bilingual(languages) if languages else None,
+        # `declared_languages` is what the SITE publishes about itself (hreflang). It outranks the
+        # crawled list, which only records which pages we happened to open.
+        "bilingual": _is_bilingual(languages, _get(profile, "declared_languages", []) or []),
         "trust_count": len(trust) if trust is not None else None,
         "social_count": len(social) if social is not None else None,
     }
@@ -210,8 +235,24 @@ def _truthy_list(v):
     return bool(v)
 
 
-def _is_bilingual(langs) -> bool:
-    s = {str(l).lower()[:2] for l in langs}
+def _is_bilingual(langs, declared=None):
+    """Tri-state: True / False / None(=unknown).
+
+    `declared` is what the SITE says about itself via `hreflang`, and it OUTRANKS the crawled
+    languages. MEASURED on alfouadpharmacies.com: hreflang="ar" on all 41 pages, zero Arabic URLs
+    actually crawled, `languages: ['en']` recorded — and the client was told "Single-language site
+    (missing Arabic/English)". The crawled list answers "what did we open", not "what does the site
+    have"; only the second question is the one being asked here.
+
+    No evidence at all returns None, never False: "we did not find an Arabic version" and "there
+    is no Arabic version" are different claims, and only one of them is ours to make.
+    """
+    d = {str(x).lower().split("-")[0] for x in (declared or []) if x}
+    if "ar" in d and "en" in d:
+        return True
+    s = {str(x).lower()[:2] for x in (langs or []) if x}
+    if not s and not d:
+        return None
     return "ar" in s and "en" in s
 
 
@@ -402,6 +443,12 @@ def _bool_gap(dim, s_val, comp_vals) -> DimensionGap:
 
 
 def _numeric_gap(dim, s_val, comp_vals) -> DimensionGap:
+    # CS-101 (DISCLOSED, not silently fixed): for count dims like cta_count/social_count the SUBJECT's
+    # value comes from a FULL crawl+LLM while each PEER's value is a single-homepage anchor count —
+    # different measurement methods, so an "ahead/behind" verdict on the raw counts is only
+    # directional, not commensurable. Normalising the two would need a peer full-crawl (a cost/scope
+    # decision for the owner — logged in logs/NEEDS_OWNER.md). Presence dims (_presence_gap) are not
+    # affected. Kept as-is deliberately; the verdict wording stays advisory.
     vals = list(comp_vals.values())
     avg = sum(vals) / len(vals)
     n = len(vals)

@@ -26,6 +26,8 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from api.auth import enforce_profile_bounds
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -34,11 +36,28 @@ class SwotFromProfileRequest(BaseModel):
     profile: dict[str, Any]
 
 
+class SwotPriorityModel(BaseModel):
+    """Where the factor sits on Pickton & Wright's two matrices. Every axis is measured off the
+    peer set, or reports `unknown` — never a number standing in for an unmade comparison."""
+    importance: str = "unknown"     # high | medium | low | unknown   (S/W)
+    performance: str = "unknown"    # ahead | parity | behind | unknown
+    impact: str = "unknown"         # high | medium | low | unknown   (O/T)
+    probability: str = "unknown"
+    basis: str = ""                 # the measurement in words, for the client to check
+    rank: float = 0.0
+    focus: bool = False             # important AND behind: "pay particular attention"
+    peers_measured: int = 0
+
+
 class SwotItemModel(BaseModel):
     text: str
     citation: List[str]
     evidence: str
     claim_strength: str = "internally_supported"
+    # A response_model DROPS anything not declared, so these must be here or the priorities die at
+    # the serialiser — the same class of bug as the image disclosure the frontend never read.
+    id: str = ""
+    priority: Optional[SwotPriorityModel] = None
 
 
 class CompetitorBrief(BaseModel):
@@ -58,6 +77,9 @@ class SwotResponse(BaseModel):
     opportunities: List[SwotItemModel]
     threats: List[SwotItemModel]
     notes: List[str]
+    # Website mechanics, moved out of the strategic quadrants but still shipped — true facts that
+    # answer "is the site doing its job?", not "where does this business stand in its market?".
+    site_readiness: List[SwotItemModel] = []
     competitor_count: int
     competitors: List[CompetitorBrief] = []
     # TOWS synthesis (strategies + ranked priority actions + posture), derived
@@ -66,15 +88,32 @@ class SwotResponse(BaseModel):
 
 
 def _items(items) -> List[dict]:
-    return [
-        {"text": i.text, "citation": list(i.citation), "evidence": i.evidence,
-         "claim_strength": getattr(i, "claim_strength", "internally_supported")}
-        for i in items
-    ]
+    """Serialise SWOT items for the client.
+
+    This is a hand-written allowlist, so a field added upstream is dropped here silently — the
+    "produced, serialised, never shown" failure this project keeps catching. The priority scores
+    (Pickton & Wright's two matrices) are the entire reason the analysis is no longer a flat list,
+    so they travel with each item, along with the stable id TOWS anchors on."""
+    out = []
+    for i in items:
+        row = {"text": i.text, "citation": list(i.citation), "evidence": i.evidence,
+               "claim_strength": getattr(i, "claim_strength", "internally_supported"),
+               "id": getattr(i, "id", "")}
+        p = getattr(i, "priority", None)
+        if p is not None:
+            row["priority"] = {
+                "importance": p.importance, "performance": p.performance,
+                "impact": p.impact, "probability": p.probability,
+                "basis": p.basis, "rank": p.rank, "focus": p.focus,
+                "peers_measured": p.peers_measured,
+            }
+        out.append(row)
+    return out
 
 
 @router.post("/swot/from-profile", response_model=SwotResponse)
 def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
+    enforce_profile_bounds(req.profile)  # P-56: bound the client-supplied profile
     try:
         from competitor import (
             ReviewThemeExtractor, PlacesClient, build_matrix, build_tows,
@@ -87,8 +126,15 @@ def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
 
         # Places client is only used for LOCAL/HYBRID routing; if the key is
         # missing or the business is ECOMMERCE/UNKNOWN, discovery degrades safely.
+        # P-81 (D-8): pass the brand's OWN market (gl/hl from its evidence) instead of the old
+        # hardcoded EG/ar default — a Saudi/Qatari brand's peers must be searched in ITS market.
         try:
-            client = PlacesClient()
+            from poster.locale import search_locale
+            _gl, _hl = search_locale(profile or {})
+        except Exception:  # noqa: BLE001
+            _gl, _hl = "", ""
+        try:
+            client = PlacesClient(region_code=(_gl or "").upper(), language_code=_hl or "")
         except Exception:
             client = None
 
@@ -133,20 +179,41 @@ def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
 
         # Customer voice: grounded review themes from the peers' real Places
         # reviews (never raises; [] without a Gemini caller or enough reviews).
+        # P-79: use the APPROVED registry set (`peers`), not the raw live pool, so themes stay
+        # stable across runs like the matrix does — was `result.competitors` (drifted every run).
         themes = []
         try:
             extractor = ReviewThemeExtractor()
-            themes = extractor(result.competitors)
+            themes = extractor(peers)
         except Exception:
             themes = []
+
+        # ...and the brand's OWN customers. `ReviewThemeExtractor` reads PEER reviews only
+        # (`themes.py:116` iterates `competitors`), so without this the only customer voice about
+        # THIS brand — saved comments and saved reviews — never entered the analysis on this route
+        # either. Same collector as the dashboard path, deliberately: this file and
+        # `api/webapp_analysis.py` are two serializers for one product, and every divergence
+        # between them so far has been a silent hole in whichever one nobody was looking at.
+        try:
+            from api.webapp_analysis import _customer_voice_themes
+            themes = list(themes) + _customer_voice_themes(profile or {})
+        except Exception:  # noqa: BLE001
+            pass
 
         # On-topic market trends -> brand-level Opportunities/Threats (best-effort; [] on failure).
         trends: list = []
         try:
             from trends import keywords_from_profile, top_trends_bounded
             kws = keywords_from_profile(profile or {})
+            # D-8: the brand's own market reaches the SERP (see competitor/full_run.py's twin).
+            try:
+                from poster.locale import search_locale
+                gl, hl = search_locale(profile or {})
+            except Exception:  # noqa: BLE001
+                gl, hl = "", ""
             if kws:
-                trends = top_trends_bounded(kws, timeout_s=12.0, require_match=True, top_k=6)
+                trends = top_trends_bounded(kws, timeout_s=12.0, require_match=True, top_k=6,
+                                            gl=gl, hl=hl)
         except Exception:
             trends = []
 
@@ -176,8 +243,11 @@ def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
         except Exception:
             tows_dict = None
 
+        # P-79: the client-facing competitor LIST + count come from the APPROVED registry set
+        # (`peers`), not the raw discovery pool — otherwise the owner sees a set that changes every
+        # run while the SWOT math (built on `peers`) stays stable. Now they agree.
         competitors = []
-        for c in result.competitors:
+        for c in peers:
             cand = getattr(c, "candidate", None)
             sel = getattr(c, "selection", None)
             if cand is None:
@@ -199,13 +269,16 @@ def swot_from_profile(req: SwotFromProfileRequest) -> SwotResponse:
             opportunities=_items(swot.opportunities),
             threats=_items(swot.threats),
             notes=list(swot.notes),
-            competitor_count=len(result.competitors),
+            site_readiness=_items(getattr(swot, "site_readiness", []) or []),
+            competitor_count=len(peers),   # P-79: approved set, consistent with the list above
             competitors=competitors,
             tows=tows_dict,
         )
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
+        # P-58: log server-side, return a generic message (don't leak internal strings/paths).
+        logger.exception("SWOT generation failed")
         raise HTTPException(
-            status_code=500, detail=f"SWOT generation failed: {exc}"
+            status_code=500, detail="SWOT generation failed."
         ) from exc

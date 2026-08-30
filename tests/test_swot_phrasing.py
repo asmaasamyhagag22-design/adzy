@@ -33,9 +33,13 @@ def _profile():
 
 
 def test_standalone_swot_has_no_raw_attribute_dumps():
+    """UPDATED 2026-07-25: own-site items now ship in `swot.site_readiness` rather than the
+    strategic quadrants (owner's ruling after Pickton & Wright — an un-compared site fact is not a
+    strength or a weakness). The assertion that matters here is unchanged: whatever ships is
+    written in strategist phrasing, never as a raw attribute dump."""
     m = build_matrix(_profile(), [])
     sw = synthesize_swot(m)                      # profile=None -> pure mechanical (standalone)
-    all_items = sw.strengths + sw.weaknesses
+    all_items = sw.strengths + sw.weaknesses + sw.site_readiness
     texts = [i.text for i in all_items]
     assert texts, "expected some own-site items"
     # NONE of the mocked raw-dump shapes survive
@@ -43,6 +47,6 @@ def test_standalone_swot_has_no_raw_attribute_dumps():
     assert not any(t.endswith(": not detected on site") for t in texts)
     assert not any(t.endswith(": none detected") for t in texts)
     # a re-phrased conversion-path strength IS present, and the cell stays scrape-grounded
-    conv = [i for i in sw.strengths if "conversion paths" in i.text.lower()]
+    conv = [i for i in all_items if "conversion paths" in i.text.lower()]
     assert conv and conv[0].citation[0] == "your scraped site"
     assert conv[0].claim_strength == "internally_supported"

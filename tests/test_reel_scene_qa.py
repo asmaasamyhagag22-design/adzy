@@ -6,6 +6,8 @@ and, on fail, regenerates once then falls back to the faithful real-photo KenBur
 """
 from __future__ import annotations
 
+from reel.motion_contract import FRAME_IS_UNPRINTED
+
 from pathlib import Path
 
 from reel.schemas import ReelScene, Storyboard
@@ -148,13 +150,39 @@ def test_qa_fail_regenerates_once_then_falls_back(tmp_path, monkeypatch):
     res = comp.render_reel(_storyboard(), provider=primary, out_path=tmp_path / "o.mp4",
                            scale=0.25, fallback_provider=fb, qa_caller=qa,
                            qa_product_hint="Hair Growth", qa_reference_image=b"REF")
-    # per scene: 1 initial + 1 retry on the primary, then the faithful KenBurns fallback
+    # per scene: 1 initial + 1 retry on the primary. The RETRY still happens — a second roll of
+    # the dice is cheap next to a defect — but the still no longer replaces the clip afterwards.
     assert len(primary.seen) == 4                       # 2 scenes x (initial + retry)
-    # every prompt now carries the standing no-text clause (calibration fix 2026-07-12)
-    assert {p.split(" Absolutely no readable text")[0] for p, _ in fb.seen} == {"S0", "S1"}
-    assert all("no readable text" in p for p, _ in fb.seen)
-    assert res.fallback_used is True
     assert qa.calls == 4                                # 2 scenes x (check + recheck)
+
+    # MOTION OVER THE STILL (owner, 2026-08-01: «انا مش عايزه Ken Burns في الريل»). The fallback
+    # does not cure the defect it fires on — measured across three live runs, the verdicts that
+    # trigger it are about the label MOVING ("the text on the packaging morphs into garbled junk
+    # across the frames"), and a slow zoom on a still answers that by deleting the motion the clip
+    # exists for. The judged clip is kept and its verdict rides the audit trail instead.
+    assert fb.seen == [], "a QA-failed clip was still swapped for a Ken Burns still"
+    assert res.fallback_used is False
+
+
+def test_the_still_is_reachable_for_a_caller_who_wants_it(tmp_path, monkeypatch):
+    """The ruling is a default, not a demolition — REEL_ALLOW_KENBURNS restores the old path."""
+    import reel.compositor as comp
+    import reel.scene_qa as sq
+    monkeypatch.setenv("REEL_ALLOW_KENBURNS", "1")
+    monkeypatch.setattr(sq, "_extract_frames", lambda clip, n=3: [b"f"])
+    _stub_io(comp, monkeypatch)
+
+    class _FailQA:
+        def __call__(self, system, user, model, group_name="", images=None):
+            return model(product_faithful=False, product_persists=False,
+                         action_plausible=False, overall_pass=False, reason="sealed pump"), None
+
+    fb = _Rec("kenburns")
+    res = comp.render_reel(_storyboard(), provider=_Rec("veo"), out_path=tmp_path / "o.mp4",
+                           scale=0.25, fallback_provider=fb, qa_caller=_FailQA(),
+                           qa_product_hint="Hair Growth", qa_reference_image=b"REF")
+    assert {p.split(FRAME_IS_UNPRINTED)[0].rstrip() for p, _ in fb.seen} == {"S0", "S1"}
+    assert res.fallback_used is True
 
 
 def test_qa_pass_keeps_clip_no_retry_no_fallback(tmp_path, monkeypatch):
