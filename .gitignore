@@ -12,6 +12,8 @@ venv/
 # `git add .` could leak the key into history.
 .env
 .env.*
+# ...but the template carries no secrets and the README tells people to copy it
+!.env.example
 *.key
 
 # Scrape outputs (large, regeneratable)
