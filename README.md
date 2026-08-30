@@ -25,17 +25,17 @@ structurally instead.
 
 ## The core idea: two truth domains
 
-Every output is split into two categories that are governed by completely different rules.
+Every output is split into two categories governed by completely different rules.
 
 | | **FACTS** | **DESIGN** |
 |---|---|---|
 | Examples | offers, prices, phone numbers, piece counts, competitor claims | wording, imagery, layout, story, camera movement |
 | Source | extracted deterministically from the real site, then validated | the model, freely |
-| LLM's role | an extraction and verification tool — never a source of truth | the author |
-| Failure mode if wrong | a false claim reaches a customer | a weaker ad |
+| The LLM's role | an extraction and verification tool — never a source of truth | the author |
+| Cost of being wrong | a false claim reaches a customer | a weaker ad |
 
-The LLM designs. Deterministic code renders and validates. Facts must survive a
-gate before they can appear anywhere.
+The LLM designs. Deterministic code renders and validates. Facts must survive a gate
+before they can appear anywhere.
 
 ### The Evidence Ledger
 
@@ -43,11 +43,13 @@ gate before they can appear anywhere.
 scraped source block with a stable ID. Claims without evidence do not ship, and the
 whole chain exports as a compliance sheet a client or a regulator can read.
 
-A related discipline runs through the creative modules: **real brand assets are used as
-pixels, never as prompts.** When a reel shows a product, the packaging is composited from
-the brand's own official photography — position, scale, contact shadow and parallax only.
-The generative model produces the room, the light and the people; it never redraws a logo,
-Arabic lettering, or a printed box.
+### Real assets are pixels, never prompts
+
+A related discipline runs through the creative modules. When a reel shows a product, the
+packaging is composited from the brand's own official photography — position, scale,
+contact shadow and parallax only. The generative model produces the room, the light and
+the people; it never redraws a logo, Arabic lettering, or a printed box. Product fidelity
+is then *measured* against the source asset rather than assumed.
 
 ---
 
@@ -68,17 +70,35 @@ URL
  ├─ competitor/           router → Places/SERP → comparison matrix → SWOT → TOWS
  ├─ brand/                BrandCreativeDNA / BrandBook — identity understanding
  ├─ poster/               concept → variation → render → QA gates
- ├─ reel/                 story → stills → video → captions → end card
+ ├─ reel/                 brief → storyboard → shots → composite → critic → revision
+ ├─ instagram_intelligence/  collector + engagement and marketing analytics
  ├─ strategy/             content calendar  →  campaign/  fan-out to creatives
  ├─ media_plan/           objective deduction, budget shape
  ├─ decision_engine/      kill-switch governance, explicit ABSTAIN states
+ ├─ ads_intel/            Meta Ad Library pulls, competitor live-ad intelligence
  └─ trends/               keyless trend sources
- 
-api/        FastAPI job runner (:8000) — async jobs, SSE progress stream
-frontend/   Next.js 15 (:3000)
+
+api/        FastAPI (:8000) — auth, brand store + claim flow, influencer identity,
+            async jobs with an SSE progress stream; also serves the frontend
+frontend/   a single static surface (there is deliberately no second dashboard)
 benchmark/  measurement harnesses
-tests/      1,629 tests
+tests/      3,702 tests
 ```
+
+### The reel critic chain
+
+The reel pipeline is the part most worth reading. Generating a video is the easy half;
+deciding whether the result is *a good ad* is the hard one. So the pipeline ends with a
+critic rather than a checksum:
+
+- `motion_contract.py`, `pacing.py`, `continuity.py`, `grade.py` — craft primitives that
+  make a brief into a spec a renderer can honour
+- `film_critic.py` — watches the finished cut and judges it as advertising
+- `revision.py` — **the critic's notes change the film**, instead of only refusing it
+- `final_screening.py` — the last gate before delivery
+
+That feedback loop is the difference between a QA check that says "no" and a review that
+says "here is what to fix."
 
 ### Design rules the code actually enforces
 
@@ -86,7 +106,7 @@ tests/      1,629 tests
   hacks — category-specific *guidance* selected by a universal signal is allowed; a
   hardcoded branch for "restaurants" is not.
 - **Fail closed, and say so.** A check that cannot run returns an explicit unknown state,
-  never a silent pass. `decision_engine/` has a dedicated `ABSTAIN_NO_TARGET` verdict
+  never a silent pass. `decision_engine/` carries a dedicated `ABSTAIN_NO_TARGET` verdict
   because "I refuse to judge" and "keep spending" are different answers.
 - **Measure before believing.** Behavioural claims in this repo are backed by a harness
   in `benchmark/`, not by intuition.
@@ -119,12 +139,12 @@ python -m business_profile scrapes/example_com_<timestamp>/manifest.json
 Generate creative:
 
 ```bash
-python -m poster  --profile <profile.json>
-python -m reel    --profile <profile.json>
+python -m poster   --profile <profile.json>
+python -m reel     --profile <profile.json>
 python -m strategy --profile <profile.json>
 ```
 
-Run the API:
+Run the app:
 
 ```bash
 uvicorn api.main:app --reload --port 8000
@@ -133,10 +153,9 @@ uvicorn api.main:app --reload --port 8000
 | Endpoint | Purpose |
 |---|---|
 | `POST /run` | start a full pipeline job |
-| `GET /jobs/{id}` | job status |
-| `GET /jobs/{id}/stream` | server-sent progress events |
-| `GET /jobs/{id}/result` | completed artifacts |
-| `POST /poster/from-profile` · `POST /reel/from-profile` · `POST /swot/from-profile` | single-stage entry points |
+| `GET /jobs/{id}` · `/stream` · `/result` | status, live SSE progress, artifacts |
+| `POST /poster/from-profile` · `/reel/from-profile` · `/swot/from-profile` | single-stage entry points |
+| `api/routes/` | `auth` · `brands` · `analysis` · `generate` · `influencer` · `scrape` |
 
 ---
 
@@ -146,7 +165,7 @@ uvicorn api.main:app --reload --port 8000
 pytest -q
 ```
 
-**1,629 tests / ~28,600 lines of test code against ~52,000 lines of source.**
+**3,702 tests · ~57,000 lines of test code against ~77,500 lines of source.**
 
 Tests are hermetic by construction: a `conftest` network guard fails any test that
 attempts a live call, so the suite cannot silently depend on a paid API or a third-party
@@ -158,19 +177,20 @@ site being up. Live runs are opt-in through an explicit environment flag.
 
 | Path | Lines | Role |
 |---|---:|---|
-| `reel/` | 8.7k | vertical video: storyboard, compositing, typography, sound, QA gates |
-| `scraper/` | 8.5k | Playwright crawl, extraction, robots, readiness scoring |
-| `business_profile/` | 6.8k | profile synthesis + validation |
-| `poster/` | 6.4k | static creative, render + QA |
-| `competitor/` | 5.2k | discovery, comparison matrix, SWOT/TOWS |
-| `dashboard/` | 3.7k | reporting surface |
-| `benchmark/` | 2.2k | measurement harnesses |
-| `grounding/` | 2.0k | Evidence Ledger, audit, compliance sheet |
-| `api/` | 1.6k | FastAPI job runner |
-| *others* | 4.6k | `brand/` `media_plan/` `trends/` `strategy/` `launch_bundle/` `social_intel/` `decision_engine/` `telemetry/` `policy_linter/` `ads_intel/` `campaign/` `creative/` `advisor/` |
+| `reel/` | 15.5k | vertical video: brief, storyboard, compositing, critic chain, QA |
+| `poster/` | 11.5k | static creative, render + QA gates |
+| `scraper/` | 9.8k | Playwright crawl, extraction, robots, readiness scoring |
+| `competitor/` | 8.1k | discovery, comparison matrix, SWOT/TOWS |
+| `business_profile/` | 7.1k | profile synthesis + validation |
+| `api/` | 6.6k | FastAPI: auth, brands, jobs, generation, influencer |
+| `benchmark/` | 2.3k | measurement harnesses |
+| `instagram_intelligence/` | 2.2k | collection + engagement analytics |
+| `grounding/` | 2.1k | Evidence Ledger, audit, compliance sheet |
+| *others* | 7.7k | `media_plan/` `brand/` `ads_intel/` `trends/` `social_intel/` `strategy/` `launch_bundle/` `decision_engine/` `policy_linter/` `telemetry/` `campaign/` `creative/` `advisor/` |
 
 `process.md` is the working source of truth: vision, architecture, built-feature
-inventory, honest gaps, roadmap, and a log of measured lessons.
+inventory, honest gaps, roadmap, and a log of measured lessons. `info/` holds runbooks
+and current state.
 
 ---
 
@@ -189,8 +209,8 @@ rather than smoothed over:
 
 ## Tech stack
 
-Python 3.11 · Playwright · FastAPI · Next.js 15 · Google Vertex AI (Gemini, Imagen, Veo)
-· ElevenLabs · Pillow / OpenCV / NumPy · FFmpeg · pytest
+Python 3.11 · Playwright · FastAPI · Google Vertex AI (Gemini, Imagen, Veo) · ElevenLabs
+· Pillow / OpenCV / NumPy · FFmpeg · pytest
 
 ---
 
