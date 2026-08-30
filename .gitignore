@@ -41,9 +41,13 @@ project_light.zip
 *\ (2).*
 * copy.*
 
-# Local scratch / diagnostics (move keepers into tools/ or scripts/)
-inspect_*.py
-verify_*.py
+# Local scratch / diagnostics (move keepers into tools/ or scripts/).
+# ANCHORED to the repo root on purpose: unanchored, `verify_*.py` also swallowed
+# `scripts/verify_meta_token.py`, so two committed tests imported a module git was
+# silently refusing to track. Keepers under scripts/ and tools/ are now tracked,
+# which is what the line above always meant.
+/inspect_*.py
+/verify_*.py
 api_*.json
 *_diagnostic.txt
 error_log.txt
