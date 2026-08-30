@@ -1,288 +1,197 @@
-# Scraper v0.1 — Universal Business Website Evidence Collector
+# Universal AI Marketing Strategist
 
-The first stage of the **Universal AI Marketing Campaign Strategist** pipeline.
+**Grounded in truth. Engineered for certainty.**
 
-Given any business URL, this scraper produces a structured manifest of
-everything downstream stages will need — text blocks with stable IDs,
-visual identity, contact info, forms, links, metadata, language mix,
-and a readiness report. **No downstream stage should ever need to
-re-fetch the website.**
+Give the system one business URL. It returns a complete, on-brand campaign pack —
+poster, short-form vertical reel, competitor-grounded SWOT, and a multi-day content
+calendar — where **every factual claim in customer-facing output is traceable to a
+sourced piece of evidence**, exportable as an audit trail.
 
----
-
-## Quick start
-
-### 1. Install Python deps
-
-```bash
-python -m venv .venv
-source .venv/bin/activate           # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### 2. Install Playwright browsers (one time)
-
-```bash
-playwright install chromium
-```
-
-### 3. Scrape one URL
-
-```bash
-python -m scraper https://example.com
-```
-
-This will:
-
-1. Normalize the URL and check `robots.txt`.
-2. Fetch the homepage with Playwright (rendered DOM + screenshots).
-3. Walk discovered internal links and pick the top 7 (HIGH/MEDIUM tier).
-4. Fetch each within a 60-second total budget.
-5. Extract text blocks, metadata, visual identity, contact info, links, forms.
-6. Write everything to `scrapes/<domain>_<timestamp>/`.
-7. Print a summary table.
-
-Output:
-
-```
-scrapes/example_com_20260514_120000/
-├── manifest.json          # the contract for downstream stages
-├── raw/
-│   ├── 00_homepage.html
-│   ├── 00_homepage_full.png
-│   ├── 00_homepage_viewport.png
-│   ├── 01_contact.html
-│   ├── 01_contact_full.png
-│   └── ...
-└── clean/
-    ├── 00_homepage.txt
-    └── ...
-```
-
-### 4. Run the benchmark
-
-Put 15 real business URLs in `benchmark/urls.txt`, then:
-
-```bash
-python -m benchmark.run
-```
-
-Produces `benchmark/summary.csv` with a row per URL summarizing
-extracted signals. Eyeball it; fix failure modes; rerun.
+The distinction that shapes the whole codebase: this is not "AI that makes posters."
+It is a system that produces agency-grade creative whose factual claims you can defend
+in front of a client.
 
 ---
 
-## What's in the manifest
+## The problem
 
-Top-level fields in `manifest.json`:
+Generative models are excellent at *form* and unreliable at *fact*. For marketing work
+that is a commercial risk, not an academic one: an invented phone number, a fabricated
+discount, a competitor claim that isn't true, or a product box whose packaging the model
+quietly redrew — any of these can reach a customer.
 
-| Field | Purpose |
-|---|---|
-| `scrape_meta` | URLs, duration, byte count, version, budget flag |
-| `robots` | What robots.txt said and whether we respected it |
-| `readiness` | Booleans: `has_homepage`, `has_contact_signals`, ..., `ready_for_extraction` |
-| `languages` | Detected language proportions (e.g. `[{ar: 0.7, en: 0.3}]`) |
-| `pages[]` | Per-page records: text blocks, forms, paths to artifacts |
-| `site_metadata` | Title, description, OG tags, schema.org JSON-LD |
-| `visual` | Color palette, fonts, primary button color, logo |
-| `contact` | Phones (E.164), emails, WhatsApp, addresses, map embeds |
-| `links` | Categorized: internal, social, contact_protocol, external, cta_candidates |
-| `images_of_interest` | Only logo, hero, og_image (high-confidence roles) |
-| `failures` | Per-failure: code from the fixed `ErrorCode` enum, message, page |
-| `notes` | Free-form warnings for debugging |
+Most tooling responds by asking the model to be more careful. This system responds
+structurally instead.
 
-### Text blocks are the foundation for evidence
+## The core idea: two truth domains
 
-Every text-bearing DOM element gets a `TextBlock`:
+Every output is split into two categories that are governed by completely different rules.
 
-```json
-{
-  "block_id": "home_h1_0003",
-  "page_url": "https://example.com/",
-  "tag": "h1",
-  "text": "Premium catering for Cairo events",
-  "section": "main",
-  "selector": "main > section:nth-of-type(1) > h1",
-  "bbox": {"x": 64, "y": 220, "width": 800, "height": 56},
-  "above_fold": true,
-  "is_link": false,
-  "href": null
-}
-```
+| | **FACTS** | **DESIGN** |
+|---|---|---|
+| Examples | offers, prices, phone numbers, piece counts, competitor claims | wording, imagery, layout, story, camera movement |
+| Source | extracted deterministically from the real site, then validated | the model, freely |
+| LLM's role | an extraction and verification tool — never a source of truth | the author |
+| Failure mode if wrong | a false claim reaches a customer | a weaker ad |
 
-Every downstream claim should trace back to one or more `block_id`s.
+The LLM designs. Deterministic code renders and validates. Facts must survive a
+gate before they can appear anywhere.
+
+### The Evidence Ledger
+
+`grounding/` is the central gate. Every factual claim carries a citation back to a
+scraped source block with a stable ID. Claims without evidence do not ship, and the
+whole chain exports as a compliance sheet a client or a regulator can read.
+
+A related discipline runs through the creative modules: **real brand assets are used as
+pixels, never as prompts.** When a reel shows a product, the packaging is composited from
+the brand's own official photography — position, scale, contact shadow and parallax only.
+The generative model produces the room, the light and the people; it never redraws a logo,
+Arabic lettering, or a printed box.
 
 ---
 
 ## Architecture
 
 ```
-scraper/
-├── schemas.py          # Pydantic data contract (the single source of truth)
-├── errors.py           # Fixed ErrorCode enum
-├── config.py           # Constants, bilingual patterns, CTA verbs, social domains
-├── url_utils.py        # URL normalization and dedup
-├── robots.py           # robots.txt fetch + policy
-├── fetcher.py          # Playwright wrapper with bot-detection + scroll-to-load
-├── language.py         # langdetect over rendered text
-├── readiness.py        # Compute readiness booleans
-├── crawler.py          # Orchestrator (the brain)
-├── classify/
-│   └── page_type.py    # Bilingual EN+AR URL/anchor classifier
-└── extractors/
-    ├── text_blocks.py  # DOM walker producing TextBlocks (the big one)
-    ├── metadata.py     # head tags, OG, schema.org JSON-LD
-    ├── visual.py       # ColorThief palette + computed CSS + logo
-    ├── contact.py      # phonenumbers, emails, wa.me, map iframes
-    ├── links.py        # categorize all <a href>
-    ├── forms.py        # form fields, methods, surrounding text
-    └── images.py       # logo, hero, og_image only
+URL
+ │
+ ├─ scraper/              Playwright crawl, robots-aware, universal
+ │                          └─ ScrapeManifest (text blocks with stable IDs,
+ │                             visual identity, contacts, forms, language mix)
+ │
+ ├─ business_profile/     rules + LLM + RAG + validator
+ │                          └─ BusinessProfile (every field evidence-cited)
+ │
+ ├─ grounding/            EVIDENCE LEDGER — the central gate, audit + compliance sheet
+ │
+ ├─ competitor/           router → Places/SERP → comparison matrix → SWOT → TOWS
+ ├─ brand/                BrandCreativeDNA / BrandBook — identity understanding
+ ├─ poster/               concept → variation → render → QA gates
+ ├─ reel/                 story → stills → video → captions → end card
+ ├─ strategy/             content calendar  →  campaign/  fan-out to creatives
+ ├─ media_plan/           objective deduction, budget shape
+ ├─ decision_engine/      kill-switch governance, explicit ABSTAIN states
+ └─ trends/               keyless trend sources
+ 
+api/        FastAPI job runner (:8000) — async jobs, SSE progress stream
+frontend/   Next.js 15 (:3000)
+benchmark/  measurement harnesses
+tests/      1,629 tests
 ```
 
-### Design rules
+### Design rules the code actually enforces
 
-1. **Schemas first.** Every stage reads/writes through `ScrapeManifest`. No raw HTML touching downstream.
-2. **No interpretation in the scraper.** Observe, don't infer. "This is the brand tone" is a downstream call; we just record evidence.
-3. **Evidence everywhere.** Phones, emails, addresses, and links carry an `evidence_block_id` or page URL.
-4. **Failures are structured.** Every failure has a code from `ErrorCode` and a page URL.
-5. **Budget enforced.** Hard caps: 60 s wall-clock, 7 internal pages, 20 s per page nav.
-6. **Bilingual by default.** EN + AR patterns for page-type classification and CTA detection.
+- **Universality.** Works for any vertical, language, or country. No vertical-specific
+  hacks — category-specific *guidance* selected by a universal signal is allowed; a
+  hardcoded branch for "restaurants" is not.
+- **Fail closed, and say so.** A check that cannot run returns an explicit unknown state,
+  never a silent pass. `decision_engine/` has a dedicated `ABSTAIN_NO_TARGET` verdict
+  because "I refuse to judge" and "keep spending" are different answers.
+- **Measure before believing.** Behavioural claims in this repo are backed by a harness
+  in `benchmark/`, not by intuition.
+- **Spend is metered and capped.** `vertex_spend.py` enforces a per-run *and* a monthly
+  ceiling on paid media generation, because a monthly cap alone cannot stop one runaway job.
 
 ---
 
-## Tests
+## Quick start
 
 ```bash
-pip install pytest
-pytest tests/
-```
-
-The tests cover URL normalization and the bilingual page-type classifier — the
-two pure-Python modules where regressions would silently break the pipeline.
-
----
-
-## What's NOT in v0.1 (intentionally deferred)
-
-- Sitemap discovery (v0.2)
-- Cookie banner handling (v0.2)
-- Mobile screenshots (v0.2 if scorecard needs it)
-- Marketing-stack detection (Meta Pixel, GA, etc.) (v0.2)
-- Numeric page-importance scoring (using tiers only is enough)
-- Gallery / product image classification
-- Content-hash caching
-
-See `docs/v02-backlog.md` (TODO) for the deferred list.
-
----
-
-## Troubleshooting
-
-**Playwright fails to launch on first run.** You probably didn't run
-`playwright install chromium`.
-
-**Many sites time out.** Some sites have slow servers; the per-page
-20 s default is already generous. If a specific site reliably times
-out, that's usually bot protection — check the manifest for
-`BOT_PROTECTION` or `CAPTCHA_DETECTED`.
-
-**Arabic text shows as `?????` or mojibake.** Check your terminal's
-encoding; the files on disk are UTF-8. On Windows: `chcp 65001`.
-
-**ColorThief errors on some sites.** Falls back gracefully — palette
-will just be empty. Check `manifest.visual.color_palette`.
-
-**Phone numbers not detected.** The `phonenumbers` library defaults
-to `EG` region. If you scrape non-Egyptian sites, edit the
-`default_region` in `crawler.py`'s call to `extract_contact()`.
-
----
-
-## API (Day 1)
-
-A thin FastAPI wrapper around the same pipeline the CLI runs. The
-existing CLI still works — the API is purely additive.
-
-### Run locally
-
-```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-export OPENAI_API_KEY=sk-...                # only needed for LLM runs
+playwright install chromium
+```
+
+Scrape a site into an evidence manifest:
+
+```bash
+python -m scraper https://example.com
+```
+
+Build a business profile from that manifest:
+
+```bash
+python -m business_profile scrapes/example_com_<timestamp>/manifest.json
+```
+
+Generate creative:
+
+```bash
+python -m poster  --profile <profile.json>
+python -m reel    --profile <profile.json>
+python -m strategy --profile <profile.json>
+```
+
+Run the API:
+
+```bash
 uvicorn api.main:app --reload --port 8000
 ```
 
-### Endpoints
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET  | `/api/health` | Liveness check |
-| POST | `/api/run` | Kick off a pipeline job → returns `{job_id}` |
-| GET  | `/api/jobs/{job_id}` | Snapshot: status + full event history |
-| GET  | `/api/jobs/{job_id}/stream` | Server-Sent Events stream of stage progress |
-| GET  | `/api/jobs/{job_id}/result` | Final BusinessProfile JSON (409 until done) |
-
-### Example flow
-
-```bash
-# 1. Start a job (rules-only — no API key needed)
-curl -X POST http://localhost:8000/api/run \
-  -H 'Content-Type: application/json' \
-  -d '{"url":"https://spclinic.net/","skip_llm":true}'
-# → {"job_id":"abc123..."}
-
-# 2. Watch the stages stream in real time
-curl -N http://localhost:8000/api/jobs/abc123.../stream
-# → event: stage
-#   data: {"job_id":"abc123","stage":"scrape","status":"started",...}
-#   event: stage
-#   data: {"job_id":"abc123","stage":"scrape","status":"done","duration_ms":18293,...}
-#   ...
-
-# 3. Fetch the final result
-curl http://localhost:8000/api/jobs/abc123.../result | jq .
-```
-
-### Stage events
-
-Each `data:` payload in the SSE stream has this shape:
-
-```json
-{
-  "job_id": "abc123",
-  "stage": "llm",
-  "status": "done",
-  "timestamp": "2026-05-16T12:34:56.789Z",
-  "duration_ms": 18293,
-  "payload": {
-    "calls": 4,
-    "cost_usd": 0.0094,
-    "input_tokens": 3200,
-    "output_tokens": 850,
-    "model": "gpt-4o-mini"
-  }
-}
-```
-
-Stages: `scrape, rules, evidence_pack, llm, validate, merge, final`.
-`status` is one of: `started, done, error`.
-
-### Persistence
-
-By default `POST /api/run` also writes `business_profile.json` to disk
-in the same directory as the manifest (`scrapes/<domain>_<ts>/`).
-Pass `"persist_to_disk": false` in the request body to skip.
-
-### Notes
-
-- In-memory job store; jobs older than 1 hour after completion are
-  evicted. Override via `JOB_TTL_SECONDS` env var.
-- CORS allows `http://localhost:3000` by default for the Day 2 frontend.
-  Override with `CORS_ALLOW_ORIGINS=...` (comma-separated).
-- Single-process only. For multi-worker, swap the JobStore for Redis-backed storage.
+| Endpoint | Purpose |
+|---|---|
+| `POST /run` | start a full pipeline job |
+| `GET /jobs/{id}` | job status |
+| `GET /jobs/{id}/stream` | server-sent progress events |
+| `GET /jobs/{id}/result` | completed artifacts |
+| `POST /poster/from-profile` · `POST /reel/from-profile` · `POST /swot/from-profile` | single-stage entry points |
 
 ---
 
-## Frontend (coming Day 2)
+## Testing
 
-Next.js + Tailwind + shadcn/ui dashboard for the pipeline. See
-`frontend/` (currently empty placeholder).
+```bash
+pytest -q
+```
+
+**1,629 tests / ~28,600 lines of test code against ~52,000 lines of source.**
+
+Tests are hermetic by construction: a `conftest` network guard fails any test that
+attempts a live call, so the suite cannot silently depend on a paid API or a third-party
+site being up. Live runs are opt-in through an explicit environment flag.
+
+---
+
+## Repository map
+
+| Path | Lines | Role |
+|---|---:|---|
+| `reel/` | 8.7k | vertical video: storyboard, compositing, typography, sound, QA gates |
+| `scraper/` | 8.5k | Playwright crawl, extraction, robots, readiness scoring |
+| `business_profile/` | 6.8k | profile synthesis + validation |
+| `poster/` | 6.4k | static creative, render + QA |
+| `competitor/` | 5.2k | discovery, comparison matrix, SWOT/TOWS |
+| `dashboard/` | 3.7k | reporting surface |
+| `benchmark/` | 2.2k | measurement harnesses |
+| `grounding/` | 2.0k | Evidence Ledger, audit, compliance sheet |
+| `api/` | 1.6k | FastAPI job runner |
+| *others* | 4.6k | `brand/` `media_plan/` `trends/` `strategy/` `launch_bundle/` `social_intel/` `decision_engine/` `telemetry/` `policy_linter/` `ads_intel/` `campaign/` `creative/` `advisor/` |
+
+`process.md` is the working source of truth: vision, architecture, built-feature
+inventory, honest gaps, roadmap, and a log of measured lessons.
+
+---
+
+## Status and honest limitations
+
+This is an active build, and the limitations are tracked in the open in `process.md §6`
+rather than smoothed over:
+
+- The **Intelligent Media Buying** layer (objective deduction, live competitor ad
+  intelligence via the Meta Ad Library, kill-switch governance) is partially built —
+  its status is tracked honestly rather than claimed as done.
+- Some extraction thresholds are calibrated against a measured corpus and carry
+  documented watch-items rather than being presented as universally solved.
+- The system **remediates** ungrounded claims; it does not pretend to prevent them at
+  the model level. That distinction is deliberate and is why the audit trail exists.
+
+## Tech stack
+
+Python 3.11 · Playwright · FastAPI · Next.js 15 · Google Vertex AI (Gemini, Imagen, Veo)
+· ElevenLabs · Pillow / OpenCV / NumPy · FFmpeg · pytest
+
+---
+
+© Asmaa Hagag
