@@ -15,19 +15,61 @@ import os
 import re
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from api.user_auth import webapp_dir
 
 _SAFE_KEY = re.compile(r"[^a-z0-9_]+")
 
-# Serialises the read-modify-write in `update()` and `record_history()`. Same pattern as
-# `dashboard/server._INFLIGHT_LOCK`, and a threading lock rather than an asyncio one on purpose:
-# FastAPI runs the SYNC endpoints on a threadpool while brand jobs run on the event loop, so the
-# competing writers are real OS threads. Single process throughout (no `uvicorn --workers` anywhere
-# in the repo), so no file lock and no new dependency is needed.
+# Serialises threads before they contend on the per-file OS lock below.  The OS lock is the
+# correctness boundary for separate BrandStore instances and separate web-worker processes;
+# `_WRITE_LOCK` alone cannot provide either guarantee.
 _WRITE_LOCK = threading.RLock()
+
+
+@contextmanager
+def _process_file_lock(path: Path) -> Iterator[None]:
+    """Exclusive cross-process lock for one persisted JSON document.
+
+    The lock file is deliberately stable and is never unlinked: deleting it while another process
+    has the old inode/handle locked can let a third process lock a different file and enter the
+    critical section concurrently.  OS process teardown releases the held lock after a crash.
+    """
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as handle:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _storage_lock(path: Path) -> Iterator[None]:
+    """One ordering for every logical read-modify-write on ``path``."""
+    with _WRITE_LOCK:
+        with _process_file_lock(path):
+            yield
 
 
 def _tmp_path(path: Path) -> Path:
@@ -98,11 +140,21 @@ def _safe(domain_key: str) -> str:
 # A brand created before ownership existed carries no `owner_id`. Who created it is not recorded
 # anywhere, so the store never guesses: such a brand is surfaced as UNCLAIMED — readable (it is the
 # operator's own working catalog) but never deletable, and flagged so the state is visible rather
-# than silent. `python -m api.claim_brands` resolves it deliberately, by a human.
+# than silent.
+#
+# Two paths resolve that state, and neither guesses. `python -m api.claim_brands` assigns the whole
+# unclaimed backlog deliberately, by a human. A successful authenticated RE-SCRAPE claims the one
+# brand it just rebuilt (see `upsert`) — the caller proved which brand they mean by paying to
+# rebuild it, so recording them as its manager is evidence, not inference. `owner_id` means the
+# account managing this record in the product; it says nothing about who owns the real company.
 DELETED = "deleted"
 NOT_FOUND = "not_found"
 FORBIDDEN = "forbidden"
 UNCLAIMED = "unclaimed"
+
+
+class CorruptBrandError(RuntimeError):
+    """An existing brand document cannot be read safely enough to update."""
 
 
 class BrandStore:
@@ -123,6 +175,14 @@ class BrandStore:
         return self._dir / f"{_safe(domain_key)}.json"
 
     @staticmethod
+    def _read_path(path: Path) -> Optional[dict]:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    @staticmethod
     def _visible_to(brand: dict, user_id: Optional[str]) -> bool:
         if not user_id:
             return True                                  # unscoped caller (internal)
@@ -138,9 +198,8 @@ class BrandStore:
 
     # --- reads ---
     def get(self, domain_key: str, *, for_user: Optional[str] = None) -> Optional[dict]:
-        try:
-            brand = json.loads(self._path(domain_key).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        brand = self._read_path(self._path(domain_key))
+        if brand is None:
             return None
         if not self._visible_to(brand, for_user):
             return None                                  # another account's brand: as if absent
@@ -159,19 +218,128 @@ class BrandStore:
         out.sort(key=lambda b: b.get("updated_at", 0), reverse=True)
         return out
 
+    def owner_of(self, domain_key: str) -> Optional[str]:
+        """Who manages this brand: the owner id, `""` when unclaimed, None when nothing is stored.
+
+        Unscoped, and it returns the owner id and NOTHING ELSE.  Its one caller is the scrape
+        preflight, which has to tell "another account manages this" apart from "nothing is stored" —
+        a distinction `get(for_user=...)` collapses into None on purpose, so that read path cannot
+        answer the question without also handing over the document.  Returning the id alone keeps a
+        cost gate from turning into a way to read someone else's analysis.
+
+        A COST GATE, NEVER THE CONCURRENCY AUTHORITY: this answer is stale the moment it is read,
+        and two callers can both be told "unclaimed".  `upsert` re-reads the owner under the storage
+        lock and is what actually decides.  An unreadable document answers None (nothing usable is
+        stored); `upsert` then raises CorruptBrandError rather than overwriting it.
+        """
+        brand = self._read_path(self._path(domain_key))
+        if brand is None:
+            return None
+        return str(brand.get("owner_id") or "")
+
     # --- writes ---
+    @staticmethod
+    def _prepare_for_write(brand: dict, *, owner_id: Optional[str] = None) -> dict:
+        out = dict(brand)
+        out.pop("unclaimed", None)                       # presentation flag, never persisted
+        if owner_id and not out.get("owner_id"):
+            out["owner_id"] = str(owner_id)
+        out.setdefault("created_at", int(time.time()))
+        out["updated_at"] = int(time.time())
+        return out
+
+    def _persist_locked(self, brand: dict, *, owner_id: Optional[str] = None) -> dict:
+        """Persist while the caller holds this brand's storage lock."""
+        out = self._prepare_for_write(brand, owner_id=owner_id)
+        _write_atomic(self._path(str(out["domain_key"])),
+                      json.dumps(out, ensure_ascii=False, indent=2))
+        return out
+
     def save(self, brand: dict, *, owner_id: Optional[str] = None) -> dict:
+        """Replace a complete document atomically.
+
+        This is the creation/explicit-replacement primitive, not a stale-snapshot update.  Product
+        flows that modify part of an existing brand use ``update`` or ``mutate`` instead.
+        """
         key = brand.get("domain_key")
         if not key:
             raise ValueError("brand has no domain_key")
-        brand.pop("unclaimed", None)                     # a presentation flag, never persisted
-        if owner_id and not brand.get("owner_id"):
-            brand["owner_id"] = str(owner_id)
-        brand.setdefault("created_at", int(time.time()))
-        brand["updated_at"] = int(time.time())
-        with _WRITE_LOCK:
-            _write_atomic(self._path(key), json.dumps(brand, ensure_ascii=False, indent=2))
-        return brand
+        path = self._path(str(key))
+        with _storage_lock(path):
+            return self._persist_locked(brand, owner_id=owner_id)
+
+    def upsert(self, brand: dict, *, owner_id: Optional[str] = None,
+               preserve_existing: Optional[set[str]] = None) -> Optional[dict]:
+        """Create a brand, or replace only the named top-level fields on its latest state.
+
+        A fresh scrape is a complete projection of the base profile fields it names, so those
+        fields replace.  ``preserve_existing`` names placeholders emitted by that projection which
+        are not deletion requests (analysis/strategy/creative state).
+
+        OWNERSHIP.  A brand ANOTHER account manages is never overwritten and never changes hands.
+        A brand nobody manages yet is CLAIMED by this write when it succeeds — created or
+        unclaimed, the caller that lands the successful result becomes its manager.  The decision
+        is made against the state re-read inside this lock, so when two callers both saw the brand
+        as unclaimed, the second one to arrive here sees the first as its owner and loses.
+        """
+        key = str(brand.get("domain_key") or "")
+        if not key:
+            raise ValueError("brand has no domain_key")
+        path = self._path(key)
+        with _storage_lock(path):
+            exists = path.exists()
+            current = self._read_path(path)
+            if exists and current is None:
+                raise CorruptBrandError(f"stored brand JSON is unreadable: {path.name}")
+            if current is None:
+                candidate = dict(brand)
+                candidate.pop("owner_id", None)
+                return self._persist_locked(candidate, owner_id=owner_id)
+
+            current_owner = str(current.get("owner_id") or "")
+            if owner_id and current_owner and current_owner != str(owner_id):
+                return None                              # someone else manages it: never ours
+            patch = dict(brand)
+            patch.pop("owner_id", None)
+            for field in (preserve_existing or set()):
+                patch.pop(str(field), None)
+            candidate = {**current, **patch}             # named base fields replace; extras survive
+            # CLAIM-ON-SUCCESS.  `owner_id` rides the SAME locked write as the result, so an
+            # unclaimed brand becomes this caller's in one operation — never "claim it, then persist
+            # it", which would leave a window where the brand is owned but still holds the old
+            # result, and would strand ownership if the second write failed.  `_prepare_for_write`
+            # only fills an ABSENT owner, so a re-scrape of my own brand keeps it unchanged.
+            return self._persist_locked(candidate, owner_id=owner_id)
+
+    def mutate(self, domain_key: str, mutator: Callable[[dict], dict], *,
+               for_user: Optional[str] = None) -> Optional[dict]:
+        """Apply ``mutator`` to the latest stored document under its storage lock.
+
+        The callback expresses the exact list/map/delete semantics needed by its caller.  It must
+        return the complete next document; schema-free enrichment keys remain supported.  Identity
+        is immutable here: neither ``domain_key`` nor ``owner_id`` can be changed through a patch.
+        """
+        path = self._path(domain_key)
+        with _storage_lock(path):
+            exists = path.exists()
+            brand = self._read_path(path)
+            if brand is None:
+                if exists:
+                    raise CorruptBrandError(f"stored brand JSON is unreadable: {path.name}")
+                return None
+            if not self._visible_to(brand, for_user):
+                return None
+            original_owner = str(brand.get("owner_id") or "")
+            updated = mutator(dict(brand))
+            if not isinstance(updated, dict):
+                raise TypeError("BrandStore mutator must return a dict")
+            if str(updated.get("domain_key") or "") != str(brand.get("domain_key") or ""):
+                raise ValueError("BrandStore mutation cannot change domain_key")
+            if str(updated.get("owner_id") or "") != original_owner:
+                raise ValueError("BrandStore mutation cannot change owner_id")
+            if updated == brand:
+                return self._mark(updated)
+            return self._persist_locked(updated)
 
     def update(self, domain_key: str, patch: dict, *,
                for_user: Optional[str] = None) -> Optional[dict]:
@@ -184,11 +352,8 @@ class BrandStore:
         that read the same version each saved their own complete snapshot and the second silently
         dropped the first. `_merge_one_level` then handles the longer window, where a patch was
         built from a read taken before an unrelated write landed."""
-        with _WRITE_LOCK:
-            brand = self.get(domain_key, for_user=for_user)
-            if brand is None:
-                return None
-            return self.save(_merge_one_level(brand, patch))
+        return self.mutate(domain_key, lambda brand: _merge_one_level(brand, patch),
+                           for_user=for_user)
 
     def replace_block(self, domain_key: str, block: str, value: dict, *,
                       for_user: Optional[str] = None) -> Optional[dict]:
@@ -205,13 +370,11 @@ class BrandStore:
         belongs to another account. Destructive by design — only for a block the user asked to
         discard.
         """
-        with _WRITE_LOCK:
-            brand = self.get(domain_key, for_user=for_user)
-            if brand is None:
-                return None
-            brand = dict(brand)
+        def replace(brand: dict) -> dict:
             brand[block] = value
-            return self.save(brand)
+            return brand
+
+        return self.mutate(domain_key, replace, for_user=for_user)
 
     def add_nested(self, domain_key: str, block: str, collection: str, item_id: str,
                    item: dict, *, for_user: Optional[str] = None) -> Optional[dict]:
@@ -225,16 +388,15 @@ class BrandStore:
         silently loses the one she was meant to be choosing between.
 
         Returns the stored brand, or None if it is absent or belongs to another account."""
-        with _WRITE_LOCK:
-            brand = self.get(domain_key, for_user=for_user)
-            if brand is None:
-                return None
+        def add(brand: dict) -> dict:
             container = dict(brand.get(block) or {})
             entries = dict(container.get(collection) or {})
             entries[str(item_id)] = item
             container[collection] = entries
             brand[block] = container
-            return self.save(brand)
+            return brand
+
+        return self.mutate(domain_key, add, for_user=for_user)
 
     def delete(self, domain_key: str, *, for_user: Optional[str] = None) -> str:
         """One of DELETED / NOT_FOUND / FORBIDDEN / UNCLAIMED.
@@ -242,21 +404,21 @@ class BrandStore:
         Returns a REASON, not a bool: the route used to answer `200 {"ok": true}` for a key that had
         never existed, and for a delete that failed with an OSError."""
         path = self._path(domain_key)
-        try:
-            brand = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return NOT_FOUND
-        owner = str(brand.get("owner_id") or "")
-        if for_user:
-            if not owner:
-                return UNCLAIMED                         # destructive action needs a proven owner
-            if owner != str(for_user):
-                return FORBIDDEN
-        try:
-            path.unlink()
-        except OSError:
-            return NOT_FOUND
-        return DELETED
+        with _storage_lock(path):
+            brand = self._read_path(path)
+            if brand is None:
+                return NOT_FOUND
+            owner = str(brand.get("owner_id") or "")
+            if for_user:
+                if not owner:
+                    return UNCLAIMED                     # destructive action needs a proven owner
+                if owner != str(for_user):
+                    return FORBIDDEN
+            try:
+                path.unlink()
+            except OSError:
+                return NOT_FOUND
+            return DELETED
 
     def claim_unowned(self, owner_id: str) -> int:
         """Assign every brand that has no owner to `owner_id`. Returns how many were claimed.
@@ -265,15 +427,13 @@ class BrandStore:
         pre-dates ownership, because a guessed owner is invented evidence."""
         claimed = 0
         for p in sorted(self._dir.glob("*.json")):
-            try:
-                brand = json.loads(p.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            if brand.get("owner_id"):
-                continue
-            brand["owner_id"] = str(owner_id)
-            self.save(brand)
-            claimed += 1
+            with _storage_lock(p):
+                brand = self._read_path(p)
+                if brand is None or brand.get("owner_id"):
+                    continue
+                brand["owner_id"] = str(owner_id)
+                self._persist_locked(brand)
+                claimed += 1
         return claimed
 
 

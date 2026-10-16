@@ -22,18 +22,32 @@ import poster.pipeline as pp
 
 SRC = inspect.getsource(pp)
 
+# ⚠️ THIS FILE ASSERTS ON SOURCE TEXT, which is the failure shape `CLAUDE.md` names (P-101 /
+# CS-02): a source-grep test passes while the behaviour it claims to protect is broken, and it
+# fails while the behaviour is fine. It did the latter on 2026-08-12 — an unrelated phase wrote
+# the words "garbled_text" in a COMMENT ~700 lines above the gate, `SRC.index('garbled_text')`
+# anchored on the comment, and the window no longer reached the code. Nothing about the degrade
+# had changed. Anchoring on the gate STATEMENT below is a locator repair, not a fix: these tests
+# should be rewritten to drive `generate_poster` and assert the lane it actually takes.
+_GATE = 'if getattr(verdict, "garbled_text", False):'
+
+
+def _gate_window(size: int = 1800) -> str:
+    """The source of the malformed-text gate itself, not the first mention of its name."""
+    assert SRC.count(_GATE) == 1, "the garbled-text gate moved or was duplicated"
+    start = SRC.index(_GATE)
+    return SRC[start:start + size]
+
 
 def test_a_garbled_label_degrades_the_hybrid_lane():
-    i = SRC.index('garbled_text')
-    window = SRC[i:i + 1800]
+    window = _gate_window()
     assert "_hybrid_degraded = True" in window, (
         "a malformed reprojected label still leaves the next attempt on the hybrid lane"
     )
 
 
 def test_it_degrades_only_once_and_only_on_the_hybrid_lane():
-    i = SRC.index('garbled_text')
-    window = SRC[i:i + 1800]
+    window = _gate_window()
     assert "_use_hybrid and not _hybrid_degraded" in window, (
         "the degrade must be guarded — repeating it on the paste lane would be a no-op that reads "
         "like a fix"

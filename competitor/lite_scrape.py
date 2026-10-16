@@ -23,9 +23,10 @@ Never raises.
 """
 from __future__ import annotations
 
-import urllib.error
 import urllib.request
 from typing import Callable, Optional
+
+from scraper.url_utils import open_public_url
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
@@ -33,26 +34,12 @@ _MAX_BYTES = 1_500_000
 _TIMEOUT_S = 10
 
 
-class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """CS-48: `is_safe_public_url` only vetted the FIRST URL; urlopen then followed a 302 to any
-    host, so a public page 302-ing to http://169.254.169.254/ (cloud metadata) or 127.0.0.1 was an
-    SSRF sink. Re-validate every redirect target and refuse an unsafe one — the exact hole P-60
-    closed in the main scraper but never enumerated on this sink."""
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        from scraper.url_utils import is_safe_public_url
-        if not is_safe_public_url(newurl):
-            raise urllib.error.HTTPError(newurl, code,
-                                         "refused redirect to a non-public host (SSRF guard)",
-                                         headers, fp)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
 def _default_fetch(url: str) -> Optional[str]:
-    req = urllib.request.Request(url, headers={"User-Agent": _UA,
-                                               "Accept-Language": "en,ar;q=0.8"})
-    # build_opener with the safe redirect handler so 302s are re-validated (SSRF guard).
-    opener = urllib.request.build_opener(_SafeRedirectHandler())
-    with opener.open(req, timeout=_TIMEOUT_S) as resp:
+    # No Accept-Language, for the same reason the main scraper stopped sending one: a competitor
+    # that negotiates on language would hand us the ENGLISH edition because we asked for it, and
+    # the benchmark would then describe a representation we selected. Let the server choose.
+    req = urllib.request.Request(url, headers={"User-Agent": _UA})
+    with open_public_url(req, timeout=_TIMEOUT_S) as resp:
         raw = resp.read(_MAX_BYTES)
     return raw.decode("utf-8", errors="replace")
 

@@ -25,20 +25,25 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 from .. import brand_store as bs
-from ..brand_store import BrandStore, read_history
+from ..persistence import get_persistence
 from .auth import require_user
 
 router = APIRouter()
 
 
+def _store():
+    """The configured backend. Legacy unless an operator selected otherwise."""
+    return get_persistence()
+
+
 @router.get("/brands")
 def list_brands(user: dict = Depends(require_user)) -> dict:
-    return {"brands": BrandStore().list(for_user=user["id"])}
+    return {"brands": _store().visible_brands(user_id=user["id"])}
 
 
 @router.get("/brands/{domain_key}")
 def get_brand(domain_key: str, user: dict = Depends(require_user)) -> dict:
-    brand = BrandStore().get(domain_key, for_user=user["id"])
+    brand = _store().visible_brand(domain_key=domain_key, user_id=user["id"])
     if brand is None:
         # Deliberately indistinguishable from "absent": whether another account holds this brand is
         # itself information the caller is not entitled to.
@@ -91,8 +96,8 @@ def adopt_analysis(domain_key: str, user: dict = Depends(require_user)) -> dict:
 
     Free and instant: it reads a file. `POST /api/analysis/swot` still exists for a fresh compute.
     """
-    store = BrandStore()
-    brand = store.get(domain_key, for_user=user["id"])
+    store = _store()
+    brand = store.visible_brand(domain_key=domain_key, user_id=user["id"])
     if brand is None:
         raise HTTPException(status_code=404, detail="Brand not found.")
 
@@ -103,7 +108,9 @@ def adopt_analysis(domain_key: str, user: dict = Depends(require_user)) -> dict:
 
     from ..webapp_analysis import adopt_full_result
     patch = adopt_full_result(brand, result)
-    store.update(domain_key, patch, for_user=user["id"])
+    # Recorded as a `swot` run: what makes this worth adopting is that it CARRIES a SWOT, and the
+    # adopted one must be approvable and supersedable exactly like a generated one.
+    store.record_enrichment(domain_key=domain_key, user_id=user["id"], kind="swot", patch=patch)
     return {"adopted": True, "source": filename,
             "swot": bool(patch.get("has_swot")),
             "trends": len(((patch.get("swot") or {}).get("trends")) or []),
@@ -119,10 +126,10 @@ class OwnerInputs(BaseModel):
 
 @router.get("/brands/{domain_key}/owner-inputs")
 def get_owner_inputs(domain_key: str, user: dict = Depends(require_user)) -> dict:
-    brand = BrandStore().get(domain_key, for_user=user["id"])
-    if brand is None:
+    values = _store().owner_inputs(domain_key=domain_key, user_id=user["id"])
+    if values is None:
         raise HTTPException(status_code=404, detail="Brand not found.")
-    return {"owner_inputs": brand.get("owner_inputs") or {}}
+    return {"owner_inputs": values}
 
 
 @router.post("/brands/{domain_key}/owner-inputs")
@@ -138,20 +145,21 @@ def set_owner_inputs(domain_key: str, req: OwnerInputs,
     number on her plan that she never typed. Dropping keeps the honest "this is a category default"
     label the panel already knows how to show.
     """
-    store = BrandStore()
-    if store.get(domain_key, for_user=user["id"]) is None:
+    store = _store()
+    if store.visible_brand(domain_key=domain_key, user_id=user["id"]) is None:
         raise HTTPException(status_code=404, detail="Brand not found.")
 
     from ..webapp_analysis import sanitize_owner_inputs
     clean = sanitize_owner_inputs(req.model_dump())
-    store.replace_block(domain_key, "owner_inputs", clean, for_user=user["id"])
+    if store.set_owner_inputs(domain_key=domain_key, user_id=user["id"], values=clean) is None:
+        raise HTTPException(status_code=404, detail="Brand not found.")
 
     # HER NUMBER MUST CHANGE THE PLAN, or the box is decoration. `build_media_plan_v2` is
     # deterministic and free (no caller, no spend), so the governing numbers — capacity_source
     # flipping to "human", the recomputed spend ceiling, the shrinking open_inputs list — are
     # recomputed on the spot from the same stored inputs the original plan was built from.
     recomputed = False
-    brand = store.get(domain_key, for_user=user["id"]) or {}
+    brand = store.visible_brand(domain_key=domain_key, user_id=user["id"]) or {}
     fr = brand.get("_full_result") or {}
     profile = brand.get("_profile") or fr.get("profile") or {}
     if profile and fr.get("media_plan_v2"):
@@ -169,9 +177,21 @@ def set_owner_inputs(domain_key: str, req: OwnerInputs,
                 margin=(clean["profit_margin_pct"] / 100.0
                         if "profit_margin_pct" in clean else None),
             )
-            fr = dict(fr)
-            fr["media_plan_v2"] = v2.model_dump(mode="json")
-            store.update(domain_key, {"_full_result": fr}, for_user=user["id"])
+            media_plan_v2 = v2.model_dump(mode="json")
+
+            # The deterministic build above can overlap an analysis/adoption job. Commit ONLY the
+            # value this operation computed: carry the latest `_full_result` forward and change the
+            # one key, rather than replaying the whole `fr` snapshot read before the build — which
+            # would silently revert unrelated analysis keys committed in the meantime.
+            latest = store.visible_brand(domain_key=domain_key, user_id=user["id"])
+            if latest is None:
+                raise OSError("brand disappeared before media_plan_v2 could be persisted")
+            latest_result = dict(latest.get("_full_result") or {})
+            latest_result["media_plan_v2"] = media_plan_v2
+            if store.record_enrichment(domain_key=domain_key, user_id=user["id"],
+                                       kind="calendar",
+                                       patch={"_full_result": latest_result}) is None:
+                raise OSError("brand disappeared before media_plan_v2 could be persisted")
             recomputed = True
         except Exception:  # noqa: BLE001 — saving her numbers must never fail on the recompute
             logger.exception("media_plan_v2 recompute failed")
@@ -191,14 +211,15 @@ def refresh_trends(domain_key: str, user: dict = Depends(require_user)) -> dict:
     an attribute hung on the SWOT after synthesis, so a brand with no SWOT had no signals at all
     (measured: pepsi_com) and every SWOT regeneration paid for the same results again.
     """
-    store = BrandStore()
-    brand = store.get(domain_key, for_user=user["id"])
+    store = _store()
+    brand = store.visible_brand(domain_key=domain_key, user_id=user["id"])
     if brand is None:
         raise HTTPException(status_code=404, detail="Brand not found.")
 
     from ..webapp_analysis import fetch_trends_for_brand, trends_patch
     rows = fetch_trends_for_brand(brand)
-    store.update(domain_key, trends_patch(rows), for_user=user["id"])
+    store.record_enrichment(domain_key=domain_key, user_id=user["id"], kind="trends",
+                            patch=trends_patch(rows))
     return {"trends": rows, "count": len(rows),
             "note": ("no on-topic market coverage was found for this brand's terms"
                      if not rows else "")}
@@ -215,7 +236,7 @@ def delete_brand(domain_key: str, user: dict = Depends(require_user)) -> dict:
     "absent" answered 200, the status code itself would tell an attacker which brands exist in
     other accounts. Nothing is deleted in either case; only the caller's own data can be destroyed.
     """
-    outcome = BrandStore().delete(domain_key, for_user=user["id"])
+    outcome = _store().archive_brand(domain_key=domain_key, user_id=user["id"])
     if outcome == bs.UNCLAIMED:
         # Not a leak: unclaimed brands are already visible to this caller, so naming the state
         # tells them nothing new — and it is the one outcome they can act on.
@@ -228,7 +249,14 @@ def delete_brand(domain_key: str, user: dict = Depends(require_user)) -> dict:
 
 @router.get("/history")
 def history(limit: int = 100, user: dict = Depends(require_user)) -> dict:
-    return {"history": read_history(limit, for_user=user["id"])}
+    """The generated-image gallery, from whichever store owns it.
+
+    ONE authority, never both. Under PostgreSQL this reads `gallery_entries` joined to
+    `gallery_blobs` and reconstitutes the bytes from the managed store; it does NOT fall back to
+    `history.json` when a row or a file is missing. A read that quietly consults the other store is
+    how two authorities become one apparent answer that neither store agrees with.
+    """
+    return {"history": _store().gallery_history(user_id=user["id"], limit=limit)}
 
 
 # ---------------------------------------------------------------------
@@ -250,7 +278,7 @@ class CompetitorIn(BaseModel):
 def _brand_ref(domain_key: str, user_id: str) -> str:
     """The registry key for this brand — derived from the SAME profile the SWOT will use, so a
     competitor added here is found by the analysis later."""
-    brand = BrandStore().get(domain_key, for_user=user_id)
+    brand = _store().visible_brand(domain_key=domain_key, user_id=user_id)
     if brand is None:
         raise HTTPException(status_code=404, detail="Brand not found.")
     from competitor.registry import brand_ref_from_profile

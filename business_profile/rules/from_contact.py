@@ -19,10 +19,12 @@ header — if it's in the captured text, we extract it.
 from __future__ import annotations
 
 import re
+from typing import Optional
 
 import phonenumbers
 
 from scraper.schemas import ScrapeManifest
+from scraper.url_utils import region_from_site
 
 from ..schemas import ContactChannels, EvidenceItem, PhoneChannel
 
@@ -80,53 +82,50 @@ _CURRENCY_RE = re.compile(
 _CLAUSE_SEPARATOR_RE = re.compile(r"[.,،;•·\n\r]+")
 
 
-def _scan_text_for_phones(text: str, region: str = "EG") -> list[str]:
+def _scan_text_for_phones(text: str, region: Optional[str] = None) -> list[str]:
     """Return E.164-formatted phone numbers found in `text`.
 
     Uses phonenumbers.PhoneNumberMatcher with leniency=VALID — validates
     against real number formats. Rejects "© 2018-2024", tracking IDs,
     build hashes, timestamps.
 
-    Runs THREE passes:
-      1. region=<default>:  catches local-format numbers for that region
-         (e.g. "010 0123 4567" in EG).
-      2. region="US":       catches US-formatted numbers like "(888) 631-7760"
-         common on international ecommerce sites' support pages (added
-         2026-06 after Glamira's US support line went unextracted).
-      3. region=None:       catches any number that includes its own
-         country code with a "+" prefix (e.g. "+44 20 7946 0958").
-
-    We deliberately stop at EG + US + international-prefix. Each added
-    region increases false-positive risk on text that happens to look
-    like a phone in that format. EG and US together cover the test grid
-    (Egyptian-market focus + global ecom support lines).
+    Local-format numbers are interpreted only when ``region`` came from
+    genuine site context. With ``region=None``, only numbers carrying their
+    own international prefix can be normalized; unknown does not become EG
+    (or any other market) merely because the digits fit that market.
     """
     out: list[str] = []
     if not text or len(text) > 50_000:
         return out
     seen = set()
-    # Dedupe regions in case the caller passes region="US" explicitly
-    regions: list = []
-    for r in (region, "US", None):
-        if r not in regions:
-            regions.append(r)
-    for r in regions:
-        try:
-            for match in phonenumbers.PhoneNumberMatcher(
-                text, r,
-                leniency=phonenumbers.Leniency.VALID,
-            ):
-                e164 = phonenumbers.format_number(
-                    match.number, phonenumbers.PhoneNumberFormat.E164,
-                )
-                if e164 and e164 not in seen:
-                    seen.add(e164)
-                    out.append(e164)
-        except Exception:
-            # phonenumbers is well-behaved but defensive: never crash the
-            # whole profile extraction over one bad text block
-            continue
+    try:
+        for match in phonenumbers.PhoneNumberMatcher(
+            text, region,
+            leniency=phonenumbers.Leniency.VALID,
+        ):
+            e164 = phonenumbers.format_number(
+                match.number, phonenumbers.PhoneNumberFormat.E164,
+            )
+            if e164 and e164 not in seen:
+                seen.add(e164)
+                out.append(e164)
+    except Exception:
+        # Never crash profile extraction over one malformed text block.
+        pass
     return out
+
+
+def _phone_region_for_manifest(manifest: ScrapeManifest) -> Optional[str]:
+    """Resolve phone context only from URLs already captured in the manifest."""
+    meta = manifest.scrape_meta
+    candidates = [meta.final_url, meta.normalized_url, meta.input_url]
+    for page in manifest.pages:
+        candidates.extend([page.final_url, page.url])
+    for url in candidates:
+        region = region_from_site(url)
+        if region:
+            return region
+    return None
 
 
 def _scan_text_for_short_codes(text: str) -> list[str]:
@@ -325,6 +324,7 @@ def extract_contact(manifest: ScrapeManifest) -> ContactChannels:
     # tracking IDs, timestamps, and "© 2018-2024" don't slip through.
     # Short-codes (3-7 digit hotlines) require a trigger word in the
     # surrounding text — same conservative gate.
+    phone_region = _phone_region_for_manifest(manifest)
     for page in manifest.pages:
         for block in page.text_blocks:
             block_text = block.text or ""
@@ -332,7 +332,7 @@ def extract_contact(manifest: ScrapeManifest) -> ContactChannels:
                 continue
 
             # Full international phones
-            for e164 in _scan_text_for_phones(block_text, region="EG"):
+            for e164 in _scan_text_for_phones(block_text, region=phone_region):
                 if e164 in seen_phone_keys:
                     continue
                 seen_phone_keys.add(e164)

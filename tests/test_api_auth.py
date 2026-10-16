@@ -72,12 +72,14 @@ def test_no_key_configured_rejects_remote_caller(monkeypatch):
     assert "BASEERA_API_KEY" in r.json()["detail"]
 
 
-def test_free_routes_stay_open(monkeypatch):
-    """health + job status never spend, so they must work with no key."""
+def test_health_stays_public_and_jobs_are_not_confused_with_the_paid_api_key_gate(monkeypatch):
+    """Health is public; job reads use their own owner/capability boundary, not X-API-Key."""
     monkeypatch.setenv("BASEERA_API_KEY", "s3cret")
     with TestClient(app) as client:
         assert client.get("/api/health").status_code == 200
-        assert client.get("/api/jobs/does-not-exist").status_code == 404  # reached handler, not gated
+        response = client.get("/api/jobs/does-not-exist")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Job not found."}
 
 
 # ---- P-56: bound the client-supplied profile ----

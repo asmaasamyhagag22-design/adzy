@@ -241,27 +241,22 @@ def select_candidate(brand: dict, candidate_id: str) -> dict:
         "validated": True,
         "is_preview": chosen.get("is_preview", True),
         "degraded_reason": chosen.get("degraded_reason", ""),
-        "config": {**ai.get("config", {}), "influencer_persona": chosen.get("persona", "")},
+        # Patch only the value selection derives.  Replaying the whole config read above can undo
+        # independent owner edits that commit before this patch reaches BrandStore.
+        "config": {"influencer_persona": chosen.get("persona", "")},
     }}
 
 
-def selected_face_bytes(brand: dict) -> tuple:
-    """The chosen face as BYTES — what actually travels to a render.
-
-    Until now the only thing that reached the poster was a sentence describing the person
-    (`config.influencer_persona`), so "the same person" was a hope. Returns (None, "") when nothing
-    is selected or the file is gone: the caller must then refuse to claim an influencer render
-    rather than silently substituting a description."""
-    ai = brand.get("ai_influencer") or {}
-    # STRICTLY the selected candidate. `portrait_url` is a display pointer at the NEWEST face, so
-    # falling back to it would render a poster starring whoever was generated last rather than
-    # whoever the owner chose — the exact ambiguity the selection id exists to remove.
-    chosen = (ai.get("candidates") or {}).get(ai.get("selected_id") or "")
-    url = str((chosen or {}).get("url") or "")
-    if not url:
-        return None, ""
-    data = images.read_generated_png(url.rsplit("/", 1)[-1])
-    return (data, "image/png") if data else (None, "")
+# C7: `selected_face_bytes` now lives in `api.webapp_images`, beside the generated-asset storage
+# it reads through. Re-exported here as a MODULE-LEVEL name so existing callers
+# (`inf.selected_face_bytes(...)`) and existing monkeypatches keep working unchanged, and so the
+# functions below still resolve it through this module's globals.
+#
+# The direction is what matters: this module imports `webapp_images`, and `webapp_images` imports
+# nothing back. Before, each imported the other, and whichever was imported first in a fresh
+# process handed the second a half-built module — which is why `import api.webapp_influencer` on
+# its own raised ImportError while `import api.main` happened to work.
+selected_face_bytes = images.selected_face_bytes
 
 
 def generate_portrait(brand: dict, cfg: dict) -> dict:
@@ -307,9 +302,12 @@ def generate_influencer_poster(brand: dict, *, product_hint: str = "",
             degraded = "no selected influencer face could be read — pick a look first"
         else:
             try:
-                png = _render_influencer_poster(
+                rendered = _render_influencer_poster(
                     brand, persona=persona, face=(face, face_mime),
                     product_hint=product_hint, scene_description=scene_description)
+                png = rendered.png
+                qa_disclosure = images.qa_disclosure_for_verdict(
+                    getattr(rendered.result, "qa", None))
                 is_preview = False
             except Exception as exc:  # noqa: BLE001
                 degraded = f"{type(exc).__name__}: {exc}"[:200]
@@ -323,18 +321,26 @@ def generate_influencer_poster(brand: dict, *, product_hint: str = "",
                     avatar=False)
         is_preview = True
         degraded = degraded or (_NO_PIPELINE_REASON if images.paid_images_enabled() else "")
+        # The free fallback is not the paid candidate the pipeline may have inspected.
+        qa_disclosure = images.qa_disclosure_for_verdict()
 
     url = images.save_generated_png(
         png, images.unique_asset_name(brand.get("domain_key", "brand"), "influencer_poster"))
-    ai.update({"has_poster": True, "poster_url": url,
-               "config": {**ai.get("config", {}), "product_hint": product_hint,
-                          "scene_description": scene_description},
-               "is_preview": is_preview, "degraded_reason": degraded})
-    return {"ai_influencer": ai}
+    # Return only metadata produced by THIS job.  `ai` is the snapshot read before rendering; if it
+    # is returned wholesale it can resurrect a candidate the owner reset, or overwrite a config
+    # edit made while the image was rendering.
+    return {"ai_influencer": {
+        "has_poster": True,
+        "poster_url": url,
+        "config": {"product_hint": product_hint, "scene_description": scene_description},
+        "is_preview": is_preview,
+        "degraded_reason": degraded,
+        **qa_disclosure,
+    }}
 
 
 def _render_influencer_poster(brand: dict, *, persona: str, face: tuple,
-                              product_hint: str = "", scene_description: str = "") -> bytes:
+                              product_hint: str = "", scene_description: str = "") -> images.RealRender:
     """The real branded poster, through the existing poster pipeline with the face attached.
 
     Deliberately the WHOLE pipeline and not a bare image call: that is what puts the gate-verified
@@ -353,10 +359,11 @@ def _render_influencer_poster(brand: dict, *, persona: str, face: tuple,
     scene = "; ".join(x for x in (scene_description, f"presenting {product_hint}"
                                   if product_hint else "") if x)
     res = generate_poster(profile, caller=default_caller(strong=True), engine="oneshot",
+                          domain_key=str(brand.get("domain_key") or ""),
                           language=images.brand_language(brand),
                           identity_image=face,
                           identity_persona=persona,
                           trend_context=scene or None)
     if not (res and res.image_base64):
         raise RuntimeError("the poster pipeline returned no image")
-    return base64.b64decode(res.image_base64)
+    return images.RealRender(png=base64.b64decode(res.image_base64), result=res)

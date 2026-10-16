@@ -1,0 +1,37 @@
+{
+  "synthetic": true,
+  "shell": "actual Adzy /app",
+  "interaction": "CUA browser UI login, Think, Strategy, refresh, process restart, Lock this strategy, Prepare the poster",
+  "before_restart": {
+    "workflow_id": "fea5006b-3a96-4707-8fd9-0a0d666c0c6e",
+    "status": "NEEDS_REVIEW",
+    "pending_nodes": [
+      "human_review"
+    ],
+    "approval_count": 0,
+    "exact_subject": true,
+    "contract_id": null,
+    "approval_subjects_match": true
+  },
+  "after_ui_resume": {
+    "workflow_id": "fea5006b-3a96-4707-8fd9-0a0d666c0c6e",
+    "status": "READY_FOR_CREATIVE",
+    "pending_nodes": [],
+    "approval_count": 1,
+    "exact_subject": true,
+    "contract_id": "cc_ad7543f1fa775971a55c182bf17a035d",
+    "approval_subjects_match": true
+  },
+  "browser_resume_sdk_observations": 6,
+  "sdk_trace_matches_workflow": true,
+  "sdk_names": [
+    "human_review",
+    "apply_decision",
+    "inspect_research_readiness",
+    "inspect_creative_contract_requirements",
+    "compile_contract",
+    "review_segment"
+  ],
+  "hosted_ingestion": false,
+  "paid_generation_clicked": false
+}

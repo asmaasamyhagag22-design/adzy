@@ -546,6 +546,12 @@ class BusinessProfile(BaseModel):
     # it reached `competitor/matrix.py` and stopped — so the decision that sets the language a
     # CUSTOMER HEARS never saw it, and an Egyptian pharmacy shipped an English commercial.
     declared_languages: list[str] = Field(default_factory=list)
+    # HOW `languages` was observed, not which language it is. Without this a measurement taken
+    # while the browser rendered under a technical FALLBACK locale is indistinguishable from one
+    # the site itself evidenced — and the fallback becomes evidence. Plain dict so an old profile
+    # loads unchanged; absent means "unknown provenance", never "proven".
+    language_evidence: dict = Field(default_factory=dict)
+
     hours: Optional[OpeningHours] = None
 
     # --- Contact & acquisition ---

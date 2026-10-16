@@ -126,7 +126,7 @@ def test_create_unknown_brand_404(client):
 
 def test_portrait_job_then_validate_then_poster(client):
     import asyncio
-    from api.jobs.store import JobStore
+    from api.jobs.store import JobStore, serving_store
     from api.webapp_jobs import run_brand_job
     from api.schemas import JobStatus
 
@@ -136,11 +136,12 @@ def test_portrait_job_then_validate_then_poster(client):
     def _drive(work):
         async def run_it():
             store = JobStore(ttl_seconds=60)
-            job = store.create()
-            job.domain_key = dk
-            store.attach_loop(job.job_id, asyncio.get_running_loop())
-            await run_brand_job(job_id=job.job_id, domain_key=dk, store=store, work=work)
-            return store.get(job.job_id).status
+            with serving_store(store):
+                job = store.create()
+                job.domain_key = dk
+                store.attach_loop(job.job_id, asyncio.get_running_loop())
+                await run_brand_job(job_id=job.job_id, domain_key=dk, work=work)
+                return store.get(job.job_id).status
         return asyncio.run(run_it())
 
     # 1) portrait

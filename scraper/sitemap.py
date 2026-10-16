@@ -29,11 +29,11 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import urljoin, urlparse, urlunparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from .config import USER_AGENT
 from .schemas import RobotsRecord
-from .url_utils import normalize_url, same_registrable_host
+from .url_utils import normalize_url, open_public_url, same_registrable_host
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +227,7 @@ def _fetch_sitemap_bytes(url: str) -> Optional[bytes]:
                 "Accept": "application/xml, text/xml, */*",
             },
         )
-        with urlopen(req, timeout=SITEMAP_FETCH_TIMEOUT_S) as resp:
+        with open_public_url(req, timeout=SITEMAP_FETCH_TIMEOUT_S) as resp:
             data = resp.read(MAX_SITEMAP_BYTES + 1)
             if len(data) > MAX_SITEMAP_BYTES:
                 logger.warning("sitemap too large, ignoring: %s", url)

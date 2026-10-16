@@ -10,10 +10,11 @@ import logging
 from typing import Any
 
 from fastapi import Depends, APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .auth import require_user
-from ..brand_store import BrandStore
+from ..http_errors import reraise_as_http
+from ..persistence import get_persistence
 from ..webapp_jobs import run_brand_job as _run  # re-exported for tests
 from ..webapp_jobs import start_brand_job
 from .. import webapp_analysis as analysis
@@ -28,22 +29,44 @@ class DomainKeyRequest(BaseModel):
     domain_key: str
 
 
+class ApproveRequest(BaseModel):
+    domain_key: str
+    # Validate subject AFTER brand authorization in the persistence boundary. Legacy documents
+    # have no immutable Run identity; PostgreSQL requires a well-formed reviewed UUID.
+    swot_run_id: Any = None
+
+
 class PlanRequest(BaseModel):
     domain_key: str
     planning_period: str = "1_month"
     campaign_objective: str = ""
 
 
+class StrategyRequest(BaseModel):
+    domain_key: str
+    # Parsed inside the handler AFTER ownership/SWOT gates, so an absent objective cannot turn a
+    # foreign brand's truthful 404 (or an unapproved SWOT's 409) into a validation side channel.
+    objective: dict[str, Any] | None = None
+    requested_scope: dict[str, Any] = Field(default_factory=dict)
+
+
+class StrategyDecisionRequest(BaseModel):
+    domain_key: str
+    strategy_run_id: str
+    decision: str = "approved"
+    note: str = ""
+
+
 def _brand_or_404(domain_key: str, user_id: str = "") -> dict:
     """Resolve a brand the CALLER is entitled to. A brand owned by another account resolves to 404,
     exactly as an absent one does — whether it exists elsewhere is not the caller's information."""
-    brand = BrandStore().get(domain_key, for_user=user_id or None)
+    brand = get_persistence().visible_brand(domain_key=domain_key, user_id=user_id or "")
     if brand is None:
         raise HTTPException(status_code=404, detail="Brand not found.")
     return brand
 
 
-def _start_job(request: Request, domain_key: str, work, user_id: str) -> dict:
+def _start_job(request: Request, domain_key: str, work, user_id: str, kind: str) -> dict:
     """404 early if the brand is gone, then run `work(brand)->patch` as a background brand job.
 
     `user_id` is REQUIRED, deliberately. It was optional for one revision and one of the three call
@@ -53,33 +76,84 @@ def _start_job(request: Request, domain_key: str, work, user_id: str) -> dict:
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated.")
     _brand_or_404(domain_key, user_id)
-    return start_brand_job(request, domain_key, work, owner_id=user_id)
+    return start_brand_job(request, domain_key, work, owner_id=user_id, kind=kind)
 
 
 # --- SWOT ---
 @router.post("/swot/generate")
 async def swot_generate(req: DomainKeyRequest, request: Request,
                         user: dict = Depends(require_user)) -> dict:
-    return _start_job(request, req.domain_key, analysis.generate_swot, user["id"])
+    return _start_job(request, req.domain_key, analysis.generate_swot, user["id"], kind="swot")
 
 
 @router.post("/swot/approve")
-def swot_approve(req: DomainKeyRequest, user: dict = Depends(require_user)) -> dict:
-    brand = _brand_or_404(req.domain_key, user["id"])
-    if not brand.get("has_swot"):
-        raise HTTPException(status_code=409, detail="Generate the SWOT before approving it.")
-    BrandStore().update(req.domain_key, {"swot_approved": True}, for_user=user["id"])
-    return {"ok": True, "swot_approved": True}
+def swot_approve(req: ApproveRequest, user: dict = Depends(require_user)) -> dict:
+    """Approve the SWOT that is current RIGHT NOW — and refuse if that is not the one submitted.
+
+    The stale case is not hypothetical: generation is asynchronous, so a background SWOT can land
+    between the moment the panel renders and the moment the human clicks approve. Approving anyway
+    would open the strategy gate for a document nobody reviewed.
+    """
+    _brand_or_404(req.domain_key, user["id"])
+    try:
+        outcome = get_persistence().approve_swot(
+            domain_key=req.domain_key, user_id=user["id"], expected_run_id=req.swot_run_id)
+    except Exception as exc:  # noqa: BLE001 — domain errors are translated; anything else re-raises
+        reraise_as_http(exc)
+        raise
+    return {"ok": True, **outcome}
 
 
 # --- Strategy ---
 @router.post("/strategy/generate")
-async def strategy_generate(req: DomainKeyRequest, request: Request,
+async def strategy_generate(req: StrategyRequest, request: Request,
                             user: dict = Depends(require_user)) -> dict:
     brand = _brand_or_404(req.domain_key, user["id"])
     if not brand.get("swot_approved"):
         raise HTTPException(status_code=409, detail="Approve the SWOT before generating the strategy.")
-    return _start_job(request, req.domain_key, analysis.generate_strategy, user["id"])
+    persistence = get_persistence()
+    if not persistence.supports_canonical_strategy():
+        raise HTTPException(
+            status_code=503,
+            detail="Canonical strategy requires the PostgreSQL persistence backend.")
+    try:
+        from strategy.positioning import build_positioning_strategy, objective_from_mapping
+        objective = objective_from_mapping(req.objective or {})
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid explicit business objective: {exc}") from exc
+
+    swot_run_id = str(brand.get("swot_run_id") or "")
+    if not swot_run_id:
+        raise HTTPException(
+            status_code=409,
+            detail="The approved SWOT has no immutable Run identity; regenerate and approve it.")
+
+    def _work(current: dict):
+        if (str(current.get("swot_run_id") or "") != swot_run_id
+                or not bool(current.get("swot_approved"))):
+            # Generation is asynchronous. Never build from a newer/unapproved SWOT while filing
+            # the captured approved Run as the dependency.
+            raise RuntimeError("the approved SWOT changed before strategy generation started")
+        return build_positioning_strategy(
+            current, objective=objective, requested_scope=req.requested_scope,
+            swot_run_id=swot_run_id)
+
+    return _start_job(request, req.domain_key, _work, user["id"], kind="strategy")
+
+
+@router.post("/strategy/decide")
+def strategy_decide(req: StrategyDecisionRequest,
+                    user: dict = Depends(require_user)) -> dict:
+    _brand_or_404(req.domain_key, user["id"])
+    if req.decision not in ("approved", "rejected"):
+        raise HTTPException(status_code=422, detail="decision must be approved or rejected")
+    try:
+        return get_persistence().decide_strategy(
+            domain_key=req.domain_key, user_id=user["id"], run_id=req.strategy_run_id,
+            decision=req.decision, note=req.note)
+    except Exception as exc:  # noqa: BLE001
+        reraise_as_http(exc)
+        raise
 
 
 # --- Marketing plan + calendar ---
@@ -94,7 +168,9 @@ async def marketing_plan_generate(req: PlanRequest, request: Request,
         return analysis.generate_plan(b, planning_period=req.planning_period,
                                       campaign_objective=req.campaign_objective)
 
-    return _start_job(request, req.domain_key, _work, user["id"])
+    # `calendar`: one plan run produces the marketing plan AND the content calendar together, and
+    # the schema's vocabulary has one kind for that pair.
+    return _start_job(request, req.domain_key, _work, user["id"], kind="calendar")
 
 
 # --- Social performance: what actually gets the likes ---

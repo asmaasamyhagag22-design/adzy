@@ -60,14 +60,20 @@ def locale_for(accept_language: str) -> str:
 
 
 def browser_headers(version: str) -> dict:
-    """Client hints that agree with the user agent, plus the project's Accept-Language.
+    """Client hints that agree with the user agent.
 
     An empty `Sec-CH-UA` from something claiming to be Chrome is a contradiction on its own; real
     Chrome always sends brands.
+
+    `Accept-Language` is deliberately ABSENT. Language preference is not identity, it selects
+    which representation a negotiating server returns — so it is decided once, per-request, by
+    `fetcher._continue_with_language_policy`, and defaults to sending nothing at all. Setting it
+    here would not have worked anyway: MEASURED against a local origin, Chromium serves the
+    TOP-LEVEL navigation's `Accept-Language` from the context locale and only applies this dict to
+    subresources, so the header here governed neither the edition a site chose nor half the crawl.
     """
     m = _major(version)
     return {
-        "Accept-Language": ACCEPT_LANGUAGE,
         "Sec-CH-UA": f'"Chromium";v="{m}", "Google Chrome";v="{m}", "Not?A_Brand";v="24"',
         "Sec-CH-UA-Mobile": "?0",
         "Sec-CH-UA-Platform": _PLATFORM,

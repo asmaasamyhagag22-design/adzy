@@ -11,7 +11,8 @@ from business_profile.llm.caller import MockCaller
 
 _AR = {
     "name": {"value": "WE"},
-    "languages": ["en", "ar"],
+    # Ordered by measured dominance: this fixture exercises an Arabic creative, so Arabic leads.
+    "languages": ["ar", "en"],
     "description": {"value": "شركة المصرية للاتصالات تقدم خدمات الموبايل والإنترنت"},
     "offerings": [{"name": "مركز الاتصال المستضاف"}, {"name": "vehicle tracking"}],
 }
@@ -29,7 +30,7 @@ def _resp(**kw) -> _ConceptResponse:
     return _ConceptResponse(**base)
 
 
-def test_brand_is_arabic_detects_language_and_script():
+def test_brand_is_arabic_uses_the_dominant_measured_language():
     assert brand_is_arabic(_AR)
     assert not brand_is_arabic(_EN)
 

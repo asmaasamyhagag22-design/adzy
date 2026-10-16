@@ -494,7 +494,8 @@ def render_creative_reel(
             # file degrades to exactly the old behaviour.
             _dna = None
             try:
-                # The poster's own resolver: cached brandbook by slug, else None (never builds
+                # The poster's own resolver: cached brandbook by domain_key, else None (never
+                # builds
                 # here — a reel render must not trigger a Serper+vision DNA build as a side effect).
                 from poster.pipeline import load_or_build_dna
                 _dna = load_or_build_dna(profile, None)

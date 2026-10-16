@@ -174,5 +174,14 @@ class PosterFromProfileResponse(BaseModel):
     # not be built — never fabricated.
     audit: Optional[dict] = None
     compliance_sheet: Optional[dict] = None
-    # Which engine actually shipped this poster ("oneshot" | "classic").
+    # Which engine produced this poster ("oneshot" | "classic").
     engine_used: str = "classic"
+    # Generation remains readable even when visual QA did not establish acceptance.
+    visual_qa: Optional[dict] = None
+    acceptance_decision: Optional[dict] = None
+    canonical_qa_status: str = "QA_UNVERIFIED"
+    qa_executed: bool = False
+    qa_passed: bool = False
+    accepted: bool = False
+    publishable: bool = False
+    deliverable: bool = False

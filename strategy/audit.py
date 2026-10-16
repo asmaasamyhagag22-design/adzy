@@ -2,13 +2,13 @@
 
 The SAME shape as the verified poster trail (`poster/audit.py`), per item:
   * `shipped_copy` — the (claim -> REAL source URL) trail of the item's surviving
-    hook/angle/topic, via `EvidenceLedger.audit_fields(...).export()`. Resolution is the
+    hook/angle/topic/CTA, via `EvidenceLedger.audit_fields(...).export()`. Resolution is the
     SAME language-aware resolver the poster uses (Arabic claim cites Arabic evidence; an
     unavoidable cross-language match is flagged) — so the calendar does not reintroduce the
     visual-match defect fixed on the poster.
   * `remediation` — what the strategy gate BLANKED on this item (recorded at build time), so
-    a reader sees the item's hook/angle was fabricated and remediated and that the item now
-    runs on its sourced `topic` — not that the hook silently vanished.
+    a reader sees which generated field was fabricated and remediated — not that it silently
+    vanished.
 And one top-level `coverage` scoping block (shared with the poster): covered = poster +
 calendar copy; excluded = reel (NOT yet gated). Pure/deterministic, never raises.
 """
@@ -27,7 +27,8 @@ def build_calendar_audit(profile: dict, calendar: Any) -> dict:
     items = []
     remediated = 0
     for it in getattr(calendar, "items", []):
-        fields = {k: v for k, v in (("hook", it.hook), ("angle", it.angle), ("topic", it.topic))
+        fields = {k: v for k, v in (("hook", it.hook), ("angle", it.angle),
+                                    ("topic", it.topic), ("cta", it.cta))
                   if (v or "").strip()}
         report = ledger.audit_fields(fields)
         rem = list(getattr(it, "remediation", []) or [])

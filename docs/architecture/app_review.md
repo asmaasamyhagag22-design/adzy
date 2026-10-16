@@ -1,0 +1,21 @@
+# Application review orchestration
+
+The existing Adzy Think/Strategy interface calls authenticated `POST /api/review/start` with the displayed immutable strategy Run ID. The server derives the actor from the existing Bearer authentication dependency, authorizes the brand and Run, and retrieves or starts that actor/domain/subject/version binding. Browser storage does not own workflow identity. Refresh repeats this lookup; no raw checkpoint is returned.
+
+`ReviewWorkflow` executes the existing four-node LangGraph and three deterministic typed LangChain inspection tools. A sufficient unapproved strategy pauses at `human_review`; the UI renders its status and required actions. Approval/rejection sends the same workflow ID and exact subject ID/hash to `/api/review/{id}/resume`. PostgreSQL's existing brand-locked service remains the sole approval writer. A stale subject returns HTTP 409; a foreign or absent subject/thread returns 404. Sync FastAPI handlers run in its worker pool. Each canonical service call owns and closes its own PostgreSQL transaction.
+
+At `READY_FOR_CREATIVE`, the graph compiles the existing CreativeContract. Status revalidates authority and recompiles it before returning the typed UI projection. The Create panel consumes this contract; generation still uses the existing server-side compiler/currentness checks and paid pipeline. No automatic generation or paid retry is introduced.
+
+## Local persistence and recovery
+
+`ADZY_REVIEW_STATE_DIR` is an operator-configured absolute directory, defaulting to `<BASEERA_WEBAPP_DIR>/review`. No HTTP field selects a path. Keep it private, persistent, writable by the application user, and backed up together with the application configuration. The signing secret must persist across restarts too.
+
+SQLite `execution.sqlite` serializes local operations, including the interval between the binding commit and first checkpoint; `bindings.sqlite` stores actor/domain/subject/version bindings and `checkpoints.sqlite` stores graph progress. Connections close on all exits. The gate is held only for an operation, never across human waiting time. This deliberately serializes local review throughput. Lock waits are bounded; failures yield a UI-safe 503 with reload guidance. This milestone supports one application instance with local disk. No shared/network filesystem, multiple replicas, distributed worker durability, or exactly-once claim is made.
+
+A start that fails before a usable checkpoint remains discoverable as `FAILED / START_FAILED`, with `INSPECT_AUTHORITATIVE_STATE`; it is not automatically restarted. A partial initial checkpoint is also failed. A failed/ambiguous approval call becomes blocked and requires authoritative inspection. It is not blindly retried. A process exit after canonical commit but before the apply checkpoint leaves a pending node: the existing canonical idempotency/currentness boundary permits recovery of the same decision without adding another approval. Opposite decisions are conflicts. New strategy versions receive new workflow bindings.
+
+## Observability boundary
+
+Default execution creates no telemetry exporter. Opt-in `ADZY_LANGFUSE_ENABLED=1` requires explicit Langfuse credentials/base URL. Only the SDK client/exporter is shared; every operation receives its own Telemetry stack and deterministic workflow trace correlation. Shutdown drains/closes the client. Node/tool observations are explicit; no LangChain auto-capture callback receives business inputs, outputs, contracts or exceptions. A private tracer and SDK mask constrain export; exception messages are intercepted before the SDK context manager. Export failures do not decide application/business outcomes. There are no model spans or invented usage/cost values.
+
+The synthetic application demo's `--capture-sdk` uses an in-memory exporter and writes only local redacted observations on shutdown. This is real SDK verification, not hosted Langfuse ingestion. No external account or customer data is used. The focused tests exercise real HTTP authentication, graph execution, canonical PostgreSQL effects, serialization and capture. See the [integration result](../../APP_GRAPH_INTEGRATION_RESULT.md) for measured results and the [publication checklist](app_publication.md) for packaging limits.

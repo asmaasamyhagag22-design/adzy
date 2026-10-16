@@ -3,7 +3,73 @@
 U7 telemetry writes runs/<run_id>/telemetry.jsonl per pipeline run; tests must not
 pollute the repo root, so every test gets an isolated TELEMETRY_ROOT under tmp.
 """
+import os
+import tempfile
+from pathlib import Path
+
 import pytest
+
+from db.test_database_safety import (
+    UnsafeTestDatabase,
+    require_configured_disposable_test_database,
+)
+
+
+# The competitor registry captures its environment-derived default directory in function default
+# arguments at module import.  Per-test monkeypatching is then too late when another test imported
+# that module during collection.  Establish one process-owned root before test modules are imported;
+# narrower fixtures may still override it.  This keeps writes away from the authoritative registry
+# while leaving read-only tests of the real stored Brand census intact.
+_SESSION_STATE = tempfile.TemporaryDirectory(
+    prefix=f"baseera-pytest-state-{os.getpid()}-", ignore_cleanup_errors=True)
+_SESSION_STATE_ROOT = Path(_SESSION_STATE.name)
+os.environ["BASEERA_REGISTRY_DIR"] = str(_SESSION_STATE_ROOT / "registry")
+
+
+def pytest_configure(config):
+    # Session-wide fail-closed barrier.  This runs before module fixtures can create an engine or
+    # execute DROP/TRUNCATE; the destructive modules repeat the same check at their local boundary.
+    try:
+        require_configured_disposable_test_database()
+    except UnsafeTestDatabase as exc:
+        raise pytest.UsageError(str(exc)) from None
+    config.addinivalue_line(
+        "markers",
+        "real_webapp_storage: read the REAL outputs/webapp (migration forensics only). The test "
+        "must not write to it.")
+    config.addinivalue_line(
+        "markers", "slow: runs a nested pytest process; deselect with -m 'not slow'.")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_webapp_storage(tmp_path, monkeypatch, request):
+    """Every test gets its OWN webapp root. Storage isolation is the default, not a per-file habit.
+
+    `api.user_auth.webapp_dir()` falls back to the repository's `outputs/webapp` whenever
+    `BASEERA_WEBAPP_DIR` is unset — so any test that touched BrandStore, UserStore, the gallery or
+    the image writers without redirecting it was writing into the live catalog. MEASURED: 15 of the
+    38 storage-touching test files had no redirection, and a run left a real
+    `b_com_influencer_portrait.png` in `outputs/webapp/generated/`. That directory is also the
+    evidence base for the migration, so a test could silently change the data the cutover is being
+    designed from.
+
+    Doing it here rather than file-by-file is deliberate: a per-file convention only protects the
+    files somebody remembered, and the next test to reach storage inherits the hole. A test that
+    genuinely needs the real directory marks itself `real_webapp_storage` and is expected to READ
+    only; `tests/test_authoritative_storage_is_never_mutated.py` is what keeps that honest.
+
+    The auth-secret cache is reset because it is memoised per process and points into the old root.
+    """
+    if request.node.get_closest_marker("real_webapp_storage"):
+        yield
+        return
+    monkeypatch.setenv("BASEERA_WEBAPP_DIR", str(tmp_path / "webapp"))
+    try:
+        import api.user_auth as ua
+        monkeypatch.setattr(ua, "_SECRET_CACHE", None, raising=False)
+    except Exception:  # noqa: BLE001 — a test that never imports the app needs nothing reset
+        pass
+    yield
 
 
 @pytest.fixture(autouse=True)

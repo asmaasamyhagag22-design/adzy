@@ -1,0 +1,19 @@
+profile = "production"
+
+[persistence]
+backend = "postgres"
+
+[blob]
+backend = "supabase"
+
+[postgres]
+host = "127.0.0.1"
+port = 15432
+database = "postgres"
+username = "postgres.cerpllikdnlibafnnppa"
+sslmode = "require"
+
+[supabase]
+url = "https://cerpllikdnlibafnnppa.supabase.co"
+bucket = "baseera-gallery"
+

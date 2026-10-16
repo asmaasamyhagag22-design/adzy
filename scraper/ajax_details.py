@@ -102,12 +102,12 @@ def _same_origin(url: str, base: str) -> bool:
 def _default_script_fetch(url: str) -> Optional[str]:
     """Guarded, size-capped GET of a same-origin script body."""
     try:
-        from scraper.url_utils import is_safe_public_url
+        from scraper.url_utils import is_safe_public_url, open_public_url
         if not is_safe_public_url(url):
             return None
         import urllib.request
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as r:   # noqa: S310 — guarded above
+        with open_public_url(req, timeout=15) as r:
             return r.read(1_000_000).decode("utf-8", "replace")
     except Exception:  # noqa: BLE001
         return None

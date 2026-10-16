@@ -107,14 +107,35 @@ def test_the_frontend_has_the_trend_toggle():
 # =====================================================================
 
 def _fake_caller(**responses):
-    class _R:
-        def __init__(self, d):
-            for k, v in d.items():
-                setattr(self, k, v)
-
     def caller(system, user, schema, **kw):
-        return _R(responses), {"total_tokens": 10}
+        return schema(**responses), {"total_tokens": 10}
     return caller
+
+
+def _ef(value, quote=None):
+    return {
+        "value": value,
+        "evidence": [{
+            "block_id": "synthetic_1",
+            "page_url": "https://synthetic.test/about",
+            "quote": quote or value,
+            "extractor": "llm",
+        }],
+        "confidence": "high",
+        "source_type": "extracted",
+    }
+
+
+def _grounded_profile():
+    return {
+        "source_url": "https://synthetic.test/",
+        "name": _ef("Synthetic Studio"),
+        "tagline": _ef("Ideas for everyday moments"),
+        "description": _ef("We serve 500 customers every year"),
+        "languages": ["en"],
+        "value_propositions": [],
+        "offerings": [],
+    }
 
 
 def test_a_caption_reads_like_social_media(monkeypatch):
@@ -123,19 +144,196 @@ def test_a_caption_reads_like_social_media(monkeypatch):
         {"name": "Shop", "category": "ecommerce",
          "value_propositions": ["Fast delivery"], "source_url": "https://shop.test/"},
         language="ar",
-        caller=_fake_caller(hook="عرض النهاردة 🔥", body="توصيل سريع لحد باب البيت.",
+        caller=_fake_caller(hook="خلّي يومك أحلى 🔥", body="توصيل سريع لحد باب البيت.",
                             cta="اطلب دلوقتي", hashtags=["#شوب", "#توصيل_سريع"]))
     text = out.get("caption") or ""
-    assert "عرض النهاردة" in text and "اطلب دلوقتي" in text
+    assert "خلّي يومك أحلى" in text and "اطلب دلوقتي" in text
     assert any(h.startswith("#") for h in out.get("hashtags") or [])
 
 
-def test_the_caption_is_ledger_gated(monkeypatch):
-    """Social copy is still COPY: an unsourced superlative must not survive just because the
-    surface changed from a poster to a caption."""
+def test_unsupported_hard_claim_in_hook_is_removed_from_final_caption():
+    from api.webapp_social_copy import social_caption
+    out = social_caption(
+        _grounded_profile(), language="en",
+        caller=_fake_caller(
+            hook="The only certified synthetic studio",
+            body="Make space for better ideas.",
+            cta="Discover more",
+            hashtags=["#SyntheticStudio"],
+        ),
+    )
+    assert "only" not in out["hook"].lower()
+    assert "certified" not in out["hook"].lower()
+    assert "only" not in out["caption"].lower()
+    assert "certified" not in out["caption"].lower()
+
+
+def test_unsupported_body_sentence_is_removed_but_creative_sentence_remains():
+    from api.webapp_social_copy import social_caption
+    out = social_caption(
+        _grounded_profile(), language="en",
+        caller=_fake_caller(
+            hook="Make today feel brighter",
+            body="Create something memorable. Save 77% today.",
+            cta="Discover more",
+            hashtags=["#SyntheticStudio"],
+        ),
+    )
+    assert "Create something memorable" in out["body"]
+    assert "77%" not in out["body"]
+    assert "77%" not in out["caption"]
+
+
+def test_unsupported_hard_claim_in_cta_is_removed_from_final_caption():
+    from api.webapp_social_copy import social_caption
+    out = social_caption(
+        _grounded_profile(), language="en",
+        caller=_fake_caller(
+            hook="Make today feel brighter",
+            body="Create something memorable.",
+            cta="Join 9000 customers today",
+            hashtags=["#SyntheticStudio"],
+        ),
+    )
+    assert "9000" not in out["cta"]
+    assert "9000" not in out["caption"]
+
+
+def test_claims_distributed_across_every_generated_field_do_not_survive():
+    from api.webapp_social_copy import social_caption
+    out = social_caption(
+        _grounded_profile(), language="en",
+        caller=_fake_caller(
+            hook="#1 synthetic studio",
+            body="Save 77% today.",
+            cta="Join 9000 customers today",
+            hashtags=["#Certified", "#SyntheticStudio"],
+        ),
+    )
+    rejected_tokens = ("#1", "77%", "9000", "certified")
+    assert all(token not in out["caption"].lower() for token in rejected_tokens)
+    assert all(token not in " ".join(out["hashtags"]).lower() for token in rejected_tokens)
+
+
+def test_supported_factual_claim_remains_in_final_caption():
+    from api.webapp_social_copy import social_caption
+    out = social_caption(
+        _grounded_profile(), language="en",
+        caller=_fake_caller(
+            hook="Make today feel brighter",
+            body="Serving 500 customers every year.",
+            cta="Discover more",
+            hashtags=["#SyntheticStudio"],
+        ),
+    )
+    assert "500 customers" in out["body"]
+    assert "500 customers" in out["caption"]
+
+
+def test_harmless_creative_copy_and_small_non_claim_number_remain():
+    from api.webapp_social_copy import social_caption
+    out = social_caption(
+        _grounded_profile(), language="en",
+        caller=_fake_caller(
+            hook="Make today feel brighter",
+            body="Three moods, one creative spark. 3 ideas to explore.",
+            cta="See what inspires you",
+            hashtags=["#SyntheticStudio", "#EverydayIdeas"],
+        ),
+    )
+    assert out["hook"] == "Make today feel brighter"
+    assert "3 ideas to explore" in out["body"]
+    assert out["cta"] == "See what inspires you"
+
+
+@pytest.mark.parametrize(
+    ("field", "claim", "rejected_token"),
+    [
+        ("hook", "Save ٨٨٪ today", "٨٨"),
+        ("body", "انضم إلى ٩٠٠٠ عميل اليوم.", "٩٠٠٠"),
+        ("cta", "Join 9000 customers اليوم", "9000"),
+        ("hook", "The best synthetic studio", "best"),
+        ("cta", "The only certified synthetic studio", "certified"),
+    ],
+)
+def test_adversarial_hard_claim_variants_do_not_survive(field, claim, rejected_token):
+    from api.webapp_social_copy import social_caption
+    generated = {
+        "hook": "Make today feel brighter",
+        "body": "Create something memorable.",
+        "cta": "Discover more",
+        "hashtags": ["#SyntheticStudio"],
+    }
+    generated[field] = claim
+
+    out = social_caption(
+        _grounded_profile(), language="en", caller=_fake_caller(**generated),
+    )
+
+    assert rejected_token.lower() not in out["caption"].lower()
+
+
+def test_hard_claim_cannot_hide_inside_compound_hashtag():
+    from api.webapp_social_copy import social_caption
+    out = social_caption(
+        _grounded_profile(), language="en",
+        caller=_fake_caller(
+            hook="Make today feel brighter",
+            body="Create something memorable.",
+            cta="Discover more",
+            hashtags=["#OnlyCertified", "#Best_Synthetic_Studio", "#SyntheticStudio"],
+        ),
+    )
+
+    lowered = out["caption"].lower()
+    assert "onlycertified" not in lowered
+    assert "best_synthetic_studio" not in lowered
+
+
+def test_no_model_caller_uses_trusted_profile_fallback(monkeypatch):
     import api.webapp_social_copy as sc
-    src = inspect.getsource(sc)
-    assert "Ledger" in src or "ledger" in src, "the caption path bypasses the grounding gate"
+    import business_profile.llm as llm
+    monkeypatch.setattr(llm, "default_caller", lambda **kwargs: None)
+
+    out = sc.social_caption(_grounded_profile(), language="en", caller=None)
+
+    assert out["caption"] == "Ideas for everyday moments"
+    assert out["body"] == "Ideas for everyday moments"
+    assert out["hook"] == "" and out["cta"] == ""
+
+
+def test_final_assembled_caption_contains_no_rejected_hard_claim():
+    from api.webapp_social_copy import social_caption
+    from grounding import EvidenceLedger
+    profile = _grounded_profile()
+    out = social_caption(
+        profile, language="en",
+        caller=_fake_caller(
+            hook="The best and only certified studio",
+            body="Save 77% today. Create with confidence.",
+            cta="Join 9000 customers",
+            hashtags=["#1", "#SyntheticStudio"],
+        ),
+    )
+
+    verdicts = EvidenceLedger.from_profile(profile).audit_text(out["caption"])
+    assert not any(not verdict.sourced for verdict in verdicts)
+
+
+def test_content_only_customer_response_uses_the_same_grounded_caption():
+    import api.webapp_social_copy as sc
+    out = sc.content_only(
+        _grounded_profile(), language="en",
+        caller=_fake_caller(
+            hook="The only certified studio",
+            body="Save 77% today.",
+            cta="Join 9000 customers",
+            hashtags=["#1", "#SyntheticStudio"],
+        ),
+    )
+    assert out["content_only"] is True
+    assert all(token not in out["caption"].lower()
+               for token in ("only", "certified", "77%", "9000", "#1"))
 
 
 def test_content_only_produces_no_image_and_spends_nothing_on_render(monkeypatch):

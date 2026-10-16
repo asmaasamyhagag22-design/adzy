@@ -11,7 +11,7 @@ import pytest
 
 
 def test_redirect_to_a_private_host_is_refused():
-    from competitor.lite_scrape import _SafeRedirectHandler
+    from scraper.url_utils import SafeRedirectHandler as _SafeRedirectHandler
     h = _SafeRedirectHandler()
     req = urllib.request.Request("https://public.example/start")
 
@@ -31,7 +31,7 @@ def test_redirect_to_a_private_host_is_refused():
 
 
 def test_redirect_to_a_public_host_is_allowed():
-    from competitor.lite_scrape import _SafeRedirectHandler
+    from scraper.url_utils import SafeRedirectHandler as _SafeRedirectHandler
     h = _SafeRedirectHandler()
     req = urllib.request.Request("https://public.example/start")
 

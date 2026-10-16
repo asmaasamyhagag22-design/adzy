@@ -177,6 +177,7 @@ def profile_to_brand(profile: dict, *, source_url: str = "",
         "target_audience": _s(profile.get("audience_type")) or ", ".join(
             _vlist(profile.get("audience_signals"))[:3]),
         "languages": list(profile.get("languages") or []),
+        "language_evidence": dict(profile.get("language_evidence") or {}),
         "nav_links": [],
         # Was hardcoded []. The reviews printed on the brand's own homepage — nine of them
         # on the first client this was measured against — could not survive the projection

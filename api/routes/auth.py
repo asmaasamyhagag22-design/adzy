@@ -17,7 +17,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
 from api.auth import guard_public_signup
-from api.user_auth import UserStore, decode_token, issue_token
+from api.persistence import get_persistence
+from api.user_auth import decode_token, issue_token, user_for_token
 
 router = APIRouter()
 
@@ -25,8 +26,14 @@ router = APIRouter()
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-def _store() -> UserStore:
-    return UserStore()
+def _store():
+    """The configured persistence backend — the file stores unless an operator selected otherwise.
+
+    Routes never name a store. With no ``PERSISTENCE_BACKEND`` set this resolves to the legacy
+    adapter over UserStore, so the behaviour below is unchanged; selecting `postgres` moves these
+    three endpoints without editing them.
+    """
+    return get_persistence()
 
 
 class SignupRequest(BaseModel):
@@ -65,7 +72,7 @@ def require_user(authorization: Optional[str] = Header(None)) -> dict:
     payload = decode_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token.")
-    user = _store().get_by_id(str(payload.get("sub") or ""))
+    user = user_for_token(token)
     if not user:
         raise HTTPException(status_code=401, detail="User no longer exists.")
     return user
@@ -78,7 +85,7 @@ def signup(req: SignupRequest, request: Request) -> AuthResponse:
     guard_public_signup(request)
     if len(req.password) < 8:
         raise HTTPException(status_code=422, detail="Password must be at least 8 characters.")
-    user = _store().create(req.email, req.password, req.full_name)
+    user = _store().create_user(email=req.email, password=req.password, full_name=req.full_name)
     if user is None:
         raise HTTPException(status_code=409, detail="An account with this email already exists.")
     return AuthResponse(access_token=issue_token(user["id"]), user=user)
@@ -86,7 +93,7 @@ def signup(req: SignupRequest, request: Request) -> AuthResponse:
 
 @router.post("/auth/login", response_model=AuthResponse)
 def login(req: LoginRequest) -> AuthResponse:
-    user = _store().authenticate(req.email, req.password)
+    user = _store().authenticate(email=req.email, password=req.password)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid email or password.")
     return AuthResponse(access_token=issue_token(user["id"]), user=user)

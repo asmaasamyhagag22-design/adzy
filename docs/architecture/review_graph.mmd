@@ -1,0 +1,24 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	assess(assess)
+	human_review(human_review)
+	apply_decision(apply_decision)
+	compile_contract(compile_contract)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> assess;
+	apply_decision -. &nbsp;BLOCKED&nbsp; .-> __end__;
+	apply_decision -. &nbsp;READY_FOR_CREATIVE&nbsp; .-> compile_contract;
+	assess -. &nbsp;BLOCKED&nbsp; .-> __end__;
+	assess -. &nbsp;READY_FOR_CREATIVE&nbsp; .-> compile_contract;
+	assess -. &nbsp;NEEDS_REVIEW&nbsp; .-> human_review;
+	human_review --> apply_decision;
+	compile_contract --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+

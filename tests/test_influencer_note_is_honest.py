@@ -19,6 +19,11 @@ import pytest
 from api import webapp_influencer as inf
 
 
+@pytest.fixture(autouse=True)
+def _isolated_generated_output(tmp_path, monkeypatch):
+    monkeypatch.setenv("BASEERA_WEBAPP_DIR", str(tmp_path / "webapp"))
+
+
 @pytest.fixture
 def brand():
     return {"domain_key": "b_com", "organization_name": "براند",

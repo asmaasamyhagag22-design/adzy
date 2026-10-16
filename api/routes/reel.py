@@ -63,8 +63,9 @@ def _caption(profile: dict, language: str):
         return "", []
 
 
-@router.post("/reel/from-profile", response_model=ReelFromProfileResponse)
+@router.post("/reel/from-profile", response_model=ReelFromProfileResponse, deprecated=True)
 def create_reel_from_profile(request: ReelFromProfileRequest) -> ReelFromProfileResponse:
+    """LEGACY profile-led renderer; it is not a canonical StrategyVersion entrypoint."""
     profile = request.profile
     out_dir = Path("outputs/reels")
     out_dir.mkdir(parents=True, exist_ok=True)

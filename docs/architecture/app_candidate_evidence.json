@@ -1,0 +1,47 @@
+{
+  "readme_local_links_valid": 11,
+  "isolated_python": true,
+  "source_only_candidate": true,
+  "results": [
+    {
+      "command": "python -m pip check",
+      "returncode": 0
+    },
+    {
+      "command": "python -m workflows.demo init",
+      "returncode": 0
+    },
+    {
+      "command": "python -m workflows.demo start",
+      "returncode": 0
+    },
+    {
+      "command": "python -m workflows.demo resume --decision approved",
+      "returncode": 0
+    },
+    {
+      "command": "python -m workflows.demo status",
+      "returncode": 0
+    },
+    {
+      "command": "python -m workflows.demo cleanup",
+      "returncode": 0
+    },
+    {
+      "command": "python -m workflows.app_demo init",
+      "returncode": 0
+    },
+    {
+      "application_shell_http": 200,
+      "real_auth": true,
+      "graph_pause": "NEEDS_REVIEW",
+      "graph_resume": "READY_FOR_CREATIVE",
+      "exact_contract": true,
+      "live_providers_verified": false
+    },
+    {
+      "command": "python -m workflows.demo cleanup --directory .review-app-demo",
+      "returncode": 0
+    }
+  ]
+}

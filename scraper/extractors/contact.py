@@ -1,8 +1,8 @@
 """Contact extraction.
 
 Rules:
-- Phones via the `phonenumbers` library, parsed against EG as default
-  region and US as fallback. Stored in E.164 form.
+- Phones via the `phonenumbers` library. Local numbers are normalized only
+  when the site supplies a reliable region; otherwise their raw value remains.
 - Emails via regex.
 - WhatsApp via wa.me / api.whatsapp.com links.
 - Addresses: not auto-detected reliably; we leave a placeholder for
@@ -35,19 +35,10 @@ from ..schemas import (
 
 
 _EMAIL_RE = re.compile(EMAIL_REGEX)
-
-# Home-market fallback region for phone parsing when a site gives NO reliable country
-# signal (no /xx-yy locale path, generic TLD). The product is Egypt-first (its whole
-# corpus + the business_profile phone layer default to EG), so a signal-less national
-# number is most likely Egyptian. Reliable per-site signals ALWAYS override this (see
-# region_from_site), which is what stops the wrong-country fabrication that a blanket
-# "EG" caused on the Saudi site nahdionline.com (/ar-sa -> SA, not EG). LIMITATION: a
-# non-Egyptian site on a generic TLD with no locale path can still get EG here — the
-# honest edge of what a universal signal can prove (tracked in process.md §6).
-_HOME_MARKET_REGION = "EG"
+_DIALABLE_PHONE_RE = re.compile(r"^[\s\d()+./-]+$")
 
 
-def _e164(raw: str, region: str = "EG") -> Optional[str]:
+def _e164(raw: str, region: Optional[str] = None) -> Optional[str]:
     try:
         num = phonenumbers.parse(raw, region)
         if phonenumbers.is_possible_number(num) and phonenumbers.is_valid_number(num):
@@ -57,7 +48,7 @@ def _e164(raw: str, region: str = "EG") -> Optional[str]:
     return None
 
 
-def _extract_phones_from_text(text: str, region: str = "EG") -> list[str]:
+def _extract_phones_from_text(text: str, region: Optional[str] = None) -> list[str]:
     """Find phone-number-shaped substrings in free text."""
     found = []
     seen = set()
@@ -99,15 +90,13 @@ def extract_contact(
     Phone region: numbers WITHOUT an international ``+`` prefix are ambiguous — the same
     digits are a different real number in every country. We parse them against the
     SITE's own region, derived from a RELIABLE universal signal (URL locale path /
-    ccTLD) via ``region_from_site``; only when the site gives no such signal do we fall
-    back to the home market (``_HOME_MARKET_REGION``). This is what stopped the blanket
-    "EG" from turning the Saudi hotline 920024673 into a valid-looking WRONG
-    +20920024673 (its /ar-sa locale now resolves to SA -> +966...). An explicit
-    ``default_region`` overrides everything (used by tests); ``+``-prefixed and
-    short-code numbers are region-independent.
+    ccTLD) via ``region_from_site``. With no such signal, the region remains unknown:
+    international ``+`` numbers still normalize, while a local ``tel:`` value is kept
+    raw with no fabricated E.164. An explicit ``default_region`` overrides the URL
+    derivation for callers that already possess real country context.
     """
     info = ContactInfo()
-    region = default_region or region_from_site(site_url) or _HOME_MARKET_REGION
+    region = default_region or region_from_site(site_url)
 
     seen_phones: set[str] = set()
     seen_emails: set[str] = set()
@@ -165,6 +154,23 @@ def extract_contact(
                             e164=None,
                             raw=digits,
                             is_short_code=True,
+                            evidence_block_id=None,
+                            page_url=page_url,
+                        ))
+                    elif (
+                        8 <= len(digits) <= 15
+                        and _DIALABLE_PHONE_RE.fullmatch(raw.strip())
+                        and raw.strip() not in seen_phones
+                    ):
+                        # A tel: link is useful contact evidence even when its local
+                        # digits have no trustworthy country context. Preserve it as
+                        # unresolved data; never turn absence of region into +20.
+                        unresolved = raw.strip()
+                        seen_phones.add(unresolved)
+                        info.phones.append(PhoneRecord(
+                            e164=None,
+                            raw=unresolved,
+                            is_short_code=False,
                             evidence_block_id=None,
                             page_url=page_url,
                         ))

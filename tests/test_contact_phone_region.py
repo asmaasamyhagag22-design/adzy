@@ -5,12 +5,12 @@ Regression origin (measured 2026-07-05): the Saudi site nahdionline.com publishe
 hotline 920024673 via a `tel:` link. Parsed under a hardcoded default_region="EG" it
 became a VALID-looking but WRONG Egyptian number +20920024673 (stored as the brand's
 phone in 2/3 saved manifests); the correct number is +966920024673. The site's /ar-sa
-locale path is a reliable country signal that must win over the home-market fallback.
+locale path is a reliable country signal; without one, local digits stay unresolved.
 
 Hermetic: no network, no LLM. Pure functions over synthetic HTML.
 """
 from scraper.url_utils import region_from_site
-from scraper.extractors.contact import extract_contact, _HOME_MARKET_REGION
+from scraper.extractors.contact import extract_contact
 
 
 def test_region_from_locale_path_beats_generic_tld():
@@ -27,8 +27,7 @@ def test_region_from_cctld():
 
 def test_region_none_when_no_reliable_signal():
     # Generic TLD, no locale path -> no reliable country signal. html lang is NOT
-    # consulted (en-US boilerplate mislabels non-US sites), so this stays None and the
-    # caller applies the home-market fallback.
+    # consulted (en-US boilerplate mislabels non-US sites), so this stays None.
     assert region_from_site("https://daturial.com/") is None
     assert region_from_site("https://example.net/about") is None
     # A language-only locale segment carries no region.
@@ -45,15 +44,15 @@ def test_nahdi_saudi_number_not_fabricated_as_egyptian():
     assert not info.phones[0].e164.startswith("+20")
 
 
-def test_egyptian_generic_tld_number_still_extracted_via_home_fallback():
-    """No-regression guard: an Egyptian .com with no locale signal keeps its national
-    number via the home-market (EG) fallback."""
-    assert _HOME_MARKET_REGION == "EG"
+def test_generic_tld_local_number_remains_raw_without_country_evidence():
+    """A .com plus national digits cannot prove a country or an E.164 prefix."""
     page = "https://daturial.com/contact"
     html = '<html><body><a href="tel:01012581929">Call us</a></body></html>'
     info = extract_contact({page: html}, {page: []}, site_url=page)
     assert len(info.phones) == 1
-    assert info.phones[0].e164 == "+201012581929"
+    assert info.phones[0].raw == "01012581929"
+    assert info.phones[0].e164 is None
+    assert info.phones[0].is_short_code is False
 
 
 def test_explicit_plus_prefixed_number_is_region_independent():

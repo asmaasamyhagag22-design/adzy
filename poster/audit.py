@@ -1,7 +1,7 @@
 """Brand-safety AUDIT TRAIL for a generated poster — Evidence-Ledger Step 3c.
 
 The agency-facing PROOF object. For ONE poster it carries:
-  1. `final_copy`  — the (claim -> REAL source URL) trail of the SHIPPED copy, via
+  1. `final_copy`  — the (claim -> REAL source URL) trail of the generated copy, via
      `EvidenceLedger.audit_fields(...).export()`. Source URLs are the actual scraped
      `page_url`s the evidence came from (not placeholders).
   2. `remediation` — what the grounding gate CAUGHT and how it was HANDLED (softened /
@@ -33,8 +33,8 @@ _POSTER_EXCLUDED = {"background_image":
                     "incidental text or marks in the scene are recorded in vision_qa, not blessed"}
 
 
-def attach_vision_qa(audit: dict | None, qa: Any) -> "dict | None":
-    """P-42: persist the SHIPPED poster's vision-QA verdict into its audit sidecar.
+def attach_vision_qa(audit: dict | None, qa: Any, acceptance: Any = None) -> "dict | None":
+    """P-42: persist the generated poster's vision-QA verdict into its audit sidecar.
 
     Before this the tri-state verdict (`third_party_mark` / `invented_product` / `score` /
     `overall_pass`) lived ONLY in the in-memory `PosterGenResult.qa` and was never written next to
@@ -53,7 +53,21 @@ def attach_vision_qa(audit: dict | None, qa: Any) -> "dict | None":
         "script_wellformed": bool(getattr(qa, "script_wellformed", True)),
         "has_latin_text": bool(getattr(qa, "has_latin_text", False)),
         "reason": str(getattr(qa, "reason", "") or ""),
+        "source": str(getattr(qa, "qa_source", "") or ""),
+        "policy_id": str(getattr(qa, "policy_id", "") or ""),
+        "policy_version": getattr(qa, "policy_version", None),
+        "mandatory_checks_expected": list(
+            getattr(qa, "mandatory_checks_expected", None) or []),
+        "mandatory_checks_completed": list(
+            getattr(qa, "mandatory_checks_completed", None) or []),
+        "attempt_identity": (
+            qa.attempt_identity.model_dump(mode="json")
+            if getattr(qa, "attempt_identity", None) is not None else None),
     }
+    if acceptance is not None:
+        audit["poster_acceptance"] = (
+            acceptance.model_dump(mode="json")
+            if hasattr(acceptance, "model_dump") else dict(acceptance))
     return audit
 
 

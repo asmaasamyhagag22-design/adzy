@@ -22,8 +22,6 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-_LANG_NAMES = {"ar": "Egyptian Arabic as it is actually spoken", "en": "natural English"}
-
 _SYSTEM = (
     "You are a NATIVE speaker of {lang} reading advertising copy for the first time. For EACH "
     "field, answer one question honestly: would a real person say this, and does it MEAN "
@@ -68,7 +66,8 @@ class _Schema:
         return cls._model
 
 
-def sense_check(copy_fields: dict, *, language: str = "ar", caller: Any = None) -> SenseVerdict:
+def sense_check(copy_fields: dict, *, language: str = "ar", profile: Any = None,
+                caller: Any = None) -> SenseVerdict:
     """Judge each non-empty copy field for MEANING. Never raises."""
     v = SenseVerdict()
     fields = {k: str(val).strip() for k, val in (copy_fields or {}).items()
@@ -84,7 +83,17 @@ def sense_check(copy_fields: dict, *, language: str = "ar", caller: Any = None) 
     if caller is None:
         return v
 
-    lang = _LANG_NAMES.get(str(language or "").lower()[:2], "the copy's own language")
+    code = str(language or "").lower()[:2]
+    if code == "ar":
+        try:
+            from poster.locale import arabic_dialect_for
+            lang = arabic_dialect_for(profile or {})
+        except Exception:  # noqa: BLE001 — keep this best-effort judge non-raising
+            lang = "natural conversational Arabic without assuming a country-specific dialect"
+    elif code == "en":
+        lang = "natural English"
+    else:
+        lang = "the copy's own language"
     user = "\n".join(f"{k}: {val}" for k, val in fields.items())
     try:
         resp, _u = caller(_SYSTEM.format(lang=lang), user, _Schema.get(),

@@ -9,6 +9,8 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
+import urllib.error
+import urllib.request
 from typing import Optional
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode, urljoin
 
@@ -104,6 +106,45 @@ def is_safe_public_url(url: str) -> bool:
         ):
             return False
     return True
+
+
+class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Apply :func:`is_safe_public_url` to every urllib redirect destination.
+
+    ``urllib`` validates redirect syntax, resolves relative ``Location`` values, and
+    calls ``redirect_request`` before opening the next connection.  Keeping the policy
+    here preserves those standard semantics while refusing a destination that the
+    initial request was never entitled to trust.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not is_safe_public_url(newurl):
+            raise urllib.error.HTTPError(
+                newurl,
+                code,
+                "refused redirect to a non-public host (request-safety guard)",
+                headers,
+                fp,
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def open_public_url(request, *, timeout: float, context=None):
+    """Open one public HTTP(S) request and re-check every automatic redirect hop.
+
+    ``request`` may be a URL string or ``urllib.request.Request``.  The initial
+    destination is checked here as well as at higher-level entry points, making the
+    transport safe when a caller forgets its own preflight check.  ``context`` is the
+    optional TLS context used by image fetchers with custom certificate handling.
+    """
+    url = request.full_url if isinstance(request, urllib.request.Request) else str(request or "")
+    if not is_safe_public_url(url):
+        raise urllib.error.URLError("refused non-public URL (request-safety guard)")
+    handlers = [SafeRedirectHandler()]
+    if context is not None:
+        handlers.append(urllib.request.HTTPSHandler(context=context))
+    opener = urllib.request.build_opener(*handlers)
+    return opener.open(request, timeout=timeout)
 
 
 def normalize_url(url: str) -> str:

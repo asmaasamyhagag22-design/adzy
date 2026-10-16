@@ -852,14 +852,14 @@ def _logo_svg_signals(logo_src: Optional[str], page_url: str) -> list[dict[str, 
         return []
     try:
         from urllib.parse import urljoin
-        from urllib.request import Request, urlopen
+        from urllib.request import Request
 
-        from scraper.url_utils import is_safe_public_url
+        from scraper.url_utils import is_safe_public_url, open_public_url
         url = urljoin(page_url or "", src)
         if not is_safe_public_url(url):
             return []
         req = Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-        with urlopen(req, timeout=8) as resp:                 # noqa: S310 — guarded above
+        with open_public_url(req, timeout=8) as resp:
             text = resp.read(1_500_000).decode("utf-8", "replace")
     except Exception:  # noqa: BLE001
         return []
@@ -909,13 +909,13 @@ def _logo_pixel_signals(logo_src: Optional[str], page_url: str) -> list[dict[str
                 data = _b64.b64decode(b64)
         else:
             from urllib.parse import urljoin
-            from urllib.request import Request, urlopen
+            from urllib.request import Request
             url = urljoin(page_url or "", src)
-            from scraper.url_utils import is_safe_public_url
+            from scraper.url_utils import is_safe_public_url, open_public_url
             if not is_safe_public_url(url):
                 return []
             req = Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-            with urlopen(req, timeout=8) as resp:
+            with open_public_url(req, timeout=8) as resp:
                 data = resp.read(2_000_000)
         if not data:
             return []

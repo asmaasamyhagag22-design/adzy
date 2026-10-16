@@ -21,6 +21,7 @@ from playwright.sync_api import Error as PWError
 
 from .config import (
     ACCEPT_LANGUAGE,
+    BROWSER_LOCALE,
     BOT_PROTECTION_HTML_MARKERS,
     BOT_PROTECTION_TEXT_SIGNALS,
     MIN_RENDERED_CHARS,
@@ -132,7 +133,7 @@ def _salvage_partial_dom(page: Page, result: FetchResult, reason: str) -> bool:
     return True
 
 
-def make_browser_context(browser: Browser) -> BrowserContext:
+def make_browser_context(browser: Browser, *, locale: Optional[str] = None) -> BrowserContext:
     """Create a context with our standard fingerprint.
 
     ignore_https_errors=True: many REAL small-business sites (especially MENA) have an expired or
@@ -144,14 +145,26 @@ def make_browser_context(browser: Browser) -> BrowserContext:
     # MEASURED 2026-07-21: the hardcoded UA claimed Chrome/131 while the engine was 147, Sec-CH-UA
     # was empty, and navigator.languages said en-US while our header advertised Arabic too. Those
     # contradictions are the cheapest thing for an ordinary site to block on — and they were ours.
-    from .browser_identity import browser_headers, locale_for, user_agent_for
+    from .browser_identity import browser_headers, user_agent_for
     version = getattr(browser, "version", "") or ""
     return browser.new_context(
         user_agent=user_agent_for(version),
         viewport={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT},
         java_script_enabled=True,
         ignore_https_errors=True,
-        locale=locale_for(ACCEPT_LANGUAGE),
+        # page.route cannot see requests intercepted by a Service Worker.  Blocking
+        # workers keeps every network destination at the request-safety boundary below.
+        service_workers="block",
+        # FOLLOWS the representation the server already chose; never chooses one.
+        #
+        # `locale` drives `navigator.language`, and a locale-adaptive site reads that and routes
+        # itself — MEASURED: with Accept-Language absent, `en-US` still landed a JS-adaptive origin
+        # on /en, `ar-EG` on /ar. So the caller passes the locale of the representation a
+        # preference-free HTTP probe already received (`scraper.representation`). It is never
+        # inherited from the host machine, which would make the crawl vary by laptop; when no
+        # evidence names a language the caller passes the deterministic RENDERING FALLBACK, which
+        # carries no evidential weight.
+        locale=(locale or BROWSER_LOCALE),
         extra_http_headers=browser_headers(version),
     )
 
@@ -386,10 +399,10 @@ def _block_heavy_route(route) -> None:
         if req.resource_type in _HEAVY_RESOURCE_TYPES or _is_tracking_request(req.url):
             route.abort()
         else:
-            route.continue_()
+            _continue_with_language_policy(route)
     except Exception:
         try:
-            route.continue_()
+            _continue_with_language_policy(route)
         except Exception:
             pass
 
@@ -401,12 +414,59 @@ def _block_tracking_route(route) -> None:
         if _is_tracking_request(route.request.url):
             route.abort()
         else:
-            route.continue_()
+            _continue_with_language_policy(route)
     except Exception:
+        try:
+            _continue_with_language_policy(route)
+        except Exception:
+            pass
+
+
+def _continue_with_language_policy(route) -> None:
+    """Let one already-allowed request proceed, carrying THIS crawl's language policy.
+
+    Every `route.continue_()` in the browser path goes through here so the policy cannot be
+    neutral on the first request and quietly biased on the rest.
+
+    Default (`ACCEPT_LANGUAGE is None`): the header is REMOVED, so the server applies its own
+    default representation and the crawl observes that choice instead of steering it. Chromium
+    always emits an `Accept-Language` derived from the context locale, so removing the header is
+    an explicit act — leaving it alone would ship the locale as a preference.
+
+    This changes only the headers of a request the request-safety boundary has ALREADY allowed;
+    it never converts an abort into a continue.
+    """
+    try:
+        if ACCEPT_LANGUAGE is None:
+            headers = {k: v for k, v in route.request.headers.items()
+                       if k.lower() != "accept-language"}
+        else:
+            headers = {**route.request.headers, "accept-language": ACCEPT_LANGUAGE}
+        route.continue_(headers=headers)
+    except Exception:  # noqa: BLE001 — a header rewrite must never lose the request itself
         try:
             route.continue_()
         except Exception:
             pass
+
+
+_BROWSER_LOCAL_SCHEMES = frozenset({"about", "blob", "data"})
+
+
+def _browser_request_is_allowed(url: str) -> bool:
+    """True for a public HTTP(S) destination or a non-network browser-local URL."""
+    from urllib.parse import urlparse
+
+    try:
+        scheme = urlparse(str(url or "")).scheme.lower()
+    except Exception:
+        return False
+    if scheme in _BROWSER_LOCAL_SCHEMES:
+        return True
+    if scheme not in ("http", "https"):
+        return False
+    from .url_utils import is_safe_public_url
+    return is_safe_public_url(str(url))
 
 
 def _is_rate_limited(result: "FetchResult") -> bool:
@@ -505,6 +565,7 @@ def _fetch_page_once(context: BrowserContext, url: str, keep_page: bool = False,
     # mode it ALSO blocks below-fold image bytes once `_img_gate["block"]` is flipped after the
     # above-fold load (logo-like URLs stay allowed for correct logo dims).
     _img_gate = {"block": False}
+    _blocked_request = {"url": ""}
 
     def _two_phase_route(route) -> None:
         try:
@@ -513,19 +574,43 @@ def _fetch_page_once(context: BrowserContext, url: str, keep_page: bool = False,
                                                block_below_fold=_img_gate["block"])
             if verdict == "abort":
                 route.abort(); return
-            route.continue_()
+            _continue_with_language_policy(route)
         except Exception:  # noqa: BLE001
             try:
-                route.continue_()
+                _continue_with_language_policy(route)
             except Exception:
                 pass
 
+    content_handler = (_block_heavy_route if light
+                       else (_two_phase_route if two_phase else _block_tracking_route))
+
+    def _request_safety_route(route) -> None:
+        try:
+            destination = str(route.request.url or "")
+        except Exception:  # an unclassifiable destination is not safe to continue
+            destination = ""
+        if not _browser_request_is_allowed(destination):
+            _blocked_request["url"] = destination or "<unavailable>"
+            try:
+                route.abort()
+            except Exception:
+                pass
+            return
+        content_handler(route)
+
     try:
-        handler = (_block_heavy_route if light
-                   else (_two_phase_route if two_phase else _block_tracking_route))
-        page.route("**/*", handler)
-    except Exception:
-        pass
+        page.route("**/*", _request_safety_route)
+    except Exception as exc:
+        # Continuing without the interceptor would silently restore the exact bypass
+        # this boundary exists to close.  Fail visibly before navigation instead.
+        result.error_code = ErrorCode.BLOCKED_URL
+        result.error_message = f"request-safety interceptor unavailable: {type(exc).__name__}"
+        result.duration_ms = int((time.monotonic() - started) * 1000)
+        try:
+            page.close()
+        except Exception:
+            pass
+        return result
 
     # API-driven SPA capture: some sites (Angular/React) expose almost no <a href> links and load
     # their real content from their OWN JSON APIs (ITI: iti.gov.eg shell + pgateway.iti.gov.eg
@@ -662,7 +747,12 @@ def _fetch_page_once(context: BrowserContext, url: str, keep_page: bool = False,
             result.error_message = msg
     except PWError as e:
         msg = str(e).lower()
-        if "net::err_name_not_resolved" in msg or "dns" in msg:
+        if _blocked_request["url"]:
+            result.error_code = ErrorCode.BLOCKED_URL
+            result.error_message = (
+                "blocked non-public browser request: " + _blocked_request["url"][:200]
+            )
+        elif "net::err_name_not_resolved" in msg or "dns" in msg:
             result.error_code = ErrorCode.NETWORK_ERROR
         elif "ssl" in msg or "cert" in msg:
             result.error_code = ErrorCode.NETWORK_ERROR

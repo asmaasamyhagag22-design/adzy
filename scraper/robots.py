@@ -13,6 +13,7 @@ from urllib.parse import urlparse, urlunparse
 
 from .config import USER_AGENT
 from .schemas import RobotsRecord
+from .url_utils import open_public_url
 
 
 def _robots_url_for(url: str) -> str:
@@ -29,7 +30,7 @@ def _fetch_robots_body(robots_url: str, timeout: float, *, retries: int = 2,
     for attempt in range(retries + 1):
         try:
             req = urllib.request.Request(robots_url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with open_public_url(req, timeout=timeout) as resp:
                 return resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
             if e.code < 500 or attempt >= retries:   # 4xx is definitive; don't retry

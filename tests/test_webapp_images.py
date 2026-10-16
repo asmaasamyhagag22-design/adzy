@@ -61,6 +61,14 @@ def _brand() -> dict:
     return b
 
 
+def _caption_caller(monkeypatch, **payload):
+    def caller(system, user, schema, **kwargs):
+        return schema(**payload), {"total_tokens": 0}
+
+    import business_profile.llm as llm
+    monkeypatch.setattr(llm, "default_caller", lambda **kwargs: caller)
+
+
 def _is_png(b64: str) -> bool:
     img = Image.open(io.BytesIO(base64.b64decode(b64)))
     return img.format == "PNG" and img.size == (1080, 1350)
@@ -111,6 +119,51 @@ def test_generate_json_endpoint(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert _is_png(body["image_b64"]) and body["headline"] == "Fresh roast"
+
+
+def test_generated_image_response_exposes_only_the_grounded_caption(client, monkeypatch):
+    _brand()
+    _caption_caller(
+        monkeypatch,
+        hook="The only certified cafe",
+        body="Save 77% today.",
+        cta="Join 9000 customers",
+        hashtags=["#1", "#VolumeCafe"],
+    )
+    headers = _auth(client)
+
+    body = client.post(
+        "/api/generate",
+        headers=headers,
+        json={"domain_key": "volumeqatar_com", "headline": "Fresh roast"},
+    ).json()
+
+    caption = body["social_caption"]["caption"].lower()
+    assert all(token not in caption for token in ("only", "certified", "77%", "9000", "#1"))
+    # Image history stores the image and disclosure metadata, not a second caption projection.
+    history = client.get("/api/history", headers=headers).json()["history"]
+    assert history and "social_caption" not in history[0] and "caption" not in history[0]
+
+
+def test_content_only_api_response_exposes_only_the_grounded_caption(client, monkeypatch):
+    _brand()
+    _caption_caller(
+        monkeypatch,
+        hook="The only certified cafe",
+        body="Save 77% today.",
+        cta="Join 9000 customers",
+        hashtags=["#1", "#VolumeCafe"],
+    )
+
+    body = client.post(
+        "/api/generate",
+        headers=_auth(client),
+        json={"domain_key": "volumeqatar_com", "content_only": True},
+    ).json()
+
+    assert body["content_only"] is True and "image_b64" not in body
+    assert all(token not in body["caption"].lower()
+               for token in ("only", "certified", "77%", "9000", "#1"))
 
 
 def test_generate_requires_auth(client):

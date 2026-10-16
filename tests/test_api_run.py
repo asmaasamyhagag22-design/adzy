@@ -29,6 +29,7 @@ sys.modules.setdefault("playwright.sync_api", _fake_sync)
 from fastapi.testclient import TestClient  # noqa: E402
 
 from api import jobs as jobs_pkg  # noqa: E402
+from api.job_access import issue_job_capability  # noqa: E402
 from api.jobs.runner import run_pipeline_job  # noqa: E402
 from api.main import app  # noqa: E402
 from api.schemas import JobStatus, Stage, StageStatus  # noqa: E402
@@ -39,7 +40,7 @@ from tests.test_merger import _full_staged_responses, _rich_manifest  # noqa: E4
 from business_profile.llm.caller import MockCaller  # noqa: E402
 
 
-def _fake_scraper_fn(url, output_root):
+def _fake_scraper_fn(url, output_root, **_crawl_options):
     """Return a fake (manifest, out_dir) tuple as the real scraper would."""
     import tempfile
     from pathlib import Path
@@ -271,6 +272,8 @@ def test_job_result_409_when_not_finished(monkeypatch):
             # First spin up the app so app.state.store exists
             c2.get("/api/health")
             store = app.state.store
-            job = store.create()
-            r = c2.get(f"/api/jobs/{job.job_id}/result")
+            job_token, owner_principal = issue_job_capability()
+            job = store.create(owner_principal=owner_principal)
+            r = c2.get(f"/api/jobs/{job.job_id}/result",
+                       headers={"X-Job-Token": job_token})
         assert r.status_code == 409

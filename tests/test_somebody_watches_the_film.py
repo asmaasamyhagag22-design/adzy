@@ -130,25 +130,22 @@ def test_the_critic_sees_the_whole_film_not_one_frame():
 # the audience's language, and the plumbing that starved it
 # =====================================================================
 
-def test_a_declared_edition_outranks_the_one_we_crawled():
-    """hreflang is the brand publishing its own answer; a crawl is our answer about the brand."""
+def test_measured_content_language_outranks_an_available_other_edition():
     from reel.audience import audience_language_for
     lang, _c, why = audience_language_for(
         {"languages": ["en"], "declared_languages": ["ar", "en"],
          "description": "An online retailer of health and beauty products."})
-    assert lang == "Arabic"
-    assert "declares" in why
+    assert lang == "English"
+    assert "dominant content language" in why
 
 
-def test_the_market_outranks_an_english_storefront():
-    """«صيدلية في مصر» — a pharmacy in Cairo serves Arabic speakers whether or not its storefront
-    software ships an English interface."""
+def test_the_market_does_not_overwrite_an_english_storefront():
     from reel.audience import audience_language_for
     lang, country, why = audience_language_for(
         {"languages": ["en"], "country": "Egypt",
          "description": "An online retailer of health and beauty products."})
-    assert lang == "Arabic" and country == "eg"
-    assert "customers speak" in why
+    assert lang == "English" and country == "eg"
+    assert "dominant content language" in why
 
 
 def test_a_country_code_is_read_off_a_cctld():
@@ -164,12 +161,11 @@ def test_a_plain_com_is_not_mistaken_for_a_country():
     assert audience_language_for({"source_url": "https://brand.com/"})[1] == ""
 
 
-def test_the_brands_own_script_still_counts_but_ranks_last():
-    """Real evidence, and the weakest rung — it is exactly what a crawl of the English edition
-    manufactures."""
+def test_incidental_brand_script_does_not_override_measured_language():
     from reel.audience import audience_language_for
-    lang, _c, why = audience_language_for({"name": "نانو كير", "description": "مكملات غذائية"})
-    assert lang == "Arabic" and "writes about itself" in why
+    lang, _c, why = audience_language_for(
+        {"name": "نانو كير", "description": "مكملات غذائية", "languages": ["en"]})
+    assert lang == "English" and "dominant content language" in why
 
 
 def test_every_answer_names_its_evidence():
@@ -181,10 +177,9 @@ def test_every_answer_names_its_evidence():
 
 
 def test_nothing_here_hardcodes_one_market():
-    """D-8: the country comes off the profile and the language off a table, so a market nobody
-    has run yet works the day it appears."""
+    """D-8: an arbitrary country cannot become content-language evidence."""
     from reel.audience import audience_language_for
-    assert audience_language_for({"country": "tr"})[0] == "Turkish"
+    assert audience_language_for({"country": "tr"})[0] == "English"
     assert audience_language_for({"declared_languages": ["ja"]})[0] == "Japanese"
 
 

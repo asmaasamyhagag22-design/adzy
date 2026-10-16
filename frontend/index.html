@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
 <script src="https://unpkg.com/@phosphor-icons/web@2.1.1/src/index.js"></script>
+<link rel="stylesheet" href="/assets/adzy.css?v=6" />
 <style>
   :root {
     --bg:         #0A0A0A;
@@ -1503,15 +1504,235 @@
 </head>
 <body>
 
+<!-- ADZY — bright creative intelligence shell. The original DOM remains below as a hidden
+     compatibility surface while the API contracts and long-lived behavioural tests migrate. -->
+<div id="adzy-app" class="adzy-app" hidden>
+  <div class="adzy-intro" id="adzy-intro" aria-label="Adzy is finding the good stuff">
+    <div class="adzy-orbit-shape shape-a" aria-hidden="true"><span class="dot"></span></div>
+    <div class="adzy-orbit-shape shape-b" aria-hidden="true">
+      <span class="spark adzy-spark"><svg viewBox="0 0 32 32"><use href="/assets/adzy-spark.svg#spark"></use><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span>
+    </div>
+    <div class="adzy-orbit-shape shape-c" aria-hidden="true"><span class="arrow">→</span></div>
+    <div class="adzy-orbit-shape shape-d" aria-hidden="true"><span class="half"></span></div>
+    <button class="adzy-intro-logo" id="adzy-intro-logo" type="button" aria-label="Skip intro and open Adzy">
+      adzy
+      <span class="adzy-spark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span>
+    </button>
+    <p class="adzy-intro-copy">finding the good stuff...</p>
+  </div>
+
+  <header class="adzy-topbar" id="adzy-topbar">
+    <div class="adzy-logo-slot" id="adzy-logo-slot">
+      <button class="adzy-logo-fallback" id="adzy-logo-fallback" type="button" onclick="adzyNavigate('discover')" aria-label="Adzy home">
+        adzy
+        <span class="adzy-spark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span>
+      </button>
+    </div>
+    <nav class="adzy-nav" aria-label="Primary navigation">
+      <button type="button" data-adzy-nav="discover" aria-current="page" onclick="adzyNavigate('discover')">Discover</button>
+      <button type="button" data-adzy-nav="think" onclick="adzyNavigate('think')">Think</button>
+      <button type="button" data-adzy-nav="create" onclick="adzyNavigate('create')">Create</button>
+      <button type="button" data-adzy-nav="work" onclick="adzyNavigate('work')">Work</button>
+    </nav>
+    <div class="adzy-top-actions">
+      <label class="sr-only" for="adzy-brand-select">Current brand</label>
+      <select class="adzy-brand-select" id="adzy-brand-select" aria-label="Current brand"></select>
+      <button class="adzy-avatar" id="adzy-avatar" type="button" onclick="logout()" title="Log out" aria-label="Log out">A</button>
+    </div>
+  </header>
+
+  <main class="adzy-main">
+    <section class="adzy-stage is-active" id="adzy-stage-discover" data-adzy-stage="discover">
+      <div class="adzy-container">
+        <div class="adzy-home-hero">
+          <div class="adzy-hero-copy">
+            <p class="adzy-kicker adzy-mono">Bright creative intelligence</p>
+            <h1 class="adzy-title">Find the angle<br><span>hiding in a brand.</span></h1>
+            <p class="adzy-hero-sub">Drop a website. Adzy will research the rest.</p>
+            <form class="adzy-url-form" id="adzy-url-form">
+              <svg class="globe" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c2.3 2.45 3.5 5.45 3.5 9S14.3 18.55 12 21c-2.3-2.45-3.5-5.45-3.5-9S9.7 5.45 12 3Z" stroke="currentColor" stroke-width="1.8"/></svg>
+              <label class="sr-only" for="adzy-url-input">Brand website</label>
+              <input id="adzy-url-input" type="url" placeholder="https://yourbrand.com" autocomplete="url" spellcheck="false">
+              <button class="adzy-btn blue" id="adzy-explore-btn" type="submit">
+                Explore brand
+                <span class="adzy-spark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span>
+              </button>
+            </form>
+          </div>
+          <div class="adzy-hero-moodboard" aria-label="Latest Adzy creative">
+            <div class="adzy-mood-shape one" aria-hidden="true"></div>
+            <div class="adzy-mood-shape two" aria-hidden="true"></div>
+            <div class="adzy-hero-poster" id="adzy-hero-poster"><div class="fallback">Find it.<br>Frame it.<br>Make it.</div></div>
+            <div class="adzy-mood-note"><span class="adzy-mono">Evidence 04</span><strong id="adzy-hero-evidence">Real brand evidence shapes every direction.</strong></div>
+            <div class="adzy-mood-logo" id="adzy-mood-logo"><span class="adzy-display">your brand</span></div>
+          </div>
+        </div>
+      </div>
+
+      <section class="adzy-parade-section" aria-labelledby="adzy-parade-title">
+        <div class="adzy-parade-head">
+          <div><p class="adzy-mono" style="color:var(--adzy-mango);margin:0 0 14px;">Creative parade</p><h2 class="adzy-section-title" id="adzy-parade-title">Strategy, made visible.</h2></div>
+          <p>Actual work moves through the studio. Hover to slow down and take a closer look.</p>
+        </div>
+        <div class="adzy-parade" id="adzy-parade" aria-live="polite"></div>
+      </section>
+
+      <section class="adzy-recents">
+        <div class="adzy-container">
+          <div class="adzy-section-head">
+            <div><p class="adzy-kicker adzy-mono">Pick up where you left off</p><h2 class="adzy-section-title">Recent brands</h2></div>
+            <button class="adzy-btn small flat" type="button" onclick="adzyRefresh()">Refresh</button>
+          </div>
+          <div class="adzy-brand-strips" id="adzy-brand-strips"></div>
+        </div>
+      </section>
+    </section>
+
+    <section class="adzy-stage adzy-scan-stage" id="adzy-stage-scan" data-adzy-stage="scan" aria-live="polite">
+      <div class="adzy-scan-wrap">
+        <div class="adzy-source-cloud" id="adzy-source-cloud" aria-hidden="true">
+          <span class="adzy-source-chip">Website</span><span class="adzy-source-chip">Pages</span><span class="adzy-source-chip">Reviews</span><span class="adzy-source-chip">Brand signals</span><span class="adzy-source-chip">Evidence</span>
+        </div>
+        <div class="adzy-scan-center">
+          <p class="adzy-mono">Discover · Look around</p>
+          <h1 class="adzy-page-title" id="adzy-scan-title">Looking<br>around...</h1>
+          <p class="adzy-scan-url" id="adzy-scan-url"></p>
+          <div class="adzy-scan-status" id="adzy-scan-status">Starting with the website</div>
+          <div class="adzy-scan-metrics" id="adzy-scan-metrics" hidden>
+            <div class="adzy-scan-metric"><strong id="adzy-pages-count">0</strong><span>pages explored</span></div>
+            <div class="adzy-scan-metric"><strong id="adzy-evidence-count">0</strong><span>pieces of evidence</span></div>
+            <div class="adzy-scan-metric"><strong id="adzy-peer-count">0</strong><span>competitors compared</span></div>
+          </div>
+          <div class="adzy-scan-error" id="adzy-scan-error" hidden></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="adzy-stage adzy-brand-stage" id="adzy-stage-think" data-adzy-stage="think">
+      <div class="adzy-container">
+        <header class="adzy-brand-header">
+          <div class="adzy-brand-identity" id="adzy-think-logo"><span>B</span></div>
+          <div class="adzy-brand-heading"><p class="adzy-mono" style="margin:0 0 10px;">Intelligence · What we found</p><h1 id="adzy-think-brand">Choose a brand</h1><p id="adzy-think-tagline">Adzy will turn its evidence into a direction.</p></div>
+          <div class="adzy-brand-accent" aria-hidden="true"></div>
+        </header>
+        <div class="adzy-board-intro">
+          <h2 class="adzy-page-title">Here's what<br>caught our eye.</h2>
+          <div class="adzy-legend" aria-label="Evidence legend">
+            <span><i class="adzy-dot" style="--dot:var(--adzy-mint)"></i>Observed / supported</span>
+            <span><i class="adzy-dot" style="--dot:var(--adzy-blue)"></i>Inference</span>
+            <span><i class="adzy-dot"></i>Unknown</span>
+            <span><i class="adzy-dot conflict"></i>Conflict</span>
+          </div>
+        </div>
+        <div class="adzy-discovery-board" id="adzy-discovery-board"></div>
+        <section class="adzy-research" id="adzy-research" aria-labelledby="adzy-research-title"></section>
+        <div class="adzy-next-story">
+          <p>So... what should<br><span id="adzy-next-brand">this brand</span> stand for?</p>
+          <button class="adzy-btn coral" type="button" onclick="adzyNavigate('strategy')">Pick the angle <span aria-hidden="true">→</span></button>
+        </div>
+      </div>
+    </section>
+
+    <section class="adzy-stage adzy-strategy-stage" id="adzy-stage-strategy" data-adzy-stage="strategy">
+      <div class="adzy-container">
+        <div class="adzy-strategy-question">
+          <p class="adzy-kicker adzy-mono">Strategy · Pick the angle</p>
+          <h1 class="adzy-page-title">So...<br>what should <span id="adzy-strategy-brand">the brand</span><br>stand for?</h1>
+          <p class="adzy-research-question" id="adzy-research-question">Research question will appear from the current StrategyVersion.</p>
+          <div id="adzy-strategy-prerequisite" role="status"></div>
+          <div class="adzy-strategy-objective" id="adzy-strategy-objective" hidden>
+            <select id="adzy-objective-type" aria-label="Business objective">
+              <option value="">Choose an objective</option><option value="QUALIFIED_LEADS_GROWTH">Increase qualified leads</option><option value="REVENUE_GROWTH">Grow revenue</option><option value="NEW_MARKET_ENTRY">Enter a new market</option><option value="TRIAL_GROWTH">Increase trial</option><option value="REPEAT_PURCHASE_GROWTH">Improve repeat purchase</option><option value="AWARENESS_GROWTH">Increase awareness</option><option value="OTHER">Another outcome</option>
+            </select>
+            <input id="adzy-objective-description" type="text" placeholder="Describe the intended outcome" aria-label="Objective description">
+            <input id="adzy-objective-geography" type="text" placeholder="Market (optional)" aria-label="Objective market">
+          </div>
+        </div>
+        <div class="adzy-directions-head">
+          <div><p class="adzy-mono" style="margin:0 0 10px;">Positioning directions</p><h2 class="adzy-section-title">Directions</h2></div>
+          <div class="adzy-lens" role="group" aria-label="Decision lens">
+            <button class="is-active" type="button" data-adzy-lens="direction">Direction</button><button type="button" data-adzy-lens="proof">Proof</button><button type="button" data-adzy-lens="watchouts">Watch-outs</button>
+          </div>
+        </div>
+        <div class="adzy-directions" id="adzy-directions"></div>
+        <div class="adzy-lens-panel" id="adzy-lens-panel"></div>
+        <div class="adzy-approval" id="adzy-approval"></div>
+      </div>
+    </section>
+
+    <section class="adzy-stage adzy-create-stage" id="adzy-stage-create" data-adzy-stage="create">
+      <div class="adzy-container">
+        <div class="adzy-create-intro"><p class="adzy-kicker adzy-mono">Creative · Make the ad</p><h1 class="adzy-page-title">Now let's<br>turn it into an ad.</h1></div>
+        <div class="adzy-creative-split">
+          <section class="adzy-creative-brief" aria-labelledby="adzy-brief-title">
+            <p class="adzy-mono" id="adzy-brief-status" style="margin:0 0 12px;">Strategy approval required</p>
+            <h2 class="adzy-section-title" id="adzy-brief-title">Creative Direction</h2>
+            <p id="adzy-generation-error" class="adzy-error" role="alert" hidden></p>
+            <dl id="adzy-brief-rows"><div class="adzy-empty" style="margin-top:28px;">Choose a brand with an approved strategy to compile its direction.</div></dl>
+          </section>
+          <section class="adzy-poster-stage" id="adzy-poster-stage" aria-labelledby="adzy-poster-stage-title">
+            <div class="adzy-poster-scrap logo" aria-hidden="true"></div><div class="adzy-poster-scrap copy" aria-hidden="true"></div><div class="adzy-poster-scrap shape" aria-hidden="true"></div>
+            <div class="adzy-poster-empty" id="adzy-poster-empty"><p class="adzy-mono">Blank poster stage</p><h2 class="adzy-section-title" id="adzy-poster-stage-title">Ready when<br>the strategy is.</h2><p id="adzy-poster-empty-note">The message, proof and CTA will assemble here.</p><button class="adzy-btn grape" id="adzy-make-btn" type="button" onclick="adzyMakeAd()">Make the ad <span class="adzy-spark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span></button></div>
+            <div class="adzy-assembly" aria-label="Assembling the ad"><div class="adzy-wire logo"></div><div class="adzy-wire image"></div><div class="adzy-wire message"></div><div class="adzy-wire cta"></div></div>
+            <div class="adzy-poster-result" id="adzy-poster-result">
+              <aside class="adzy-result-meta" id="adzy-result-left"></aside>
+              <div class="adzy-result-art"><img id="adzy-result-image" alt="Generated campaign poster"></div>
+              <aside><div class="adzy-qa-list" id="adzy-qa-list"></div></aside>
+            </div>
+          </section>
+        </div>
+        <div class="adzy-result-actions" id="adzy-result-actions" hidden>
+          <button class="adzy-btn flat" id="adzy-retry-poster" type="button" onclick="adzyMakeAd()">Make another poster</button>
+          <button class="adzy-btn ink" type="button" onclick="adzyOpenWhy()">Why this ad? <span class="adzy-spark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span></button>
+          <button class="adzy-btn flat" type="button" onclick="adzyOpenTrace()">Trace the message</button>
+        </div>
+        <section class="adzy-why" id="adzy-why" hidden>
+          <div class="adzy-why-head"><p class="adzy-kicker adzy-mono">Why this ad?</p><h2 class="adzy-page-title">A visible chain<br>of decisions.</h2></div>
+          <div class="adzy-lineage" id="adzy-lineage"></div>
+          <p class="adzy-technical-gap" id="adzy-trace-gap"></p>
+        </section>
+      </div>
+    </section>
+
+    <section class="adzy-stage adzy-work-stage" id="adzy-stage-work" data-adzy-stage="work">
+      <div class="adzy-container">
+        <header class="adzy-work-head"><div><p class="adzy-kicker adzy-mono">The work</p><h1 class="adzy-page-title">Things Adzy<br>has made.</h1></div><p class="adzy-body">A living archive of real creatives, their campaign context and the strategy state they shipped with.</p></header>
+        <div class="adzy-work-wall" id="adzy-work-wall"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="adzy-drawer-backdrop" id="adzy-drawer-backdrop" onclick="adzyCloseDrawer()"></div>
+  <aside class="adzy-drawer" id="adzy-drawer" aria-hidden="true" aria-labelledby="adzy-drawer-title">
+    <div class="adzy-drawer-head"><div><p class="adzy-mono" style="margin:0 0 8px;color:var(--adzy-blue);">Research footnote</p><h2 id="adzy-drawer-title">Evidence</h2></div><button class="adzy-drawer-close" type="button" onclick="adzyCloseDrawer()" aria-label="Close evidence drawer">×</button></div>
+    <div id="adzy-drawer-content"></div>
+  </aside>
+
+  <div class="adzy-trace-overlay" id="adzy-trace-overlay" role="dialog" aria-modal="true" aria-labelledby="adzy-trace-title">
+    <div class="adzy-trace-card"><button class="adzy-drawer-close" type="button" style="float:right;color:var(--adzy-ink);" onclick="adzyCloseTrace()" aria-label="Close trace">×</button><p class="adzy-mono" style="color:var(--adzy-mint);">Trace mode</p><h2 id="adzy-trace-title">Poster → evidence</h2><div id="adzy-trace-rows"></div></div>
+  </div>
+</div>
+
+<!-- These short fallbacks keep the new shell keyboard/click safe during the few
+     milliseconds before adzy-app.js replaces each global with its real handler. -->
+<script>
+function adzyNavigate() { return false; }
+function adzyRefresh() { return false; }
+function adzyMakeAd() { return false; }
+function adzyOpenWhy() { return false; }
+function adzyOpenTrace() { return false; }
+function adzyCloseTrace() { return false; }
+function adzyCloseDrawer() { return false; }
+</script>
+
 <!-- ── Persistent icon rail - the app's only navigation, always visible ── -->
 <div class="studio-rail">
   <button class="rail-btn" id="rail-logo-btn" onclick="window.location.href='/'" title="AdArchitect - Home" style="margin-bottom:8px;">
     <img src="/assets/logo.png?v=3" alt="AdArchitect" style="width:44px;height:auto;object-fit:contain;" />
   </button>
   <!-- RAIL ORDER = THE WORK ORDER (owner, 2026-07-26): Brands right after Home, the Influencer
-       BEFORE Create — the face is chosen first, then content is generated with it. Assets removed
-       on her ruling («شيل الassets ملوش لازم حاليا»); loadHistory shipped ~40 MB of inline base64
-       in one response, so nothing of value is lost while it is out. -->
+       BEFORE Create — the face is chosen first, then content is generated with it. Gallery is a
+       bounded canonical-demo surface; loadHistory limits the inline payload below. -->
   <button class="rail-btn" id="rail-home-btn" onclick="showPage('home')" title="Home">
     <i class="ph ph-house"></i><span>Home</span>
   </button>
@@ -1526,6 +1747,9 @@
   </button>
   <button class="rail-btn" id="rail-create-btn" onclick="openStudioCreate()" title="Create">
     <i class="ph ph-sparkle"></i><span>Create</span>
+  </button>
+  <button class="rail-btn" id="rail-assets-btn" onclick="showPage('history'); loadHistory()" title="Gallery">
+    <i class="ph ph-images"></i><span>Gallery</span>
   </button>
   <button class="rail-btn" id="rail-logout-btn" onclick="logout()" title="Log out" style="margin-top:auto;">
     <i class="ph ph-sign-out"></i><span>Logout</span>
@@ -1959,6 +2183,9 @@
            the brand's own evidence — no model is called, so the preview is not itself the spend. -->
       <div id="prompt-preview" class="preview-brief" style="display:none;"></div>
 
+      <!-- Canonical strategy projection. Compiled by the server with zero provider calls. -->
+      <div id="poster-strategy-card" class="preview-brief" style="display:none;"></div>
+
       <!-- Footer: settings chip left · gradient Generate right -->
       <div class="studio-footer">
         <div class="settings-summary" onclick="togglePopover('settings-popover')">
@@ -2064,6 +2291,10 @@
         </button>
         <button class="strat-generate-btn" id="strat-gen-strategy-btn" onclick="generateStrategyChain()" style="display:none;">
           <i class="ph ph-sparkle"></i> <span id="strat-gen-strategy-label">Generate Strategy</span>
+        </button>
+        <button class="strat-generate-btn" id="strat-approve-strategy-btn" onclick="approveStrategy()"
+                style="display:none; background:var(--surface2); color:var(--text);">
+          <i class="ph ph-check"></i> Approve exact Strategy Run
         </button>
         <button class="strat-generate-btn" id="strat-regen-swot-btn" onclick="generateSwot()" style="display:none; background:var(--surface2); color:var(--text);">
           <i class="ph ph-arrow-clockwise"></i> Regenerate SWOT
@@ -2188,6 +2419,23 @@
 
     <!-- Strategy view -->
     <div class="strat-view" id="strat-view-strategy">
+      <div class="strat-toolbar" style="margin-bottom:16px; flex-wrap:wrap;">
+        <select class="input" id="strategy-objective-type" style="width:auto; padding:8px 12px; font-size:0.82rem;">
+          <option value="">Select an explicit business objective…</option>
+          <option value="QUALIFIED_LEADS_GROWTH">Increase qualified leads</option>
+          <option value="REVENUE_GROWTH">Grow revenue</option>
+          <option value="NEW_MARKET_ENTRY">Launch into a new market</option>
+          <option value="TRIAL_GROWTH">Increase trial</option>
+          <option value="REPEAT_PURCHASE_GROWTH">Improve repeat purchase</option>
+          <option value="AWARENESS_GROWTH">Increase awareness</option>
+          <option value="OTHER">Other explicit outcome</option>
+        </select>
+        <input class="input" id="strategy-objective-description" type="text"
+               placeholder="Describe the business outcome (required)" style="min-width:280px; flex:1;">
+        <input class="input" id="strategy-objective-geography" type="text"
+               placeholder="Market/geography (optional, comma-separated)" style="min-width:220px;">
+      </div>
+      <div class="swot-notes-box" id="strategy-candidate" style="display:none;"></div>
       <div id="strategy-content" style="display:none;">
         <div class="swot-notes-box" id="strategy-notes" style="display:none;"></div>
         <div class="positioning-hero" id="strategy-positioning"></div>
@@ -2580,6 +2828,7 @@
   </div>
 </div>
 
+<script src="/assets/strategy-state.js?v=2"></script>
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
@@ -2595,11 +2844,16 @@ const state = {
   lastReel: null,
   lastGenImageB64: null,
   lastGenFilename: null,
+  creativeContract: null,
+  posterBrief: null,
   allBrands: [],
   authToken: localStorage.getItem('authToken') || null,
   authMode: 'login', // 'login' | 'signup'
   currentUser: null,
 };
+// Read-only bridge for the rebuilt Adzy shell. The legacy state stays the single client authority
+// until the compatibility DOM is retired; this avoids a second auth token or brand selection.
+window.adzyLegacyState = state;
 
 // ── Utils ──────────────────────────────────────────────────────────────────
 const RAIL_BTN_FOR_PAGE = { home: 'rail-home-btn', history: 'rail-assets-btn' };
@@ -3048,6 +3302,74 @@ function chosenLanguage() {
   return (box && box.dataset.lang) || 'auto';
 }
 
+function renderPosterContract(data, errorMessage = '') {
+  const box = document.getElementById('poster-strategy-card');
+  if (!box) return;
+  const contract = data && data.creative_contract;
+  const brief = data && data.poster_brief;
+  if (!contract) {
+    state.creativeContract = null;
+    state.posterBrief = null;
+    box.style.display = '';
+    box.innerHTML = `<div class="pv-title">Canonical Poster unavailable</div>`
+      + `<div class="pv-note">${escHtml(errorMessage || 'Approve a canonical StrategyVersion first. Legacy generation is not labelled strategy-grounded.')}</div>`;
+    return;
+  }
+  state.creativeContract = contract;
+  state.posterBrief = brief;
+  const row = (k, v) => `<div class="pv-row"><span class="pv-k">${escHtml(k)}</span>`
+    + `<span class="pv-v" dir="auto">${escHtml(v || '—')}</span></div>`;
+  box.style.display = '';
+  box.innerHTML = `<div class="pv-title">Approved Strategy → Poster</div>`
+    + row('Positioning', contract.positioning_statement)
+    + row('Target', contract.target)
+    + row('Differentiated value', contract.differentiated_value)
+    + row('Reason to believe', contract.reason_to_believe)
+    + row('Primary message', contract.primary_message)
+    + row('CTA', contract.cta_direction)
+    + row('StrategyVersion', contract.strategy_version_id)
+    + `<div class="pv-note">Canonical · ${escHtml(contract.creative_contract_id)} · ${escHtml(contract.language)}${contract.locale ? ' · ' + escHtml(contract.locale) : ''}</div>`;
+}
+
+async function loadPosterContract() {
+  const brand = state.studioBrand;
+  const strategyVersion = brand && brand.strategy_version_id;
+  if (!brand || !strategyVersion || brand.strategy_approval_state !== 'approved') {
+    renderPosterContract(null);
+    return null;
+  }
+  const productName = state.adMode === 'product'
+    ? document.getElementById('studio-product-name').value.trim() : '';
+  try {
+    const data = await api('POST', '/api/poster/contract', {
+      domain_key: brand.domain_key,
+      strategy_version_id: strategyVersion,
+      product_focus: productName,
+      style_preference: state.selectedStyle || '',
+      cta_preference: document.getElementById('studio-cta').value.trim(),
+      creative_angle: document.getElementById('studio-user-context').value.trim(),
+      language: chosenLanguage(),
+      format: 'poster_1080x1350',
+    });
+    renderPosterContract(data);
+    return data;
+  } catch (e) {
+    renderPosterContract(null, e.message || String(e));
+    return null;
+  }
+}
+
+function showPosterLineage(data) {
+  if (!data || !data.canonical) return;
+  renderPosterContract({creative_contract: data.creative_contract, poster_brief: data.poster_brief});
+  const box = document.getElementById('gen-image-meta');
+  const qa = data.strategy_verification || {};
+  const visual = qaDisclosure(data, true);
+  if (box) box.textContent = `Canonical Poster · Strategy ${data.strategy_version_id}`
+    + ` · ${qa.overall_pass ? 'strategy QA passed' : 'strategy QA failed'}`
+    + ` · visual QA ${visual.status}`;
+}
+
 // THE BRIEF, BEFORE THE BILL. Reads GET /api/prompt-preview/{dk} — everything the system resolves
 // from the brand's own evidence with no model call: the audience language and WHY, the locked
 // register, the look lock, the grade family, the tempo, how many shots and why, whether the last
@@ -3121,10 +3443,50 @@ function showProductRead(data) {
   box.style.display = 'flex';
 }
 
-function showDisclosure(data) {
+function qaDisclosure(data, missingIsUnknown = false) {
+  const allowed = new Set(['pass', 'fail', 'not_checked']);
+  const hasStatus = !!data && Object.prototype.hasOwnProperty.call(data, 'qa_status');
+  let status = String((data && data.qa_status) || '').toLowerCase();
+  if (!allowed.has(status)) {
+    if (data && data.qa_failed === true) status = 'fail';
+    else status = missingIsUnknown && !hasStatus ? 'unknown' : 'not_checked';
+  }
+  const note = status === 'pass' ? '' : String((data && data.qa_note) || '');
+  if (status === 'pass') return { status, message: '' };
+  if (status === 'fail') {
+    return { status, message: 'The quality check did not pass this render'
+      + (note ? ': ' + note : '')
+      + ' — it is the best of the attempts, not an approved one.' };
+  }
+  if (status === 'not_checked') {
+    return { status, message: 'This creative was retained, but its quality check was not completed'
+      + (note ? ': ' + note : '') + '.' };
+  }
+  return { status, message: 'QA status unavailable for this older creative.' };
+}
+
+function appendCreativeQADisclosure(container, data, missingIsUnknown = false, key = 'creative') {
+  if (!container) return;
+  const previous = container.querySelector(`[data-qa-disclosure="${key}"]`);
+  if (previous) previous.remove();
+  const qa = qaDisclosure(data, missingIsUnknown);
+  if (qa.status === 'pass') return;
+  const badge = el('div', { className: 'creative-qa-disclosure' });
+  badge.setAttribute('data-qa-disclosure', key);
+  badge.textContent = qa.message;
+  const failed = qa.status === 'fail';
+  badge.style.cssText = 'margin-top:7px;padding:7px 9px;border-radius:7px;font-size:0.72rem;'
+    + 'line-height:1.35;background:' + (failed ? 'rgba(255,159,10,0.12)' : 'rgba(255,255,255,0.06)')
+    + ';color:' + (failed ? '#FFB020' : 'var(--text2)')
+    + ';border:1px solid ' + (failed ? 'rgba(255,159,10,0.35)' : 'rgba(255,255,255,0.10)');
+  container.appendChild(badge);
+}
+
+function showDisclosure(data, missingIsUnknown = false) {
   const box = document.getElementById('gen-disclosure');
   if (!box) return;
-  if (!data || (!data.trust_violation && !data.degraded_reason && !data.qa_failed
+  const qa = qaDisclosure(data, missingIsUnknown);
+  if (!data || (!data.trust_violation && !data.degraded_reason && qa.status === 'pass'
                 && data.is_preview === false)) {
     box.style.display = 'none';
     box.textContent = '';
@@ -3137,15 +3499,13 @@ function showDisclosure(data) {
     lines.push(data.trust_note_ar
       || 'This render contains an element the quality check could not verify — review before use.');
   }
-  // THE ART CRITIC TURNED THIS RENDER DOWN. The pipeline's last resort ships the best of the
-  // failed attempts ("no attempt passed; returning best (score=3)") rather than blocking the
-  // deliverable — a defensible call, and one the client has to be told about, or a poster the
-  // system itself rejected arrives looking exactly like one that scored 9.
-  if (data.qa_failed) {
+  // THE ART CRITIC TURNED THIS RENDER DOWN. The pipeline may retain the best failed attempt as
+  // diagnostic generation history, but it is explicitly non-accepted and non-publishable.
+  if (qa.status === 'fail') {
     tone = 'warn';
-    lines.push('The quality check did not pass this render'
-      + (data.qa_note ? ': ' + data.qa_note : '')
-      + ' — it is the best of the attempts, not an approved one.');
+    lines.push(qa.message);
+  } else if (qa.status === 'not_checked' || qa.status === 'unknown') {
+    lines.push(qa.message);
   }
   if (data.degraded_reason) {
     tone = tone === 'warn' ? 'warn' : 'info';
@@ -3215,7 +3575,9 @@ async function api(method, path, body) {
       else msg = JSON.stringify(err.detail);
     }
     console.error(`API ${method} ${path} → ${r.status}:`, err);
-    throw new Error(msg);
+    const failure = new Error(msg);
+    failure.status = r.status;
+    throw failure;
   }
   return r.json();
 }
@@ -3510,7 +3872,12 @@ function renderBrand(b) {
   renderStrategyDashboard(b);
   // Header - primary logo (best match)
   const logoWrap = document.getElementById('brand-logo-wrap');
-  const logoFb   = document.getElementById('brand-logo-fallback');
+  let logoFb = document.getElementById('brand-logo-fallback');
+  if (!logoFb) {
+    logoFb = document.createElement('div');
+    logoFb.id = 'brand-logo-fallback';
+    logoFb.className = 'brand-logo-fallback grad-text';
+  }
   logoFb.textContent = (b.organization_name || b.meta_title || 'B')[0].toUpperCase();
   logoWrap.innerHTML = '';
   const primaryLogo = b.logo_url || (b.logo_urls && b.logo_urls[0]);
@@ -3872,7 +4239,7 @@ const STRAT_TAB_ACTIONS = {
   trend:    ['strat-gen-trends-btn'],
   swot:     ['strat-gen-swot-btn', 'strat-adopt-swot-btn', 'strat-approve-swot-btn',
              'strat-regen-swot-btn'],
-  strategy: ['strat-gen-strategy-btn'],
+  strategy: ['strat-gen-strategy-btn', 'strat-approve-strategy-btn'],
   plan:     [],
   calendar: [],
   influencer: [],
@@ -3996,7 +4363,8 @@ function renderMediaPlanV2(b) {
 function applyStratStageGate(b, owned) {
   const swotExists = !!b.has_swot;
   const swotApproved = !!b.swot_approved;
-  const strategyExists = !!b.has_strategy;
+  const strategyExists = !!b.strategy_version_id && b.strategy_approval_state === 'approved';
+  const candidate = b.strategy_candidate || {};
   const want = {
     'strat-gen-trends-btn': true,
     'strat-gen-swot-btn': !swotExists,
@@ -4005,6 +4373,8 @@ function applyStratStageGate(b, owned) {
     'strat-adopt-swot-btn': !swotExists,
     'strat-approve-swot-btn': swotExists && !swotApproved,
     'strat-gen-strategy-btn': swotApproved && !strategyExists,
+    'strat-approve-strategy-btn': swotApproved && !!candidate.run_id
+      && !!candidate.eligible_for_approval && candidate.approval_state !== 'approved',
     'strat-regen-swot-btn': swotExists && swotApproved,
   };
   Object.entries(want).forEach(([id, ok]) => {
@@ -4045,6 +4415,8 @@ function renderSwotCaveat(b) {
 function renderStrategyDashboard(b) {
   // What the screen is showing IS the active brand — see activeBrand().
   state.dashboardBrand = b;
+  // Clear first: a failed/partial render must never retain an approvable previous subject.
+  state.reviewedSwot = null;
   renderMediaPlanV2(b);
   fillOwnerInputs(b);
   const swot     = b.swot || {};
@@ -4058,7 +4430,7 @@ function renderStrategyDashboard(b) {
   // Real cloned-repo schema doesn't have positioning_statement - use
   // strategic_posture (always present once the Strategy Agent has run) as
   // the "has meaningful strategy" signal instead.
-  const hasStrategy = !!strategy.strategic_posture;
+  const hasStrategy = BaseeraStrategyState.exists(strategy);
 
   const nameEl = document.getElementById('dashboard-brand-name');
   if (nameEl) nameEl.textContent = b.organization_name || b.domain_key || '';
@@ -4076,6 +4448,39 @@ function renderStrategyDashboard(b) {
   }
 
   renderSwotCaveat(b);
+
+  const candidateBox = document.getElementById('strategy-candidate');
+  const candidate = b.strategy_candidate || {};
+  const candidateExists = !!candidate.run_id && !hasStrategy;
+  const candidateObjective = candidate.objective || {};
+  const candidateBusiness = candidateObjective.business || {};
+  const objectiveTypeInput = document.getElementById('strategy-objective-type');
+  const objectiveDescriptionInput = document.getElementById('strategy-objective-description');
+  const objectiveGeographyInput = document.getElementById('strategy-objective-geography');
+  if (objectiveTypeInput) objectiveTypeInput.value = candidateBusiness.type || '';
+  if (objectiveDescriptionInput) objectiveDescriptionInput.value = candidateBusiness.description || '';
+  if (objectiveGeographyInput) {
+    objectiveGeographyInput.value = (candidateBusiness.geography || []).join(', ');
+  }
+  if (candidateBox && candidateExists) {
+    const verification = candidate.verification || {};
+    const defects = (verification.defects || []).map(d =>
+      `<li><strong>${escHtml(d.code || '')}</strong>: ${escHtml(d.detail || '')}</li>`).join('');
+    const options = ((candidate.decision || {}).options || []).map(o =>
+      `<li><strong>${escHtml(o.option_id || '')}</strong> — ${escHtml(o.positioning_statement || '')}</li>`).join('');
+    candidateBox.innerHTML =
+      `<div class="swot-notes-title">Canonical candidate · ${escHtml(verification.status || 'UNKNOWN')}</div>` +
+      `<div style="font-size:.78rem; margin-bottom:6px;">Run ${escHtml(candidate.run_id)}</div>` +
+      (candidateBusiness.type
+        ? `<div style="font-size:.82rem; margin-bottom:8px;"><strong>Explicit objective:</strong> ` +
+          `${escHtml(candidateBusiness.type)} — ${escHtml(candidateBusiness.description || '')}</div>`
+        : '') +
+      (options ? `<div>Options</div><ul>${options}</ul>` : '') +
+      (defects ? `<div>Verifier defects</div><ul>${defects}</ul>` : '');
+    candidateBox.style.display = '';
+  } else if (candidateBox) {
+    candidateBox.style.display = 'none';
+  }
 
   // ── Trend view - surfaced from swot.strategic_context (quality/benchmark
   // signals produced alongside the SWOT; there's no separate trend.json) ──
@@ -4226,8 +4631,14 @@ function renderStrategyDashboard(b) {
       : '';
   }
 
+  // Copy identity with the rendered content, never from activeBrand() at click time.
+  state.reviewedSwot = b.has_swot ? Object.freeze({
+    domain_key: b.domain_key, swot_run_id: b.swot_run_id || null,
+  }) : null;
+
   // ── Strategy view ──
-  document.getElementById('strategy-empty').style.display = hasStrategy ? 'none' : '';
+  document.getElementById('strategy-empty').style.display =
+    (hasStrategy || candidateExists) ? 'none' : '';
   document.getElementById('strategy-content').style.display = hasStrategy ? '' : 'none';
   if (hasStrategy) {
     // Real schema: strategic_posture + posture_rationale instead of positioning_statement.
@@ -4388,6 +4799,7 @@ function renderStrategyDashboard(b) {
         const img = el('img', { className: 'cal-poster-img', src: poster.url + '?t=' + Date.now() });
         img.style.cssText = 'max-width:100%; border-radius:8px; display:block;';
         posterArea.appendChild(img);
+        appendCreativeQADisclosure(posterArea, poster, true);
       }
       item.querySelector('.cal-gen-btn').addEventListener('click', () => generateCalendarDayPoster(e.date, item, -1));
       const retryBtn = item.querySelector('.cal-retry-btn');
@@ -4420,9 +4832,13 @@ function renderInfluencerView(b) {
     posterEmpty.style.display = 'none';
     posterImg.style.display = '';
     posterImg.src = inf.poster_url + '?t=' + Date.now();
+    appendCreativeQADisclosure(posterImg.parentElement, inf, true, 'influencer');
   } else {
     posterEmpty.style.display = '';
     posterImg.style.display = 'none';
+    const oldDisclosure = posterImg.parentElement
+      && posterImg.parentElement.querySelector('[data-qa-disclosure="influencer"]');
+    if (oldDisclosure) oldDisclosure.remove();
   }
 
   // THE LOOKS SO FAR. With more than one candidate the server refuses a bare "approve" — it
@@ -4872,18 +5288,35 @@ async function generateSwot() {
 }
 
 async function approveSwot() {
-  const b = activeBrand();
-  if (!b || !b.domain_key) return;
+  const reviewed = state.reviewedSwot;
+  if (!reviewed || !reviewed.domain_key) return;
   const btn = document.getElementById('strat-approve-swot-btn');
   btn.disabled = true;
-  try {
-    await api('POST', '/api/swot/approve', { domain_key: b.domain_key });
-    const fresh = await api('GET', '/api/brands/' + b.domain_key);
+  const stillShowingReviewed = () => state.reviewedSwot === reviewed;
+  const refreshReviewed = async () => {
+    const fresh = await api('GET', '/api/brands/' + encodeURIComponent(reviewed.domain_key));
+    if (!stillShowingReviewed()) return false;
     state.studioBrand = fresh;
     renderStrategyDashboard(fresh);
-    toast('SWOT approved - ready to generate Strategy', 'success');
+    return true;
+  };
+  try {
+    await api('POST', '/api/swot/approve', {
+      domain_key: reviewed.domain_key, swot_run_id: reviewed.swot_run_id,
+    });
+    if (await refreshReviewed()) toast('SWOT approved - ready to generate Strategy', 'success');
   } catch (e) {
-    toast('Failed to approve SWOT: ' + e.message, 'error');
+    if (e.status === 409 && stillShowingReviewed()) {
+      try {
+        if (await refreshReviewed()) {
+          toast('SWOT changed. Review the updated analysis, then approve it again.', 'error');
+        }
+      } catch (refreshError) {
+        toast('Could not load the current SWOT. Reload and review before approving: ' + refreshError.message, 'error');
+      }
+    } else {
+      toast('Failed to approve SWOT: ' + e.message, 'error');
+    }
   } finally {
     btn.disabled = false;
   }
@@ -4901,7 +5334,30 @@ async function generateStrategyChain() {
   label.textContent = 'Generating… (a few minutes)';
 
   try {
-    const { job_id } = await api('POST', '/api/strategy/generate', { domain_key: b.domain_key });
+    const objectiveType = document.getElementById('strategy-objective-type').value;
+    const description = document.getElementById('strategy-objective-description').value.trim();
+    const geography = document.getElementById('strategy-objective-geography').value
+      .split(',').map(v => v.trim()).filter(Boolean);
+    if (!objectiveType || !description) {
+      throw new Error('Select an explicit business objective and describe the intended outcome.');
+    }
+    const unknown = { status: 'UNKNOWN', value: null };
+    const objective = {
+      schema_version: 1,
+      objective_id: (globalThis.crypto?.randomUUID?.() || `obj_${Date.now()}`),
+      origin: 'USER_EXPLICIT',
+      business: {
+        type: objectiveType, description, metric: unknown, baseline: unknown, target: unknown,
+        time_horizon: unknown, geography, market: geography.join(', '), constraints: [],
+      },
+      marketing_role: 'UNSPECIFIED',
+      behavioral_objective: unknown,
+      media_optimization: { status: 'NOT_SET', value: null },
+    };
+    const { job_id } = await api('POST', '/api/strategy/generate', {
+      domain_key: b.domain_key, objective,
+      requested_scope: { geography, market: geography.join(', ') },
+    });
     const poll = setInterval(async () => {
       try {
         const job = await api('GET', '/api/jobs/' + job_id);
@@ -4912,7 +5368,11 @@ async function generateStrategyChain() {
           state.studioBrand = fresh;
           renderStrategyDashboard(fresh);
           btn.disabled = false;
-          toast('Strategy generated', 'success');
+          const c = fresh.strategy_candidate || {};
+          toast(c.eligible_for_approval
+            ? 'Strategy candidate verified — review and approve its exact Run'
+            : 'Strategy candidate stopped with verifier defects — review before repair',
+            c.eligible_for_approval ? 'success' : 'warning');
         } else if (job.status === 'error') {
           clearInterval(poll);
           state.stratGenerating = false;
@@ -4930,10 +5390,34 @@ async function generateStrategyChain() {
   }
 }
 
+async function approveStrategy() {
+  const b = activeBrand();
+  const candidate = b?.strategy_candidate || {};
+  if (!b?.domain_key || !candidate.run_id) {
+    toast('No exact strategy Run is open for approval', 'error'); return;
+  }
+  const btn = document.getElementById('strat-approve-strategy-btn');
+  btn.disabled = true;
+  try {
+    await api('POST', '/api/strategy/decide', {
+      domain_key: b.domain_key, strategy_run_id: candidate.run_id, decision: 'approved', note: '',
+    });
+    const fresh = await api('GET', '/api/brands/' + b.domain_key);
+    state.studioBrand = fresh;
+    renderStrategyDashboard(fresh);
+    toast('Exact Strategy Run approved', 'success');
+  } catch (e) {
+    toast('Strategy approval failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function generateMarketingPlan() {
   const b = activeBrand();
   if (!b || !b.domain_key) { toast('Pick a brand first (Brands in the rail)', 'error'); return; }
-  if (!b.marketing_strategy || !b.marketing_strategy.strategic_posture) {
+  const strategy = b.marketing_strategy || {};
+  if (!BaseeraStrategyState.exists(strategy)) {
     toast('Generate Strategy first (SWOT needs to be approved before Strategy will run)', 'error');
     return;
   }
@@ -5093,6 +5577,8 @@ function activeBrand() {
 
 function setStudioBrand(brand) {
   state.studioBrand = brand;
+  state.creativeContract = null;
+  state.posterBrief = null;
   const nameEl = document.getElementById('studio-brand-name');
   const typeEl = document.getElementById('studio-brand-type');
   const avatarEl = document.getElementById('studio-brand-avatar');
@@ -5110,6 +5596,7 @@ function setStudioBrand(brand) {
   const tile = document.getElementById('studio-brand-select');
   if (tile) tile.classList.add('filled');
   if (typeof updateRefCount === 'function') updateRefCount();
+  loadPosterContract();
 
   // If the Dashboard panel is currently open, refresh it for the newly picked brand
   const dashPanel = document.getElementById('studio-dashboard-panel');
@@ -5210,6 +5697,7 @@ async function generateCalendarDayPoster(date, itemEl, seed) {
     const img = el('img', { className: 'cal-poster-img', src: result.image_url + '?t=' + Date.now() });
     img.style.cssText = 'max-width:100%; border-radius:8px; display:block;';
     posterArea.appendChild(img);
+    appendCreativeQADisclosure(posterArea, result, false);
     genBtn.textContent = 'Regenerate poster';
     if (!retryBtn) {
       const newRetry = el('button', { className: 'btn-secondary cal-retry-btn' }, 'Retry (new seed)');
@@ -5362,6 +5850,16 @@ async function generateImage() {
     }
   }
 
+  const approvedVersion = state.studioBrand.strategy_approval_state === 'approved'
+    ? (state.studioBrand.strategy_version_id || '') : '';
+  if (approvedVersion) {
+    const compiled = await loadPosterContract();
+    if (!compiled || !state.creativeContract) {
+      toast('Canonical Poster blocked: the approved strategy contract could not be compiled', 'error');
+      return;
+    }
+  }
+
   // Show loading
   document.getElementById('gen-placeholder').style.display = 'none';
   document.getElementById('gen-image').style.display = 'none';
@@ -5400,7 +5898,7 @@ async function generateImage() {
         throw new Error(msg);
       }
       data = await r.json();
-    } else if (logoFile) {
+    } else if (logoFile && !state.creativeContract) {
       const formData = new FormData();
       formData.append('domain_key', state.studioBrand.domain_key);
       formData.append('content_type', state.selectedCT);
@@ -5431,7 +5929,9 @@ async function generateImage() {
         domain_key:   dk,
         content_type: state.selectedCT   || 'social_post',
         style:        state.selectedStyle || 'gradient',
-        headline, subtext, cta,
+        headline: state.creativeContract ? '' : headline,
+        subtext: state.creativeContract ? '' : subtext,
+        cta: state.creativeContract ? state.creativeContract.cta_direction : cta,
         user_context: userContext,
         mode: 'text_to_image',
         language: chosenLanguage(),
@@ -5440,6 +5940,8 @@ async function generateImage() {
         product_url: productUrl,
         product_name: productName,
         product_description: productDesc,
+        strategy_version_id: state.creativeContract
+          ? state.creativeContract.strategy_version_id : '',
       };
       data = await api('POST', '/api/generate', payload);
     }
@@ -5476,6 +5978,7 @@ async function generateImage() {
     showDisclosure(data);
     showProductRead(data);
     showCaption(data);
+    showPosterLineage(data);
 
   } catch(e) {
     document.getElementById('gen-loading').classList.remove('active');
@@ -5516,7 +6019,7 @@ function downloadImage() {
 // ── History ─────────────────────────────────────────────────────────────────
 async function loadHistory() {
   try {
-    const data = await api('GET', '/api/history?limit=100');
+    const data = await api('GET', '/api/history?limit=12');
     renderHistory(data.history || []);
   } catch(e) {
     console.warn('Failed to load history:', e);
@@ -5543,12 +6046,16 @@ function renderHistory(items) {
       state.lastGenImageB64 = item.image_b64;
       state.lastGenFilename = item.filename || 'adarchitect.png';
       document.getElementById('gen-actions').style.display = 'flex';
+      showDisclosure(item, true);
+      showPosterLineage(item);
     }});
     const img = el('img', { src: 'data:image/png;base64,' + item.image_b64, alt: item.brand_name || '' });
     const overlay = el('div', { className: 'history-card-overlay' });
     overlay.appendChild(el('div', { className: 'history-card-brand' }, item.brand_name || item.domain_key));
     overlay.appendChild(el('div', { className: 'history-card-meta' },
-      (item.content_type || '').replace('_',' ') + ' · ' + (item.style || '')));
+      (item.content_type || '').replace('_',' ') + ' · ' + (item.style || '')
+      + (item.canonical ? ' · Canonical strategy-grounded' : ' · Legacy / unversioned')));
+    appendCreativeQADisclosure(overlay, item, true);
     card.appendChild(img); card.appendChild(overlay);
     grid.appendChild(card);
   });
@@ -5615,5 +6122,6 @@ if (new URLSearchParams(location.search).get('studio') === '1') {
   goStudio();
 }
 </script>
+<script src="/assets/adzy-app.js?v=21"></script>
 </body>
 </html>

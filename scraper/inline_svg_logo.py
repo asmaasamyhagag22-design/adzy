@@ -93,6 +93,54 @@ _ISOLATE_JS = r"""(i) => {
 _BLOCKED_RESOURCES = ("image", "media", "font", "script", "xhr", "fetch")
 
 
+def _destination_is_allowed(url: str) -> bool:
+    """The F-01 browser destination policy, shared with the primary Playwright fetch path.
+
+    Imported lazily from :mod:`scraper.fetcher` (which needs Playwright at import time) so this
+    module keeps its promise that importing it never requires a browser. Reusing that predicate
+    rather than restating it is the point: two copies of a destination policy drift apart the
+    next time either one is tuned, and this path exists precisely because it had none.
+    """
+    from .fetcher import _browser_request_is_allowed
+
+    return _browser_request_is_allowed(url)
+
+
+def _route_request(route) -> None:
+    """Decide one browser request provoked by the UNTRUSTED captured HTML.
+
+    Two independent conditions, in this order: the destination must be one we are entitled to
+    reach, and the resource must be one this capture wants. A resource type can never make a
+    destination safe — the old handler let `document` (iframe), `stylesheet`, `websocket`,
+    `manifest` and `other` through on type alone, which is a browser fetch sink outside F-01.
+    """
+    try:
+        request = route.request
+        url = str(request.url or "")
+        resource_type = str(request.resource_type or "")
+    except Exception:  # noqa: BLE001 — an unreadable request is not safe to continue
+        _abort(route)
+        return
+    try:
+        destination_allowed = _destination_is_allowed(url)
+    except Exception:  # noqa: BLE001 — no policy available means no permission
+        destination_allowed = False
+    if not destination_allowed or resource_type in _BLOCKED_RESOURCES:
+        _abort(route)
+        return
+    try:
+        route.continue_()
+    except Exception:  # noqa: BLE001 — a route Playwright already handled
+        pass
+
+
+def _abort(route) -> None:
+    try:
+        route.abort()
+    except Exception:  # noqa: BLE001 — a route Playwright already handled
+        pass
+
+
 def _gate(png_bytes: bytes) -> Optional[bool]:
     """Decide whether a transparent logo capture is usable, and on which chip.
 
@@ -138,13 +186,17 @@ def capture_inline_svg_logo(
         with sync_playwright() as p:
             browser = p.chromium.launch()
             try:
-                page = browser.new_page(viewport={"width": 800, "height": 800})
-                page.route(
-                    "**/*",
-                    lambda r: r.abort()
-                    if r.request.resource_type in _BLOCKED_RESOURCES
-                    else r.continue_(),
+                # A Service Worker intercepts fetches BENEATH `route`, so it could issue the
+                # requests the guard below exists to refuse. Blocked for the same reason
+                # `fetcher.make_browser_context` blocks them on the primary fetch path.
+                context = browser.new_context(
+                    viewport={"width": 800, "height": 800},
+                    service_workers="block",
                 )
+                # Registered on the CONTEXT, before any untrusted HTML is loaded, so a popup
+                # the captured page opens is guarded by the same decision as the page itself.
+                context.route("**/*", _route_request)
+                page = context.new_page()
                 try:
                     page.set_content(html, wait_until="domcontentloaded", timeout=timeout_ms)
                 except PWTimeout:

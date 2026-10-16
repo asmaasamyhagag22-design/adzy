@@ -288,6 +288,46 @@ class SchemaOrgBlock(BaseModel):
     source: Literal["json_ld", "microdata", "rdfa", "next_data"] = "json_ld"
 
 
+class LanguageEvidence(BaseModel):
+    """Provenance for the language a crawl measured.
+
+    `render_locale_source` is the load-bearing field. `evidence` means the SERVER's own
+    preference-free representation named its language and the browser was told to render that.
+    `fallback` means nothing named a language and the browser had to be given a deterministic
+    locale anyway — a technical necessity that is NOT a finding about the brand.
+    """
+
+    bootstrap_url: Optional[str] = None
+    bootstrap_final_url: Optional[str] = None
+    # The language the server's own default representation stated. "" when it stated none.
+    representation_language: str = ""
+    render_locale: Optional[str] = None
+    render_locale_source: str = "unknown"        # evidence | fallback | unknown
+    is_language_selector: bool = False
+    negotiates_language: bool = False
+    # hreflang tag -> absolute URL. A MAPPING: order is not preference.
+    hreflang: dict[str, str] = Field(default_factory=dict)
+    # `x-default` is a routing relation to a URL, never a language.
+    x_default_url: Optional[str] = None
+    browser_final_url: Optional[str] = None
+    # True when the browser ended up somewhere other than the representation the server chose.
+    representation_changed: bool = False
+
+    @property
+    def measurement_is_trusted(self) -> bool:
+        """May the measured language be read as evidence about the brand?
+
+        No when the render locale was a FALLBACK and the browser then moved into a different
+        representation: that move may have been caused by our own locale, so the language we
+        measured afterwards could be one we selected. Everything else is trustworthy.
+        """
+        if self.render_locale_source == "evidence":
+            return True
+        if self.render_locale_source == "fallback":
+            return not self.representation_changed
+        return False
+
+
 class SiteMetadata(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
@@ -477,6 +517,11 @@ class ScrapeManifest(BaseModel):
     # declares ar+en on all 41 pages, the crawler opened only /en/, and the analysis then
     # told the client their site was single-language.
     declared_languages: list[str] = Field(default_factory=list)
+    # HOW the crawl came to observe a language — never WHICH language it is. Free-text notes
+    # cannot be reasoned about downstream, and the whole F-06 defect is a measurement being read
+    # as evidence about the brand. Optional with a default so older manifests still load.
+    language_evidence: Optional[LanguageEvidence] = None
+
     # Reviews printed on the brand's OWN site, with the name recovered from the portrait's
     # alt text. Text extraction drops alt, so an attributed review reached the LLM stage
     # looking anonymous and its "attribution required" rule correctly refused it — nine real

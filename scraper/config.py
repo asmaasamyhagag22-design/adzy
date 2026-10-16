@@ -106,11 +106,27 @@ USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
-# CS-158 (verify-first, register): EN-first Accept-Language is a DISCLOSED global default —
-# some sites serve different content per language, and this may bias what non-EN brands
-# expose to the crawl. Measuring that impact is a separate ticket; until then the default
-# is unchanged but env-overridable per run (SCRAPER_ACCEPT_LANGUAGE).
-ACCEPT_LANGUAGE = os.getenv("SCRAPER_ACCEPT_LANGUAGE", "en-US,en;q=0.9,ar;q=0.8")   # EN-first, AR accepted (MENA sites)
+# LANGUAGE-NEUTRAL ACQUISITION (F-06 root cause). CS-158 registered the risk and deferred the
+# measurement; it was MEASURED 2026-08-11 on alfouadpharmacies.com and the risk is real.
+#
+# The site negotiates on Accept-Language. Asking EN-first got `/en`, `<html lang=en>` and a crawl
+# measured 100% English; asking AR-first got `/`, `<html lang=ar>` and 100% Arabic — same code,
+# same site, same minute. Downstream then read "this brand is English" off a representation OUR
+# OWN request had selected. A preference we send is not evidence about the brand.
+#
+# So the default is now NO preference: the server picks its own default representation and we
+# observe what it chose. `None` means "send no Accept-Language at all", which is a different
+# state from any wildcard or empty string — `*` and `""` are still preferences.
+#
+# Setting SCRAPER_ACCEPT_LANGUAGE opts INTO a preference for a run (a positive control, or an
+# operator deliberately asking for one edition). Unlike before, that value now reaches the
+# browser's top-level navigation too — see `fetcher._continue_with_language_policy`.
+ACCEPT_LANGUAGE = os.getenv("SCRAPER_ACCEPT_LANGUAGE") or None
+
+# The browser context locale is pinned rather than inherited. An unset Playwright locale takes the
+# HOST MACHINE's locale, which would make the crawl's language depend on whose laptop it ran on.
+# It drives `navigator.languages` only; the Accept-Language header is governed by ACCEPT_LANGUAGE.
+BROWSER_LOCALE = os.getenv("SCRAPER_BROWSER_LOCALE", "en-US")
 VIEWPORT_WIDTH = 1366
 VIEWPORT_HEIGHT = 800
 

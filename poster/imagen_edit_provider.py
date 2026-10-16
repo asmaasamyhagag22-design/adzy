@@ -56,13 +56,13 @@ def _fetch_bytes(url: str, *, timeout: int = 15) -> Optional[bytes]:
     if not isinstance(url, str) or not url.startswith(("http://", "https://")):
         return None
     try:
-        from scraper.url_utils import is_safe_public_url
+        from scraper.url_utils import is_safe_public_url, open_public_url
         if not is_safe_public_url(url):
             return None
         import urllib.request
         hdr = {"User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                               "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")}
-        with urllib.request.urlopen(urllib.request.Request(url, headers=hdr), timeout=timeout) as r:
+        with open_public_url(urllib.request.Request(url, headers=hdr), timeout=timeout) as r:
             return r.read()
     except Exception:
         return None

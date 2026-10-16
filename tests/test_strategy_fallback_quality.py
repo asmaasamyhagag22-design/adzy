@@ -37,7 +37,8 @@ def test_offsets_are_monotonic_and_in_range():
 
 
 def test_arabic_brand_gets_arabic_filler():
-    ar = {"name": {"value": "متجر مصري"}, "description": {"value": "نبيع منتجات مصرية أصيلة"}}
+    ar = {"name": {"value": "متجر مصري"}, "description": {"value": "نبيع منتجات مصرية أصيلة"},
+          "languages": ["ar"]}
     assert _brand_is_arabic(ar)
     topics = _profile_topics(ar)          # no offerings/value-props -> filler
     assert all(any("؀" <= c <= "ۿ" for c in t) for t in topics)
@@ -57,7 +58,8 @@ def test_tagline_is_used_as_a_grounded_topic():
 
 
 def test_arabic_fallback_calendar_has_no_english_filler_topics():
-    ar = {"name": {"value": "مطعم القاهرة"}, "description": {"value": "أشهى الأكلات المصرية"}}
+    ar = {"name": {"value": "مطعم القاهرة"}, "description": {"value": "أشهى الأكلات المصرية"},
+          "languages": ["ar"]}
     cal = build_strategy(ar, caller=None, days=21)
     for it in cal.items:
         assert "Brand highlight" not in it.topic          # no English filler on an Arabic brand

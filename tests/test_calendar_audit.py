@@ -79,3 +79,14 @@ def test_cross_language_claim_is_flagged_in_calendar_trail():
     num = next(c for c in claims if c["kind"] == "number")
     assert num["sourced"] is True
     assert num["copy_lang"] == "ar" and num["matched_lang"] == "en" and num["lang_mismatch"] is True
+
+
+def test_calendar_audit_includes_surviving_factual_cta():
+    cal = _calendar([
+        _PlanItem(day_offset=0, platform="instagram", content_type="post",
+                  topic="مبادرة شبابية", cta="استفد من خبرة 30 عامًا"),
+    ])
+    audit = build_calendar_audit(_AR, cal)
+    fields = audit["items"][0]["shipped_copy"]["fields"]
+    cta = next(f for f in fields if f["field"] == "cta")
+    assert cta["claims"] and all(claim["sourced"] for claim in cta["claims"])
