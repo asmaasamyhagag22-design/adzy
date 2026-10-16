@@ -1,768 +1,143 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AdArchitect: Next-Gen AI Brand & Campaign Generator</title>
-<link rel="icon" href="/assets/logo.png?v=3" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
-  :root {
-    --white:    #FFFFFF;
-    --white70:  rgba(255,255,255,0.70);
-    --white50:  rgba(255,255,255,0.50);
-    --white30:  rgba(255,255,255,0.30);
-    --white12:  rgba(255,255,255,0.12);
-    --white08:  rgba(255,255,255,0.08);
-  }
-
-  html { scroll-behavior: smooth; }
-
-  /* ═══ SCROLL REVEAL ═══ */
-  .reveal {
-    opacity: 0; transform: translateY(36px);
-    transition: opacity 0.9s cubic-bezier(0.16,1,0.3,1),
-                transform 0.9s cubic-bezier(0.16,1,0.3,1);
-  }
-  .reveal.in { opacity: 1; transform: translateY(0); }
-  .reveal-d1 { transition-delay: 0.1s; }
-  .reveal-d2 { transition-delay: 0.2s; }
-  .reveal-d3 { transition-delay: 0.3s; }
-
-  body {
-    font-family: 'Inter', -apple-system, sans-serif;
-    background: #000;
-    color: var(--white);
-    overflow-x: hidden;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  ::-webkit-scrollbar { width: 5px; }
-  ::-webkit-scrollbar-track { background: #000; }
-  ::-webkit-scrollbar-thumb { background: var(--white12); border-radius: 3px; }
-
-  /* ═══ INTRO (animated logo gate) ═══ */
-  .intro {
-    position: fixed; inset: 0; z-index: 300;
-    background: #000;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    cursor: pointer;
-    transition: opacity 0.9s ease, visibility 0.9s ease;
-  }
-  .intro.leaving { opacity: 0; visibility: hidden; }
-  .intro-mark {
-    position: relative;
-    width: 180px; height: 180px;
-    display: flex; align-items: center; justify-content: center;
-    transition: transform 0.7s cubic-bezier(0.16,1,0.3,1);
-  }
-  .intro:hover .intro-mark { transform: scale(1.06); }
-  .intro.leaving .intro-mark { transform: scale(2.2); }
-  .intro-logo {
-    width: 84px; height: 84px; object-fit: contain;
-    border-radius: 18px;
-    animation: introPulse 2.6s ease-in-out infinite;
-    z-index: 2;
-  }
-  @keyframes introPulse {
-    0%, 100% { filter: drop-shadow(0 0 12px rgba(255,255,255,0.25)); transform: scale(1); }
-    50%      { filter: drop-shadow(0 0 30px rgba(255,255,255,0.55)); transform: scale(1.05); }
-  }
-  .orbit {
-    position: absolute; inset: 0; border-radius: 50%;
-    border: 1.5px solid rgba(255,255,255,0.35);
-    border-left-color: transparent; border-right-color: transparent;
-  }
-  .orbit-1 { animation: spinA 3.2s linear infinite; }
-  .orbit-2 { inset: 14px; animation: spinB 2.4s linear infinite; border-color: rgba(255,255,255,0.22); border-top-color: transparent; border-bottom-color: transparent; }
-  .orbit-3 { inset: -18px; animation: spinA 5s linear infinite reverse; border-color: rgba(255,255,255,0.14); border-left-color: transparent; border-right-color: transparent; }
-  @keyframes spinA {
-    from { transform: rotateZ(0deg)   rotateX(62deg) rotateY(8deg); }
-    to   { transform: rotateZ(360deg) rotateX(62deg) rotateY(8deg); }
-  }
-  @keyframes spinB {
-    from { transform: rotateZ(360deg) rotateX(-58deg) rotateY(-6deg); }
-    to   { transform: rotateZ(0deg)   rotateX(-58deg) rotateY(-6deg); }
-  }
-  .intro-mark { perspective: 600px; transform-style: preserve-3d; }
-  .intro-word {
-    margin-top: 46px;
-    font-size: 1.5rem; font-weight: 800; letter-spacing: 0.22em;
-    text-transform: uppercase;
-    opacity: 0; animation: wordIn 1.2s ease 0.5s forwards;
-  }
-  @keyframes wordIn {
-    from { opacity: 0; transform: translateY(14px); letter-spacing: 0.5em; }
-    to   { opacity: 1; transform: translateY(0);    letter-spacing: 0.22em; }
-  }
-  .intro-hint {
-    margin-top: 20px; font-size: 0.78rem; font-weight: 500;
-    color: var(--white50); letter-spacing: 0.12em; text-transform: uppercase;
-    opacity: 0; animation: hintIn 1s ease 1.6s forwards, hintPulse 2.2s ease-in-out 2.6s infinite;
-  }
-  @keyframes hintIn    { to { opacity: 1; } }
-  @keyframes hintPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
-  body.intro-locked { overflow: hidden; }
-
-  /* ═══ NAV ═══ */
-  .nav {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-    height: 56px;
-    display: flex; align-items: center;
-    padding: 0 28px;
-    background: transparent;
-    backdrop-filter: blur(0);
-    -webkit-backdrop-filter: blur(0);
-    transition: background 0.4s ease, backdrop-filter 0.4s ease,
-                box-shadow 0.4s ease;
-  }
-  .nav.scrolled {
-    background: rgba(0,0,0,0.72);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    box-shadow: 0 1px 0 rgba(255,255,255,0.06);
-  }
-  .nav-logo {
-    display: flex; align-items: center; gap: 9px;
-    text-decoration: none; color: var(--white);
-    font-size: 1.05rem; font-weight: 700; letter-spacing: -0.02em;
-    margin-right: 40px;
-  }
-  .nav-logo img { height: 26px; width: auto; object-fit: contain; }
-  .nav-links { display: flex; align-items: center; gap: 6px; flex: 1; }
-  .nav-link {
-    padding: 7px 13px; border-radius: 8px;
-    color: var(--white70); font-size: 0.82rem; font-weight: 500;
-    text-decoration: none; transition: all 0.18s ease;
-  }
-  .nav-link:hover { color: var(--white); background: var(--white08); }
-  .nav-right { display: flex; align-items: center; gap: 16px; }
-  .nav-lang {
-    color: var(--white70); font-size: 0.82rem; font-weight: 500;
-    display: flex; align-items: center; gap: 5px; cursor: pointer;
-  }
-  .nav-lang:hover { color: var(--white); }
-  .btn-pill {
-    display: inline-flex; align-items: center; justify-content: center;
-    padding: 8px 20px; border-radius: 999px;
-    border: 1px solid var(--white);
-    background: transparent; color: var(--white);
-    font-family: inherit; font-size: 0.82rem; font-weight: 600;
-    text-decoration: none; cursor: pointer;
-    transition: all 0.2s ease;
-  }
-  .btn-pill:hover { background: var(--white); color: #000; }
-  .btn-pill-solid {
-    background: var(--white); color: #000;
-    border: 1px solid var(--white);
-  }
-  .btn-pill-solid:hover { background: rgba(255,255,255,0.85); }
-
-  /* ═══ HERO ═══ */
-  .hero {
-    position: relative; height: 100vh; min-height: 640px;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    overflow: hidden;
-  }
-  .hero-media {
-    position: absolute; inset: 0; z-index: 0;
-  }
-  .hero-media .slide {
-    position: absolute; inset: 0;
-    background-size: cover; background-position: center;
-    opacity: 0; transition: opacity 2.2s ease;
-    transform: scale(1.06);
-    animation: slowZoom 16s ease-in-out infinite alternate;
-  }
-  .hero-media .slide.on { opacity: 1; }
-  @keyframes slowZoom {
-    from { transform: scale(1.06); }
-    to   { transform: scale(1.0); }
-  }
-  .hero-media::after {
-    content: ''; position: absolute; inset: 0;
-    background:
-      linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.25) 40%, rgba(0,0,0,0.65) 100%);
-  }
-  .hero-content {
-    position: relative; z-index: 2;
-    display: flex; flex-direction: column; align-items: center;
-    text-align: center; padding: 0 24px;
-  }
-  .hero-label {
-    font-size: 0.95rem; font-weight: 500;
-    color: var(--white70); letter-spacing: 0.02em;
-    margin-bottom: 22px;
-  }
-  .hero-title {
-    font-size: clamp(3rem, 8vw, 6rem);
-    font-weight: 800; letter-spacing: -0.045em; line-height: 1.02;
-    margin-bottom: 44px;
-  }
-  .hero-cta {
-    padding: 13px 36px; font-size: 0.95rem;
-  }
-  .hero-caption {
-    position: absolute; left: 30px; bottom: 26px; z-index: 2;
-    font-size: 0.78rem; color: var(--white50); font-weight: 400;
-    max-width: 340px; line-height: 1.5;
-  }
-  .hero-scroll {
-    position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%);
-    z-index: 2; color: var(--white30); font-size: 1.2rem;
-    animation: bob 2s ease-in-out infinite;
-  }
-  @keyframes bob {
-    0%, 100% { transform: translateX(-50%) translateY(0); }
-    50%      { transform: translateX(-50%) translateY(6px); }
-  }
-
-  /* ═══ MODEL SERIES SECTION ═══ */
-  .section {
-    padding: 110px 24px;
-    max-width: 1160px; margin: 0 auto;
-  }
-  .section-split {
-    display: grid; grid-template-columns: 1fr 1.4fr; gap: 64px;
-    align-items: start;
-  }
-  @media (max-width: 860px) { .section-split { grid-template-columns: 1fr; gap: 32px; } }
-  .section-kicker {
-    font-size: clamp(2rem, 4.5vw, 3.2rem);
-    font-weight: 800; letter-spacing: -0.04em; line-height: 1.06;
-  }
-  .section-kicker .dim { color: var(--white30); }
-  .section-body {
-    font-size: 0.95rem; color: var(--white70); line-height: 1.75;
-    font-weight: 400;
-  }
-  .section-body + .section-body { margin-top: 18px; }
-
-  /* ═══ SHOWCASE GRID ═══ */
-  .showcase-section { padding: 20px 24px 110px; max-width: 1400px; margin: 0 auto; }
-  .showcase-head {
-    display: flex; align-items: flex-end; justify-content: space-between;
-    margin-bottom: 34px; padding: 0 8px;
-  }
-  .showcase-title {
-    font-size: clamp(1.6rem, 3vw, 2.4rem); font-weight: 800; letter-spacing: -0.03em;
-  }
-  .showcase-sub { color: var(--white50); font-size: 0.88rem; margin-top: 8px; }
-  .gallery {
-    columns: 3; column-gap: 16px;
-  }
-  @media (max-width: 1000px) { .gallery { columns: 2; } }
-  @media (max-width: 620px)  { .gallery { columns: 1; } }
-  .gallery-item {
-    position: relative; border-radius: 12px; overflow: hidden;
-    margin-bottom: 16px; break-inside: avoid;
-    background: #0A0A0A; border: 1px solid var(--white08);
-    cursor: pointer;
-  }
-  .gallery-item img {
-    width: 100%; display: block;
-    transition: transform 0.45s ease;
-  }
-  .gallery-item:hover img { transform: scale(1.045); }
-  .gallery-item::after {
-    content: ''; position: absolute; inset: 0;
-    background: linear-gradient(180deg, transparent 55%, rgba(0,0,0,0.75) 100%);
-    opacity: 0; transition: opacity 0.3s ease;
-  }
-  .gallery-item:hover::after { opacity: 1; }
-  .gallery-item .tag {
-    position: absolute; bottom: 12px; left: 14px; z-index: 2;
-    font-size: 0.75rem; font-weight: 600; color: var(--white);
-    opacity: 0; transform: translateY(6px);
-    transition: all 0.3s ease;
-  }
-  .gallery-item:hover .tag { opacity: 1; transform: translateY(0); }
-
-  /* ═══ HOW IT WORKS (3-step flow) ═══ */
-  .steps-section { max-width: 1160px; margin: 0 auto; padding: 40px 24px 120px; }
-  .steps-head { text-align: center; margin-bottom: 48px; }
-  .steps-kicker {
-    font-size: 0.78rem; font-weight: 700; letter-spacing: 0.18em;
-    text-transform: uppercase; color: var(--white50); margin-bottom: 14px;
-  }
-  .steps-title {
-    font-size: clamp(1.8rem, 4.2vw, 3rem); font-weight: 800;
-    letter-spacing: -0.03em; line-height: 1.1;
-  }
-  .steps-grid {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
-  }
-  @media (max-width: 900px) { .steps-grid { grid-template-columns: 1fr; } }
-  .step-card {
-    background: #0A0A0B; border: 1px solid var(--white08);
-    border-radius: 16px; overflow: hidden;
-    transition: all 0.25s ease;
-  }
-  .step-card:hover { border-color: var(--white30); transform: translateY(-3px); }
-  .step-visual {
-    height: 220px; position: relative; overflow: hidden;
-    display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(135deg, #1a1b1d 0%, #0A0A0B 100%);
-  }
-  .step-visual img { width: 100%; height: 100%; object-fit: cover; }
-  .step-visual-1 {
-    background: linear-gradient(160deg, #2C2E30 0%, #0A0A0B 75%);
-    flex-direction: column; gap: 14px; padding: 0 24px;
-  }
-  .step-visual-1 .sv-label { font-size: 0.85rem; color: var(--white70); font-weight: 500; }
-  .step-visual-1 .sv-input {
-    width: 100%; max-width: 220px; padding: 11px 16px; border-radius: 10px;
-    background: rgba(0,0,0,0.4); border: 1px solid var(--white30);
-    font-size: 0.85rem; color: var(--white); text-align: left;
-  }
-  .step-visual-2 {
-    flex-wrap: wrap; gap: 10px; padding: 20px;
-  }
-  .step-visual-2 .sv-chip {
-    padding: 8px 16px; border-radius: 999px; font-size: 0.78rem; font-weight: 600;
-    background: rgba(255,255,255,0.06); border: 1px solid var(--white12); color: var(--white70);
-  }
-  .step-visual-2 .sv-chip.lit { background: var(--white); color: #000; border-color: var(--white); }
-  .step-body { padding: 22px; }
-  .step-num {
-    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em;
-    text-transform: uppercase; color: var(--white50); margin-bottom: 10px;
-  }
-  .step-body h3 { font-size: 1.05rem; font-weight: 800; margin-bottom: 8px; letter-spacing: -0.01em; }
-  .step-body p  { font-size: 0.82rem; color: var(--white50); line-height: 1.65; }
-  .steps-cta-wrap { text-align: center; margin-top: 44px; }
-
-  /* ═══ CTA BAND ═══ */
-  .cta-band {
-    text-align: center; padding: 130px 24px 150px;
-    position: relative; overflow: hidden;
-  }
-  .cta-band::before {
-    content: ''; position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%,-50%);
-    width: 800px; height: 500px; border-radius: 50%;
-    background: radial-gradient(ellipse, rgba(255,255,255,0.06) 0%, transparent 70%);
-    pointer-events: none;
-  }
-  .cta-band h2 {
-    font-size: clamp(2.2rem, 5vw, 3.6rem); font-weight: 800;
-    letter-spacing: -0.04em; margin-bottom: 40px; position: relative;
-  }
-
-  /* ═══ LIGHTBOX ═══ */
-  .lightbox {
-    position: fixed; inset: 0; z-index: 200;
-    background: rgba(0,0,0,0.92);
-    backdrop-filter: blur(8px);
-    display: flex; align-items: center; justify-content: center;
-    opacity: 0; pointer-events: none;
-    transition: opacity 0.3s ease;
-  }
-  .lightbox.open { opacity: 1; pointer-events: auto; }
-  .lightbox img {
-    max-width: 88vw; max-height: 86vh;
-    border-radius: 12px;
-    box-shadow: 0 24px 80px rgba(0,0,0,0.8);
-    transform: scale(0.94);
-    transition: transform 0.35s cubic-bezier(0.16,1,0.3,1);
-  }
-  .lightbox.open img { transform: scale(1); }
-  .lightbox-close {
-    position: absolute; top: 22px; right: 28px;
-    font-size: 1.6rem; color: var(--white70); cursor: pointer;
-    background: none; border: none; font-family: inherit;
-    transition: color 0.15s ease;
-  }
-  .lightbox-close:hover { color: var(--white); }
-  .lightbox-nav {
-    position: absolute; top: 50%; transform: translateY(-50%);
-    font-size: 2rem; color: var(--white50); cursor: pointer;
-    background: none; border: none; padding: 20px; font-family: inherit;
-    transition: color 0.15s ease; user-select: none;
-  }
-  .lightbox-nav:hover { color: var(--white); }
-  .lightbox-nav.prev { left: 10px; }
-  .lightbox-nav.next { right: 10px; }
-  .lightbox-cta {
-    position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%);
-  }
-
-  /* ═══ FOOTER ═══ */
-  footer {
-    border-top: 1px solid var(--white08);
-    padding: 64px 28px 40px;
-  }
-  .footer-grid {
-    max-width: 1160px; margin: 0 auto;
-    display: grid; grid-template-columns: 1.4fr repeat(4, 1fr); gap: 32px;
-  }
-  @media (max-width: 900px) { .footer-grid { grid-template-columns: repeat(2, 1fr); } }
-  .footer-brand { display: flex; flex-direction: column; gap: 14px; }
-  .footer-brand img { height: 30px; width: fit-content; object-fit: contain; }
-  .footer-brand p { color: var(--white50); font-size: 0.8rem; line-height: 1.6; max-width: 240px; }
-  .footer-col h4 {
-    font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em;
-    text-transform: uppercase; color: var(--white50); margin-bottom: 16px;
-  }
-  .footer-col a {
-    display: block; color: var(--white70); font-size: 0.83rem;
-    text-decoration: none; padding: 5px 0; transition: color 0.15s ease;
-  }
-  .footer-col a:hover { color: var(--white); }
-  .footer-bottom {
-    max-width: 1160px; margin: 48px auto 0;
-    padding-top: 26px; border-top: 1px solid var(--white08);
-    display: flex; justify-content: space-between; align-items: center;
-    color: var(--white30); font-size: 0.75rem; flex-wrap: wrap; gap: 12px;
-  }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Adzy finds the strategic angle hiding in a brand and turns it into evidence-grounded creative work.">
+  <title>Adzy — Find the angle. Make the ad.</title>
+  <link rel="stylesheet" href="/assets/adzy.css?v=2">
+  <style>
+    body.adzy-ready { min-height: 100vh; }
+    .landing-intro { position: fixed; inset: 0; z-index: 500; display: grid; place-items: center; overflow: hidden; background: var(--adzy-vanilla); transition: opacity .34s ease, visibility 0s linear .36s; }
+    .landing-intro.done { opacity: 0; visibility: hidden; pointer-events: none; }
+    .landing-logo { position: fixed; left: 50%; top: 46%; z-index: 510; transform: translate(-50%,-50%); border: 0; background: transparent; color: var(--adzy-ink); padding: 0; font: 700 clamp(6rem,16vw,12rem)/.8 "Space Grotesk",sans-serif; letter-spacing: -.09em; cursor: pointer; transition: left .72s var(--adzy-ease), top .72s var(--adzy-ease), transform .72s var(--adzy-ease), font-size .72s var(--adzy-ease); }
+    .landing-logo .adzy-spark { position: absolute; width: .23em; height: .23em; right: -.22em; top: -.15em; color: var(--adzy-blue); }
+    .landing-logo.docking { left: 38px; top: 31px; transform: none; font-size: 1.85rem; }
+    .landing-logo.docked { position: static; transform: none; font-size: 1.85rem; }
+    .landing-intro p { position: absolute; top: calc(46% + 100px); color: var(--adzy-muted); font: .78rem "IBM Plex Mono"; letter-spacing: .04em; }
+    .landing-shape { position: absolute; border: 2px solid var(--adzy-ink); animation: landingShape .55s var(--adzy-ease) both; }
+    .landing-shape.a { left: 18%; top: 23%; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--adzy-blue); }
+    .landing-shape.b { right: 19%; top: 19%; width: 43px; height: 43px; color: var(--adzy-mango); border: 0; }
+    .landing-shape.c { left: 26%; bottom: 19%; width: 52px; height: 13px; border-radius: 999px; background: var(--adzy-watermelon); transform: rotate(-12deg); }
+    .landing-shape.d { right: 25%; bottom: 17%; width: 42px; height: 22px; border-radius: 42px 42px 0 0; border: 0; background: var(--adzy-mint); transform: rotate(20deg); }
+    @keyframes landingShape { from { opacity:0; scale:.45; rotate:-20deg; } to { opacity:1; scale:1; } }
+    .landing-nav { position: sticky; top: 0; z-index: 100; min-height: 76px; padding: 14px clamp(18px,3.2vw,48px); display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 24px; background: rgba(255,248,238,.92); backdrop-filter: blur(16px); border-bottom: 1px solid transparent; }
+    .landing-nav.scrolled { border-color: var(--adzy-line); }
+    .landing-logo-slot { min-width: 100px; height: 34px; display: flex; align-items: center; }
+    .landing-logo-fallback { font: 700 1.85rem/.9 "Space Grotesk"; letter-spacing: -.07em; }
+    .landing-logo-fallback[hidden] { display:none; }
+    .landing-nav-links { display: flex; gap: 24px; align-items: center; }
+    .landing-nav-links a { color: var(--adzy-ink); text-decoration: none; font-weight: 650; font-size: .88rem; }
+    .landing-nav .adzy-btn { justify-self: end; text-decoration: none; }
+    .landing-hero { min-height: calc(100vh - 76px); padding: clamp(60px,9vw,120px) 0 90px; display: grid; grid-template-columns: minmax(0,1fr) minmax(360px,.74fr); align-items: center; gap: clamp(44px,7vw,100px); }
+    .landing-hero .adzy-title { font-size: clamp(4.4rem,9vw,9rem); }
+    .landing-hero .adzy-title em { position: relative; color: var(--adzy-blue); font-style: normal; }
+    .landing-hero .adzy-title em::after { content:''; position:absolute; left:0; right:-3%; bottom:-.06em; height:.09em; border-radius:50%; background:var(--adzy-watermelon); transform:rotate(-1deg); }
+    .landing-hero-copy { margin: 30px 0; max-width: 620px; color: var(--adzy-muted); font-size: 1.1rem; line-height: 1.7; }
+    .landing-hero-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .landing-hero-actions a { text-decoration: none; }
+    .landing-mood { position: relative; min-height: 560px; }
+    .landing-mood-poster { position: absolute; left: 7%; top: 4%; width: min(360px,75%); aspect-ratio:4/5; overflow:hidden; border:2px solid var(--adzy-ink); border-radius:12px; background:var(--adzy-grape); box-shadow:14px 16px 0 var(--adzy-blue); transform:rotate(-2deg); }
+    .landing-mood-poster img { width:100%;height:100%;object-fit:cover; }
+    .landing-note { position:absolute; right:0; top:18%; width:52%; padding:20px; border:2px solid var(--adzy-ink); border-radius:19px; background:var(--adzy-mango); box-shadow:5px 6px 0 rgba(32,32,39,.13); transform:rotate(2deg); }
+    .landing-note strong { display:block; margin-top:9px; font:700 1.35rem/1.1 "Space Grotesk"; }
+    .landing-proof { position:absolute; right:4%; bottom:9%; width:50%; padding:22px; border:2px solid var(--adzy-ink); border-radius:50%; background:var(--adzy-mint); text-align:center; transform:rotate(-4deg); font-weight:750; }
+    .landing-parade { padding:90px 0 110px; overflow:hidden; background:var(--adzy-ink); color:var(--adzy-vanilla); }
+    .landing-parade-head { width:min(1380px,calc(100% - 48px)); margin:0 auto 50px; display:flex; align-items:end; justify-content:space-between; gap:30px; }
+    .landing-parade-head .adzy-btn { text-decoration:none; }
+    .landing-lanes { display:grid; gap:18px; transform:rotate(-1deg) scale(1.03); }
+    .landing-lane { display:flex; width:max-content; gap:18px; animation:landingMarquee 45s linear infinite; }
+    .landing-lane.reverse { animation-direction:reverse; animation-duration:52s; margin-left:-16vw; }
+    .landing-lanes:hover .landing-lane { animation-play-state:paused; }
+    @keyframes landingMarquee { to { transform:translateX(-50%); } }
+    .landing-card { position:relative; width:clamp(170px,15vw,245px); aspect-ratio:4/5; overflow:hidden; border:2px solid var(--adzy-vanilla); border-radius:11px; background:var(--adzy-blue); transition:transform .3s var(--adzy-ease); }
+    .landing-card:hover { transform:scale(1.04); z-index:2; }
+    .landing-card img { width:100%;height:100%;object-fit:cover; }
+    .landing-card span { position:absolute; inset:auto 0 0; padding:46px 13px 13px; background:linear-gradient(transparent,rgba(32,32,39,.9)); font:.65rem "IBM Plex Mono"; letter-spacing:.06em; }
+    .landing-story { padding:120px 0; }
+    .landing-story-head { display:grid; grid-template-columns:1fr minmax(260px,.42fr); align-items:end; gap:60px; margin-bottom:70px; }
+    .landing-story-head p { margin:0; }
+    .landing-steps { display:grid; grid-template-columns:repeat(4,1fr); border-top:2px solid var(--adzy-ink); border-bottom:2px solid var(--adzy-ink); }
+    .landing-step { min-height:360px; padding:28px; border-right:2px solid var(--adzy-ink); display:flex; flex-direction:column; }
+    .landing-step:last-child { border-right:0; }
+    .landing-step:nth-child(1){background:var(--adzy-mango)} .landing-step:nth-child(2){background:var(--adzy-mint)} .landing-step:nth-child(3){background:var(--adzy-watermelon)} .landing-step:nth-child(4){background:var(--adzy-grape)}
+    .landing-step .num { font:.7rem "IBM Plex Mono"; }
+    .landing-step h3 { margin:auto 0 16px; font:700 2.1rem/.96 "Space Grotesk"; letter-spacing:-.05em; }
+    .landing-step p { margin:0; line-height:1.55; font-size:.85rem; }
+    .landing-manifesto { padding:130px 0; text-align:center; background:var(--adzy-blue); color:white; }
+    .landing-manifesto h2 { margin:0 auto 38px; max-width:1050px; font:700 clamp(3.5rem,8vw,8rem)/.9 "Space Grotesk"; letter-spacing:-.07em; }
+    .landing-manifesto .adzy-btn { text-decoration:none; }
+    .landing-footer { padding:48px max(24px,4vw); display:flex; justify-content:space-between; align-items:center; gap:24px; border-top:2px solid var(--adzy-ink); }
+    .landing-footer strong { font:700 2rem "Space Grotesk"; letter-spacing:-.06em; }
+    .landing-footer-links { display:flex; gap:10px; flex-wrap:wrap; }
+    .landing-footer a { color:var(--adzy-ink); }
+    @media(max-width:900px){.landing-nav{grid-template-columns:1fr auto}.landing-nav-links{display:none}.landing-hero{grid-template-columns:1fr}.landing-mood{width:min(650px,100%);margin:auto}.landing-story-head{grid-template-columns:1fr}.landing-steps{grid-template-columns:1fr 1fr}.landing-step:nth-child(2){border-right:0}.landing-step:nth-child(-n+2){border-bottom:2px solid var(--adzy-ink)}}
+    @media(max-width:600px){.landing-nav{padding:11px 14px}.landing-nav .adzy-btn{min-height:40px;padding:0 14px;font-size:.75rem}.landing-hero{padding-top:55px}.landing-hero .adzy-title{font-size:clamp(4rem,19vw,6.2rem)}.landing-mood{min-height:440px}.landing-parade-head{align-items:flex-start;flex-direction:column}.landing-steps{grid-template-columns:1fr}.landing-step{min-height:280px;border-right:0;border-bottom:2px solid var(--adzy-ink)}.landing-step:last-child{border-bottom:0}.landing-footer{align-items:flex-start;flex-direction:column}}
+  </style>
 </head>
-<body class="intro-locked">
-
-<!-- ═══ INTRO ═══ -->
-<div class="intro" id="intro" onclick="enterSite()">
-  <div class="intro-mark">
-    <div class="orbit orbit-1"></div>
-    <div class="orbit orbit-2"></div>
-    <div class="orbit orbit-3"></div>
-    <img class="intro-logo" src="/assets/logo.png?v=3" alt="AdArchitect"
-         onerror="this.style.display='none'" />
+<body class="adzy-ready">
+  <div class="landing-intro" id="landing-intro" aria-label="Adzy introduction">
+    <span class="landing-shape a" aria-hidden="true"></span>
+    <span class="landing-shape b adzy-spark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span>
+    <span class="landing-shape c" aria-hidden="true"></span><span class="landing-shape d" aria-hidden="true"></span>
+    <button class="landing-logo" id="landing-logo" type="button" aria-label="Skip introduction">adzy<span class="adzy-spark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span></button>
+    <p>finding the good stuff...</p>
   </div>
-  <div class="intro-word">AdArchitect</div>
-  <div class="intro-hint">Click to enter</div>
-</div>
 
-<!-- ═══ NAV ═══ -->
-<nav class="nav">
-  <a class="nav-logo" href="/" onclick="if (location.pathname === '/') { event.preventDefault(); window.scrollTo({top:0, behavior:'smooth'}); }">
-    <img src="/assets/logo.png?v=3" alt="AdArchitect"
-         onerror="this.style.display='none'" />
-    AdArchitect
-  </a>
-  <div class="nav-links">
-    <a class="nav-link" href="/app">Creative Studio</a>
-    <a class="nav-link" href="#models">Models</a>
-    <a class="nav-link" href="#gallery">Gallery</a>
-    <a class="nav-link" href="#features">Tools</a>
-    <a class="nav-link" href="#about">About Us</a>
-  </div>
-  <div class="nav-right">
-    <span class="nav-lang">English &#9662;</span>
-    <!-- Into the app at HOME, not straight onto the Create canvas (owner, 2026-07-26).
-         These used to carry ?studio=1, which index.html turns into goStudio() -> the
-         Create page — reached before any brand is picked, which is the one state that
-         page cannot do anything with. The ?studio=1 handler still works for old links. -->
-    <a class="btn-pill" href="/app">Experience Now</a>
-  </div>
-</nav>
+  <nav class="landing-nav" id="landing-nav">
+    <div class="landing-logo-slot" id="landing-logo-slot"><span class="landing-logo-fallback" id="landing-logo-fallback">adzy</span></div>
+    <div class="landing-nav-links"><a href="#work">Work</a><a href="#story">How it works</a><a href="/app">Discover</a></div>
+    <a class="adzy-btn blue small" href="/app">Open Adzy <span aria-hidden="true">→</span></a>
+  </nav>
 
-<!-- ═══ HERO ═══ -->
-<section class="hero">
-  <div class="hero-media" id="hero-media"></div>
-  <div class="hero-content">
-    <div class="hero-label">All-New AdArchitect 1.0 Series</div>
-    <h1 class="hero-title">All in One,<br />One for All</h1>
-    <a class="btn-pill btn-pill-solid hero-cta" href="/app">Create Now</a>
-  </div>
-  <div class="hero-caption" id="hero-caption">
-    Cinematic brand campaign, generated from a single business URL.
-  </div>
-  <div class="hero-scroll">&#8595;</div>
-</section>
+  <main>
+    <section class="adzy-container landing-hero">
+      <div><p class="adzy-kicker adzy-mono">Bright creative intelligence</p><h1 class="adzy-title">Find the angle.<br><em>Make the ad.</em></h1><p class="landing-hero-copy">Adzy researches a brand, keeps the evidence honest, chooses a strategic direction and turns that decision into creative work.</p><div class="landing-hero-actions"><a class="adzy-btn blue" href="/app">Explore a brand <span class="adzy-spark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span></a><a class="adzy-btn flat" href="#story">See the story</a></div></div>
+      <div class="landing-mood"><div class="landing-mood-poster"><img src="/assets/showcase/01_nahdi_pharmacy_app.png" alt="Campaign creative made with Adzy"></div><div class="landing-note"><span class="adzy-mono">Evidence 04</span><strong>The strategy stays attached to the pixels.</strong></div><div class="landing-proof">Evidence → direction → poster</div></div>
+    </section>
 
-<!-- ═══ MODEL SERIES ═══ -->
-<section class="section" id="models">
-  <div class="section-split">
-    <h2 class="section-kicker">AdArchitect 1.0<br /><span class="dim">Model Series</span></h2>
-    <div>
-      <p class="section-body">
-        Built on a fully integrated pipeline, AdArchitect natively supports deep brand
-        understanding and cross-task creative generation - redefining how campaigns
-        are created. From one business URL, the system extracts brand identity, voice,
-        colors, and audience, then binds them to every visual it produces.
-      </p>
-      <p class="section-body">
-        Every claim on a finished asset is traced back to a source on your own site before it
-        ships - brand analysis, campaign strategy, and production-ready visuals across every
-        format, each one auditable.
-      </p>
-    </div>
-  </div>
-</section>
+    <section class="landing-parade" id="work">
+      <div class="landing-parade-head"><div><p class="adzy-mono" style="color:var(--adzy-mango);margin:0 0 14px">Creative parade</p><h2 class="adzy-section-title">Real work.<br>Grounded direction.</h2></div><a class="adzy-btn grape" href="/app">See the work</a></div>
+      <div class="landing-lanes" id="landing-lanes" aria-live="polite"></div>
+    </section>
 
-<!-- ═══ GALLERY ═══ -->
-<section class="showcase-section" id="gallery">
-  <div class="showcase-head">
-    <div>
-      <h2 class="showcase-title">Created with AdArchitect</h2>
-      <div class="showcase-sub">Campaign visuals generated by our creative engine</div>
-    </div>
-    <a class="btn-pill" href="/app">Start Creating</a>
-  </div>
-  <div class="gallery" id="gallery-grid"></div>
-</section>
+    <section class="landing-story" id="story">
+      <div class="adzy-container"><div class="landing-story-head"><div><p class="adzy-kicker adzy-mono">The product story</p><h2 class="adzy-page-title">From website<br>to a reasoned ad.</h2></div><p class="adzy-body">No architecture lecture required. Each stage answers one clear question and carries its proof forward.</p></div><div class="landing-steps"><article class="landing-step"><span class="num">01 / DISCOVER</span><h3>What did<br>we find?</h3><p>Brand pages, market signals and explicit unknowns.</p></article><article class="landing-step"><span class="num">02 / UNDERSTAND</span><h3>What did<br>we learn?</h3><p>Observed evidence stays distinct from inference.</p></article><article class="landing-step"><span class="num">03 / DECIDE</span><h3>What should<br>it stand for?</h3><p>Directions show value, proof and real trade-offs.</p></article><article class="landing-step"><span class="num">04 / CREATE</span><h3>What did<br>we make?</h3><p>The approved strategy becomes a traceable poster.</p></article></div><div style="margin-top:38px;text-align:center"><a class="adzy-btn coral" href="/app">Start with a URL</a></div></div>
+    </section>
 
-<!-- ═══ HOW IT WORKS ═══ -->
-<section class="steps-section" id="features">
-  <div class="steps-head">
-    <div class="steps-kicker">How It Works</div>
-    <h2 class="steps-title">3 STEPS. ONE COMPLETE CAMPAIGN.</h2>
-  </div>
-  <div class="steps-grid">
-    <a class="step-card" href="/app">
-      <div class="step-visual step-visual-1">
-        <div class="sv-label">Paste your website URL</div>
-        <div class="sv-input">yourbusiness.com</div>
-      </div>
-      <div class="step-body">
-        <div class="step-num">Step 1</div>
-        <h3>Paste Your Website URL</h3>
-        <p>Our AI crawls your site and reviews, then profiles your entire brand automatically - identity, colors, voice, and audience.</p>
-      </div>
-    </a>
-    <a class="step-card" href="/app">
-      <div class="step-visual step-visual-2">
-        <span class="sv-chip lit">Brand Identity</span>
-        <span class="sv-chip">SWOT</span>
-        <span class="sv-chip lit">Strategy</span>
-        <span class="sv-chip">Content Plan</span>
-      </div>
-      <div class="step-body">
-        <div class="step-num">Step 2</div>
-        <h3>AI Builds Your Strategy</h3>
-        <p>SWOT analysis, brand positioning, and a full campaign plan generated from real data - no guesswork, no blank page.</p>
-      </div>
-    </a>
-    <a class="step-card" href="/app">
-      <div class="step-visual">
-        <img src="/assets/showcase/01_nahdi_pharmacy_app.png" alt="A campaign poster generated for a real pharmacy brand" />
-      </div>
-      <div class="step-body">
-        <div class="step-num">Step 3</div>
-        <h3>Get Your Campaign</h3>
-        <p>Posters, social posts, and a content calendar ready to go - your brand, your voice, generated in minutes.</p>
-      </div>
-    </a>
-  </div>
-  <div class="steps-cta-wrap">
-    <a class="btn-pill btn-pill-solid" href="/app">&#10024; Start Now</a>
-  </div>
-</section>
+    <section class="landing-manifesto"><div class="adzy-container"><p class="adzy-mono" style="color:var(--adzy-mango)">Adzy</p><h2>From brand<br>to brilliant.</h2><a class="adzy-btn" href="/app">Find your angle <span aria-hidden="true">→</span></a></div></section>
+  </main>
 
-<!-- ═══ CTA BAND ═══ -->
-<section class="cta-band" id="about">
-  <h2>Pretty. Easy. To Create.</h2>
-  <a class="btn-pill btn-pill-solid hero-cta" href="/app">Experience Now</a>
-</section>
+  <footer class="landing-footer"><strong>adzy</strong><span>Find the angle. Make the ad.</span><div class="landing-footer-links"><a href="/app">Discover</a><a href="#work">Work</a><a href="#story">Story</a></div></footer>
 
-<!-- ═══ LIGHTBOX ═══ -->
-<div class="lightbox" id="lightbox" onclick="if(event.target===this)closeLightbox()">
-  <button class="lightbox-close" onclick="closeLightbox()">&#10005;</button>
-  <button class="lightbox-nav prev" onclick="stepLightbox(-1)">&#8249;</button>
-  <img id="lightbox-img" src="" alt="AdArchitect creation" />
-  <button class="lightbox-nav next" onclick="stepLightbox(1)">&#8250;</button>
-  <a class="btn-pill btn-pill-solid lightbox-cta" href="/app">Create Yours</a>
-</div>
-
-<!-- ═══ FOOTER ═══ -->
-<footer>
-  <div class="footer-grid">
-    <div class="footer-brand">
-      <img src="/assets/logo.png?v=3" alt="AdArchitect" onerror="this.style.display='none'" />
-      <p>Next-generation AI creative studio. From one business URL to a complete marketing campaign.</p>
-    </div>
-    <div class="footer-col">
-      <h4>Creative Studio</h4>
-      <a href="/app">Brand Analyzer</a>
-      <a href="/app">Image Generator</a>
-      <a href="/app">Campaign Builder</a>
-      <a href="/app">History</a>
-    </div>
-    <div class="footer-col">
-      <h4>Tools</h4>
-      <a href="/app">Brand Profiles</a>
-      <a href="/app">SWOT Analysis</a>
-      <a href="/app">Ad Creator</a>
-      <a href="/app">Content Ideas</a>
-    </div>
-    <div class="footer-col">
-      <h4>Resources</h4>
-      <a href="#models">Model Series</a>
-      <a href="#gallery">Gallery</a>
-      <a href="#features">Features</a>
-    </div>
-    <div class="footer-col">
-      <h4>About Us</h4>
-      <a href="mailto:asmaasamyhagag22@gmail.com">Contact Us</a>
-    </div>
-  </div>
-  <div class="footer-bottom">
-    <span>&copy; 2026 AdArchitect. All rights reserved.</span>
-    <span>Grounded in truth. Engineered for certainty.</span>
-  </div>
-</footer>
-
-<script>
-// ── Intro gate ──────────────────────────────────────────────────────────────
-function enterSite() {
-  const intro = document.getElementById('intro');
-  if (!intro || intro.classList.contains('leaving')) return;
-  intro.classList.add('leaving');
-  document.body.classList.remove('intro-locked');
-  setTimeout(() => intro.remove(), 1000);
-}
-// Enter / Space also work as "enter"
-document.addEventListener('keydown', (e) => {
-  if (document.getElementById('intro') && (e.key === 'Enter' || e.key === ' ')) {
-    e.preventDefault();
-    enterSite();
-  }
-});
-
-// ── State ───────────────────────────────────────────────────────────────────
-let showcaseImages = [];
-let lightboxIndex  = 0;
-
-// ── Nav: transparent at top → blurred solid on scroll ───────────────────────
-const navEl = document.querySelector('.nav');
-window.addEventListener('scroll', () => {
-  navEl.classList.toggle('scrolled', window.scrollY > 30);
-}, { passive: true });
-
-// ── Scroll reveal ───────────────────────────────────────────────────────────
-const revealObserver = new IntersectionObserver((entries) => {
-  entries.forEach(e => {
-    if (e.isIntersecting) {
-      e.target.classList.add('in');
-      revealObserver.unobserve(e.target);
-    }
-  });
-}, { threshold: 0.12 });
-
-function makeRevealable(el, delayClass) {
-  el.classList.add('reveal');
-  if (delayClass) el.classList.add(delayClass);
-  revealObserver.observe(el);
-}
-
-// Tag static sections/cards for reveal
-document.querySelectorAll('.section-kicker, .section-body, .showcase-head, .cta-band h2, .steps-kicker, .steps-title')
-  .forEach(el => makeRevealable(el));
-document.querySelectorAll('.step-card')
-  .forEach((el, i) => makeRevealable(el, 'reveal-d' + Math.min(i, 3)));
-
-// ── Hero parallax (scroll + mouse) ──────────────────────────────────────────
-const heroMedia   = document.getElementById('hero-media');
-const heroContent = document.querySelector('.hero-content');
-let mouseX = 0, mouseY = 0;
-
-window.addEventListener('scroll', () => {
-  const y = window.scrollY;
-  if (y < window.innerHeight) {
-    heroMedia.style.transform   = `translateY(${y * 0.35}px)`;
-    heroContent.style.transform = `translateY(${y * 0.18}px)`;
-    heroContent.style.opacity   = Math.max(0, 1 - y / (window.innerHeight * 0.7));
-  }
-}, { passive: true });
-
-document.querySelector('.hero').addEventListener('mousemove', (e) => {
-  mouseX = (e.clientX / window.innerWidth  - 0.5) * 14;
-  mouseY = (e.clientY / window.innerHeight - 0.5) * 10;
-  heroMedia.style.setProperty('--mx', mouseX + 'px');
-  heroMedia.querySelectorAll('.slide').forEach(s => {
-    s.style.backgroundPosition = `calc(50% + ${mouseX}px) calc(50% + ${mouseY}px)`;
-  });
-});
-
-// ── Hero captions cycle with slides ─────────────────────────────────────────
-const captions = [
-  'Cinematic brand campaign, generated from a single business URL.',
-  'Every claim on the poster traced to a source on your own site.',
-  'Brand identity extracted, understood, and reimagined by AI.',
-  'From website to world-class visuals - in minutes.',
-  'Every pixel on-brand. Every campaign yours.',
-];
-
-// ── Lightbox ────────────────────────────────────────────────────────────────
-function openLightbox(i) {
-  lightboxIndex = i;
-  document.getElementById('lightbox-img').src = showcaseImages[i];
-  document.getElementById('lightbox').classList.add('open');
-  document.body.style.overflow = 'hidden';
-}
-function closeLightbox() {
-  document.getElementById('lightbox').classList.remove('open');
-  document.body.style.overflow = '';
-}
-function stepLightbox(dir) {
-  lightboxIndex = (lightboxIndex + dir + showcaseImages.length) % showcaseImages.length;
-  document.getElementById('lightbox-img').src = showcaseImages[lightboxIndex];
-}
-document.addEventListener('keydown', (e) => {
-  if (!document.getElementById('lightbox').classList.contains('open')) return;
-  if (e.key === 'Escape')     closeLightbox();
-  if (e.key === 'ArrowLeft')  stepLightbox(-1);
-  if (e.key === 'ArrowRight') stepLightbox(1);
-});
-
-// ── Hero slideshow + gallery from generated images ──────────────────────────
-(async function () {
-  try {
-    const r = await fetch('/api/showcase');
-    showcaseImages = (await r.json()).images || [];
-  } catch (e) { /* offline - leave hero dark */ }
-
-  if (!showcaseImages.length) return;
-
-  // Hero: crossfading slideshow
-  const media = document.getElementById('hero-media');
-  showcaseImages.slice(0, 5).forEach((src, i) => {
-    const d = document.createElement('div');
-    d.className = 'slide' + (i === 0 ? ' on' : '');
-    d.style.backgroundImage = `url('${src}')`;
-    media.appendChild(d);
-  });
-  const slides  = media.querySelectorAll('.slide');
-  const caption = document.getElementById('hero-caption');
-  if (slides.length > 1) {
-    let cur = 0;
-    setInterval(() => {
-      slides[cur].classList.remove('on');
-      cur = (cur + 1) % slides.length;
-      slides[cur].classList.add('on');
-      // Fade caption text in sync with the slide change
-      caption.style.opacity = 0;
+  <script>
+    const intro = document.getElementById('landing-intro');
+    const logo = document.getElementById('landing-logo');
+    const slot = document.getElementById('landing-logo-slot');
+    const fallback = document.getElementById('landing-logo-fallback');
+    let introDone = false;
+    function enterAdzy() {
+      if (introDone) return;
+      introDone = true;
+      logo.classList.add('docking');
       setTimeout(() => {
-        caption.textContent = captions[cur % captions.length];
-        caption.style.opacity = 1;
-      }, 600);
-    }, 6000);
-    caption.style.transition = 'opacity 0.6s ease';
-  }
+        logo.classList.remove('docking'); logo.classList.add('docked');
+        logo.setAttribute('aria-label', 'Adzy home'); fallback.hidden = true;
+        slot.prepend(logo); intro.classList.add('done');
+      }, 730);
+    }
+    logo.addEventListener('click', enterAdzy, { once: true });
+    setTimeout(enterAdzy, matchMedia('(prefers-reduced-motion: reduce)').matches ? 120 : 1550);
+    addEventListener('scroll', () => document.getElementById('landing-nav').classList.toggle('scrolled', scrollY > 12), { passive: true });
 
-  // Gallery: masonry, opens lightbox
-  const grid = document.getElementById('gallery-grid');
-  showcaseImages.forEach((src, i) => {
-    const item = document.createElement('div');
-    item.className = 'gallery-item';
-    const img = document.createElement('img');
-    img.src = src; img.loading = 'lazy';
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.textContent = 'AdArchitect';
-    item.appendChild(img);
-    item.appendChild(tag);
-    item.onclick = () => openLightbox(i);
-    makeRevealable(item, 'reveal-d' + (i % 3));
-    grid.appendChild(item);
-  });
-})();
-</script>
+    (async function loadWork() {
+      let images = [];
+      try { images = (await fetch('/api/showcase').then(r => r.json())).images || []; } catch (_) {}
+      const lanes = document.getElementById('landing-lanes');
+      if (!images.length) { lanes.innerHTML = '<div class="adzy-empty">The showcase has no returned images yet.</div>'; return; }
+      const makeCard = (src, index) => `<figure class="landing-card"><img src="${src}" alt="Adzy campaign creative"><span>ADZY / ${String(index + 1).padStart(3, '0')}</span></figure>`;
+      lanes.innerHTML = [0,1].map(lane => { const shifted = images.map((_,i) => images[(i+lane)%images.length]); const half = [...shifted,...shifted]; return `<div class="landing-lane ${lane ? 'reverse' : ''}">${[...half,...half].map(makeCard).join('')}</div>`; }).join('');
+    }());
+  </script>
 </body>
 </html>

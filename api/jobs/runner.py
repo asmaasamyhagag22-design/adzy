@@ -35,6 +35,7 @@ from business_profile.rules.orchestrator import apply_rules
 from scraper import scrape as scraper_scrape
 
 from ..schemas import Stage, StageEvent, StageStatus
+from .recorder import JobRecorder
 from .store import JobStore
 
 logger = logging.getLogger(__name__)
@@ -67,19 +68,28 @@ def _make_event(
 def run_pipeline_job(
     job_id: str,
     url: str,
-    store: JobStore,
+    store: "JobStore | JobRecorder",   # anything with emit_threadsafe/set_result_threadsafe
     *,
     skip_llm: bool = False,
     model: str = "",   # advisory only — the pipeline uses the configured Gemini stack
     persist_to_disk: bool = True,
     caller_factory: Optional[Any] = None,  # for tests: callable returning a Caller
     scraper_fn: Optional[Any] = None,      # for tests: callable replacing scraper.scrape
+    # Per-job crawl snapshot.  None preserves the direct scraper/CLI config defaults; the web
+    # scrape route always supplies concrete validated values from its request.
+    max_pages: Optional[int] = None,
+    max_depth: Optional[int] = None,
+    delay: Optional[float] = None,
     # "" = resolved by `scraper.config.scrapes_root()` inside `scrape()` — the webapp and the CLI
     # must write to the SAME corpus, and a literal here is how they stop doing that.
     output_root: str = "",
     use_rag: Optional[bool] = None,        # Pillar 2; default: on in prod, off when a test injects a caller
     embed_fn: Any = embed_texts,           # for tests: inject a fake embedder
-) -> None:
+    # Web-app scrape has one more REQUIRED commit (BrandStore).  It asks the pipeline to return the
+    # final payload and publishes FINAL/DONE only after that commit succeeds.  Legacy /api/run keeps
+    # the default and therefore its existing terminal contract.
+    defer_final_event: bool = False,
+) -> Optional[dict[str, Any]]:
     """Run the full pipeline for one job. Called in a worker thread.
 
     Emits a stream of StageEvents via store.emit_threadsafe(). On any
@@ -87,8 +97,9 @@ def run_pipeline_job(
     job transitions to FAILED automatically via the store's status
     transition rules.
 
-    On success, emits a FINAL/DONE event with the profile in payload
-    (truncated) and stores the full profile via set_result_threadsafe.
+    On success, stores the full profile via set_result_threadsafe and normally emits FINAL/DONE.
+    With ``defer_final_event=True``, returns the terminal payload instead so the caller can first
+    complete a required persistence step.
     Optionally persists the profile to disk next to the manifest.
     """
     emit = lambda stage, status, **kw: store.emit_threadsafe(
@@ -100,7 +111,15 @@ def run_pipeline_job(
         emit(Stage.SCRAPE, StageStatus.STARTED)
         t0 = time.monotonic()
         scrape_fn = scraper_fn or scraper_scrape
-        manifest, out_dir = scrape_fn(url, output_root)
+        crawl_options = {
+            key: value for key, value in (
+                ("max_pages", max_pages),
+                ("max_depth", max_depth),
+                ("delay", delay),
+            )
+            if value is not None
+        }
+        manifest, out_dir = scrape_fn(url, output_root, **crawl_options)
         scrape_ms = int((time.monotonic() - t0) * 1000)
         manifest_path = str(Path(out_dir) / "manifest.json")
         emit(
@@ -163,18 +182,17 @@ def run_pipeline_job(
                 job_id, profile_dict,
                 manifest_path=manifest_path, profile_path=profile_path,
             )
-            emit(
-                Stage.FINAL, StageStatus.DONE,
-                payload={
-                    "ready_for_strategy": rules_profile.quality.ready_for_strategy,
-                    "fields_extracted": rules_profile.quality.fields_extracted,
-                    "fields_inferred": rules_profile.quality.fields_inferred,
-                    "fields_missing": rules_profile.quality.fields_missing,
-                    "llm_skipped": True,
-                    "profile_path": profile_path,
-                },
-            )
-            return
+            final_payload = {
+                "ready_for_strategy": rules_profile.quality.ready_for_strategy,
+                "fields_extracted": rules_profile.quality.fields_extracted,
+                "fields_inferred": rules_profile.quality.fields_inferred,
+                "fields_missing": rules_profile.quality.fields_missing,
+                "llm_skipped": True,
+                "profile_path": profile_path,
+            }
+            if not defer_final_event:
+                emit(Stage.FINAL, StageStatus.DONE, payload=final_payload)
+            return final_payload
 
         # ---- 3. Evidence pack ----
         emit(Stage.EVIDENCE_PACK, StageStatus.STARTED)
@@ -316,20 +334,20 @@ def run_pipeline_job(
             job_id, profile_dict,
             manifest_path=manifest_path, profile_path=profile_path,
         )
-        emit(
-            Stage.FINAL, StageStatus.DONE,
-            payload={
-                "ready_for_strategy": final_profile.quality.ready_for_strategy,
-                "ready_for_poster": final_profile.quality.ready_for_poster,
-                "poster_blockers": list(final_profile.quality.poster_blockers),
-                "offerings_extraction_note": final_profile.offerings_extraction_note,
-                "llm_silent_failure": final_profile.llm_silent_failure,
-                "schema_version": final_profile.schema_version,
-                "llm_cost_usd": final_profile.extraction_meta.llm_cost_usd,
-                "llm_calls": final_profile.extraction_meta.llm_calls,
-                "profile_path": profile_path,
-            },
-        )
+        final_payload = {
+            "ready_for_strategy": final_profile.quality.ready_for_strategy,
+            "ready_for_poster": final_profile.quality.ready_for_poster,
+            "poster_blockers": list(final_profile.quality.poster_blockers),
+            "offerings_extraction_note": final_profile.offerings_extraction_note,
+            "llm_silent_failure": final_profile.llm_silent_failure,
+            "schema_version": final_profile.schema_version,
+            "llm_cost_usd": final_profile.extraction_meta.llm_cost_usd,
+            "llm_calls": final_profile.extraction_meta.llm_calls,
+            "profile_path": profile_path,
+        }
+        if not defer_final_event:
+            emit(Stage.FINAL, StageStatus.DONE, payload=final_payload)
+        return final_payload
 
     except Exception as e:  # noqa: BLE001
         logger.exception("Pipeline failed for job %s: %s", job_id, e)
@@ -344,10 +362,20 @@ def run_pipeline_job(
             error=f"{current_stage.value} stage failed ({type(e).__name__})",
             payload={"error_type": type(e).__name__},
         )
+        return None
 
 
-def _infer_failed_stage(store: JobStore, job_id: str) -> Stage:
-    """Best-effort: return the last STARTED stage as the failed stage."""
+def _infer_failed_stage(store, job_id: str) -> Stage:
+    """Best-effort: return the last STARTED stage as the failed stage.
+
+    A `JobRecorder` emitted every event this run produced, so it answers from what it already knows
+    rather than reading job state back out of a store — which matters under the durable backend,
+    where "read the job's history to describe its own failure" would be a database round trip on
+    the error path. A raw JobStore caller keeps the original backwards scan.
+    """
+    tracked = getattr(store, "failed_stage", None)
+    if callable(tracked):
+        return tracked()
     job = store.get(job_id)
     if job is None:
         return Stage.FINAL

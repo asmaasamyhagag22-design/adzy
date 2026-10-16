@@ -74,10 +74,10 @@ def test_tel_alphanumeric_junk_is_dropped():
     assert info.phones == []
 
 
-def test_tel_too_short_or_too_long_is_dropped():
+def test_tel_too_short_is_dropped_but_ambiguous_local_phone_is_retained():
     """tel:1 (1 digit, below 3-digit floor) is rejected.
-    A 12-digit non-E.164 number that fails phonenumbers validation is
-    also not accepted as a short code (above the 7-digit ceiling)."""
+    A longer tel: value with no country context remains raw and unresolved;
+    it is not misclassified as a short code or fabricated as E.164."""
     from scraper.extractors.contact import extract_contact
 
     page_url = "https://x.example/"
@@ -89,14 +89,15 @@ def test_tel_too_short_or_too_long_is_dropped():
     )
     assert info1.phones == []
 
-    # 12 digits: too long for short code, and ambiguous as a phone.
-    # Whatever phonenumbers does with it, the short-code path must not fire.
+    # 12 digits: too long for a short code, but the tel: link is useful raw evidence.
     info2 = extract_contact(
         {page_url: '<html><body><a href="tel:123456789012">x</a></body></html>'},
         {page_url: []},
     )
-    for p in info2.phones:
-        assert p.is_short_code is False
+    assert len(info2.phones) == 1
+    assert info2.phones[0].raw == "123456789012"
+    assert info2.phones[0].e164 is None
+    assert info2.phones[0].is_short_code is False
 
 
 def test_business_profile_contact_channels_carry_hotline():
@@ -344,7 +345,7 @@ def test_cross_host_sitemap_rejected_with_clear_note():
             "discover_sitemap_urls attempted to fetch a cross-host sitemap"
         )
 
-    with patch("scraper.sitemap.urlopen", _should_not_fetch):
+    with patch("scraper.sitemap.open_public_url", _should_not_fetch):
         result = discover_sitemap_urls("https://buffaloburger.com/", robots)
 
     assert result.urls == []
@@ -379,7 +380,7 @@ def test_same_host_sitemap_still_works_regression():
     def _fake_urlopen(req, timeout=None):
         return _FakeResponse(urlset_xml)
 
-    with patch("scraper.sitemap.urlopen", _fake_urlopen):
+    with patch("scraper.sitemap.open_public_url", _fake_urlopen):
         result = discover_sitemap_urls("https://buffaloburger.com/", robots)
     assert "https://buffaloburger.com/menu" in result.urls
     assert result.sitemap_used is True

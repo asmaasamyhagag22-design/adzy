@@ -4,13 +4,9 @@
 Every defect in this file is the same shape: the DASHBOARD and the CLI disagreed about something,
 and nobody noticed because each side was tested against itself.
 
-1. AUDIENCE LANGUAGE. `reel/audience.py::_country_code` read a flat `country` field and a ccTLD;
-   `poster/locale.py::country_of` reads the profile's own evidence — phone numbers, addresses,
-   currency — and is what the poster and the seed casting already trust. MEASURED on AlFouad: the
-   CLI's saved profile carries `country: "eg"` and resolved to Arabic, while the SAME BRAND as the
-   dashboard stores it has no `country` field, a `.com` domain and `languages: ['en']` — and
-   resolved to ENGLISH. That is the owner's July report verbatim: «دار الفوائد صيدلية في مصر
-   وعندها عربي — عملت إنجليزي ليه؟». `country_of` answers "Egypt" for both.
+1. LOCALE EVIDENCE. Both doors use the same country resolver, while content language remains an
+   independent measured fact. A country can select dialect only after Arabic is established; it
+   cannot turn an English storefront Arabic.
 
 2. SCENE COUNT. The browser posts a hardcoded `n_scenes: 5` and `/api/reel/from-profile` used it
    verbatim, while `reel/__main__.py::_scenes_for` derives it from the length the film is cut to
@@ -32,7 +28,7 @@ from reel.audience import audience_language_for
 # one country resolver
 # =====================================================================
 
-def test_a_pharmacy_in_egypt_speaks_arabic_even_with_an_english_storefront():
+def test_an_english_pharmacy_site_stays_english_in_egypt():
     """The dashboard's stored shape: no `country` field, a .com domain, an English crawl."""
     lang, country, why = audience_language_for({
         "name": "AlFouad Pharmacies",
@@ -41,14 +37,14 @@ def test_a_pharmacy_in_egypt_speaks_arabic_even_with_an_english_storefront():
         "contact_channels": {"phones": [{"e164": "+201234567890"}]},
         "locations": [{"city": "Cairo", "country": "Egypt"}],
     })
-    assert lang == "Arabic", why
+    assert lang == "English", why
     assert country == "eg"
 
 
 def test_the_flat_country_field_still_wins_when_it_is_there():
     """The cheap lookup stays first — `country_of` is the fallback, not a replacement."""
     lang, country, _why = audience_language_for({"country": "sa", "languages": ["en"]})
-    assert (lang, country) == ("Arabic", "sa")
+    assert (lang, country) == ("English", "sa")
 
 
 def test_a_genuinely_global_com_is_not_forced_into_a_market():
@@ -60,9 +56,9 @@ def test_a_genuinely_global_com_is_not_forced_into_a_market():
 
 
 def test_the_two_resolvers_agree_on_every_stored_brand():
-    """The invariant, run over the real brand store: whatever `country_of` names, the audience
-    resolver must not contradict by falling through to English."""
-    from poster.locale import country_of
+    """Stored profiles use the shared language contract and independently preserve country."""
+    from poster.locale import content_language_of, country_of
+    from reel.audience import audience_language_code
     try:
         from api.brand_store import BrandStore
         brands = BrandStore().list()
@@ -73,11 +69,13 @@ def test_the_two_resolvers_agree_on_every_stored_brand():
     for b in brands:
         p = b.get("_profile") or {}
         named = str(country_of(p) or "").strip().lower()
-        lang, code, why = audience_language_for(p)
-        if "egypt" in named or "saudi" in named:
-            assert lang == "Arabic", (
-                f"{b.get('domain_key')}: country_of says {named!r} but the audience "
-                f"resolver said {lang} ({why})")
+        _lang, code, _why = audience_language_for(p)
+        content_code = content_language_of(p)
+        assert audience_language_code(p) == (content_code or "en")
+        if "egypt" in named:
+            assert code == "eg", b.get("domain_key")
+        if "saudi" in named:
+            assert code == "sa", b.get("domain_key")
 
 
 def test_the_fallback_reads_the_evidence_resolver_not_a_second_table():

@@ -38,6 +38,7 @@ iniconfig==2.3.0
 jiter==0.14.0
 jstyleson==0.0.2
 jusText==3.0.2
+keyring==25.7.0
 langdetect==1.0.9
 lxml==6.1.1
 lxml_html_clean==0.4.5
@@ -96,3 +97,12 @@ webencodings==0.5.1
 websockets==16.0
 yarl==1.24.2
 python-multipart>=0.0.9
+
+# --- persistence (DB PHASE 1A: declared, not yet wired) -------------------------------
+# Nothing in api/ imports `db` yet; these are needed to run the migration and the PostgreSQL
+# integration tests. The persistence layer deliberately uses SQLAlchemy's synchronous Session
+# with psycopg 3: one UnitOfWork owns, commits/rolls back, and closes one Session in one sync
+# execution context. A future async API cutover must offload the whole service/UoW call.
+SQLAlchemy>=2.0,<3
+alembic>=1.13
+psycopg[binary]>=3.1

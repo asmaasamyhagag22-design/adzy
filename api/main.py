@@ -5,6 +5,7 @@ Run with:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -35,10 +36,16 @@ from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from .auth import require_api_key, require_spend_budget  # noqa: E402
-from .jobs.store import JobStore  # noqa: E402
+from .jobs.store import JobStore, bind_active_store, reset_active_store  # noqa: E402
+from .persistence import (  # noqa: E402
+    BackendMisconfigured,
+    ENV_BACKEND,
+    POSTGRES,
+    get_persistence,
+)
 from .routes import (  # noqa: E402
-    analysis, auth, brands, generate, health, influencer, jobs, poster, reel, run, scrape,
-    showcase, swot,
+    analysis, auth, brands, canonical_reel, generate, health, influencer, jobs, poster, reel,
+    run, scrape, showcase, swot, review,
 )
 from .routes.auth import require_user  # noqa: E402
 
@@ -60,9 +67,31 @@ async def lifespan(app: FastAPI):
 
     logger.info("JobStore initialized (ttl=%ds)", store._ttl)
 
+    # CRASH REPAIR AT STARTUP, and only at startup (§N: the minimum reconciler, not a scheduler).
+    #
+    # Called unconditionally: the legacy provider answers zeros because an in-memory store dies
+    # with its process and leaves nothing to be inconsistent with, so this needs no backend check.
+    # It touches only jobs whose lease has genuinely expired or whose result demonstrably
+    # committed, which is why a second process starting beside a busy one repairs nothing of its.
     try:
+        try:
+            repaired = await asyncio.to_thread(get_persistence().reconcile_jobs)
+            if repaired.get("class_a") or repaired.get("class_b"):
+                logger.warning("crash repair: %s", repaired)
+        except BackendMisconfigured as e:
+            explicit_postgres = (
+                (os.environ.get(ENV_BACKEND) or "").strip().lower() == POSTGRES
+            )
+            if explicit_postgres:
+                logger.exception("PostgreSQL readiness failed at startup: %s", e)
+                raise
+            logger.exception("job reconciliation failed at startup: %s", e)
+        except Exception as e:  # noqa: BLE001 — legacy reconciliation remains best-effort
+            logger.exception("job reconciliation failed at startup: %s", e)
+
         yield
     finally:
+        await asyncio.to_thread(review.shutdown_review_telemetry)
         await store.stop_cleanup()
 
 
@@ -145,6 +174,23 @@ _SECURITY_HEADERS = {
 
 
 @app.middleware("http")
+async def _bind_job_store(request, call_next):
+    """Bind THIS app's JobStore for the duration of the request.
+
+    The legacy persistence backend reads it through `api.jobs.store.active_store()`, so job
+    routes can use the typed provider surface instead of reaching into `app.state` themselves.
+    Request-scoped rather than process-global: two apps in one process must not rebind each
+    other's store (see tests/test_legacy_store_isolation.py). Work spawned with
+    `asyncio.create_task` here copies the context, so a background runner keeps this store.
+    """
+    token = bind_active_store(getattr(request.app.state, "store", None))
+    try:
+        return await call_next(request)
+    finally:
+        reset_active_store(token)
+
+
+@app.middleware("http")
 async def _security_headers(request, call_next):
     response = await call_next(request)
     for name, value in _SECURITY_HEADERS.items():
@@ -211,7 +257,8 @@ if (_FRONTEND_DIR / "assets").is_dir():
 
 
 # ---- API routers ----
-# health + jobs are unauthenticated: they spend nothing (liveness, job status/stream polling).
+# Health is public. Job routes self-authorize against the creating JWT user or legacy capability;
+# mounting them without one global dependency lets those two existing client models coexist.
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(jobs.router, prefix="/api", tags=["jobs"])
 
@@ -234,7 +281,12 @@ _authed = [Depends(require_user)]
 # a per-user spend throttle, so an account cannot loop the paid pipeline (api/auth.py).
 _authed_spend = [Depends(require_user), Depends(require_spend_budget)]
 app.include_router(scrape.router, prefix="/api", tags=["webapp"], dependencies=_authed_spend)
+app.include_router(review.router, prefix="/api", tags=["review"], dependencies=_authed)
 app.include_router(brands.router, prefix="/api", tags=["webapp"], dependencies=_authed)
+# Gate 2D.1 canonical Reel is provider-free.  It is authenticated, but deliberately not mounted
+# behind the spend dependency and cannot reach the legacy renderer or any paid boundary.
+app.include_router(canonical_reel.router, prefix="/api", tags=["canonical-reel"],
+                   dependencies=_authed)
 app.include_router(analysis.router, prefix="/api", tags=["webapp"], dependencies=_authed_spend)
 app.include_router(generate.router, prefix="/api", tags=["webapp"], dependencies=_authed_spend)
 app.include_router(influencer.router, prefix="/api", tags=["webapp"], dependencies=_authed_spend)

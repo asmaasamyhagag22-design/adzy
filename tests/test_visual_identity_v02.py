@@ -158,7 +158,7 @@ def test_external_svg_logo_colors_drive_the_brand_palette(monkeypatch):
             return svg.encode("utf-8")
 
     monkeypatch.setattr("scraper.url_utils.is_safe_public_url", lambda u: True)
-    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Resp())
+    monkeypatch.setattr("scraper.url_utils.open_public_url", lambda *a, **k: _Resp())
 
     sig = vis._logo_svg_signals("https://x.example/ColoredLogo.svg", "https://x.example/")
     assert sig, "expected logo svg colour signals"

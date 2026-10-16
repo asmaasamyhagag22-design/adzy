@@ -239,3 +239,25 @@ class UserStore:
     def emails(self) -> list[str]:
         """Registered addresses — used by `python -m api.claim_brands --list`."""
         return list(self._load().keys())
+
+
+def user_for_token(token: str) -> Optional[dict]:
+    """Resolve a signed token to an account that still exists, or return ``None``.
+
+    Shared by the normal ``require_user`` dependency and job ownership checks so both boundaries
+    agree on what constitutes an authenticated web-app principal. That sharing is why the backend
+    switch is applied HERE rather than in the route: resolving identity from PostgreSQL for requests
+    and from the JSON file for job-ownership checks would let the same token be two different
+    principals, which is worse than either store being wrong on its own.
+
+    The provider is imported lazily because it adapts THIS module — importing it at module scope
+    would recreate the exact import cycle C7 removed. With no ``PERSISTENCE_BACKEND`` set the
+    provider is the legacy adapter, so this is the same UserStore lookup it has always been.
+    """
+    payload = decode_token(str(token or ""))
+    subject = str((payload or {}).get("sub") or "")
+    if not subject:
+        return None
+    from api.persistence import get_persistence
+
+    return get_persistence().user_for_token_subject(subject)

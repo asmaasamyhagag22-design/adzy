@@ -4,13 +4,15 @@ FIX-C3/D (2026-07-11, owner: "لازم البلد والثقافة تأثر"): a
 visibly non-Egyptian generic-Western people because the culture anchor lived ONLY on the
 poster's classic path — the oneshot engine, the concept builder and the reel had zero locale.
 This module derives the brand's country from PROFILE EVIDENCE (never hardcoded):
-    ccTLD  ->  service_areas (an evidenced field)  ->  phone e164 prefix  ->  languages cue
+    ccTLD  ->  structured country  ->  service_areas  ->  phone e164 prefix
 and renders the proven `_region_line` wording parameterized by that country. Unknown locale ->
 ("", "") — an HONEST fallback: no cultural claim is injected when the evidence doesn't carry one.
 Universal by construction: works for any country; nothing Egypt-specific.
 """
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
@@ -127,33 +129,168 @@ def _fv(obj: Any, key: str) -> str:
     return str(v).strip() if v else ""
 
 
-def country_of(profile: Any) -> str:
-    """The brand's country from profile evidence, strongest signal first. '' when unknown."""
+# The long official names for the countries whose SHORT form is already the canonical display
+# name. Deliberately tiny: every entry here is a name whose abbreviation this module already
+# speaks, so the alias adds a surface, never a country. Ordinary names ("Egypt", "Qatar") need no
+# entry — they fold to themselves. This is not a place to accumulate a world gazetteer; a country
+# that needs a new SURFACE belongs here, a country that needs to EXIST belongs in CCTLD_COUNTRY.
+_COUNTRY_SURFACE_ALIASES = {
+    "united arab emirates": "the UAE",
+    "united kingdom": "the UK",
+    "united states": "the USA",
+    "united states of america": "the USA",
+}
+
+
+def _fold_country_surface(text: Any) -> str:
+    """Reduce a COUNTRY FIELD's surface to one comparison key.
+
+    Scoped on purpose. This runs on a value that already claims to be a country — a structured
+    `country`, a `locations[].country` — and never on free text. That distinction is the whole
+    safety argument: "us" is the United States in a country field and an ordinary pronoun in a
+    tagline, and only the caller knows which it is holding.
+
+    Handles what real scraped values actually look like: a parenthetical gloss
+    ("United Arab Emirates (UAE)"), dotted abbreviations ("U.A.E."), stray whitespace, casing, and
+    the leading article the canonical names carry ("the UAE").
+    """
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"\s*\([^)]*\)", " ", s)            # drop a parenthetical gloss
+    s = s.replace(".", " ")                        # U.A.E. -> U A E
+    s = re.sub(r"[\s _,]+", " ", s).strip()   # collapse separators
+    if not s:
+        return ""
+    s = s.casefold()
+    s = re.sub(r"^the\s+", "", s)                  # "the UAE" -> "uae"
+    # "U A E" -> "uae": rejoin a spaced-out abbreviation, but only when EVERY piece is a single
+    # letter, so "saudi arabia" is never mangled into "saudiarabia".
+    parts = s.split(" ")
+    if len(parts) > 1 and all(len(p) == 1 for p in parts):
+        s = "".join(parts)
+    return s
+
+
+def _known_country(value: Any) -> str:
+    """Canonical country name for an explicit structured value; never fuzzy-guesses.
+
+    ONE normalization boundary (C6). Before it, only an exact ISO code or an exact match on the
+    canonical name resolved, so "United Arab Emirates" — an ordinary value in a scraped
+    `locations[].country` — resolved to nothing and the brand silently lost its country while
+    "UAE" worked. Equivalent surfaces now reach the same canonical country; the canonical name
+    itself is unchanged.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    by_code = country_name_for(text)               # exact ISO code, unchanged
+    if by_code:
+        return by_code
+    key = _fold_country_surface(text)
+    if not key:
+        return ""
+    alias = _COUNTRY_SURFACE_ALIASES.get(key)
+    if alias:
+        return alias
+    by_code = country_name_for(key)                # "A.E." / " ae " now reach the code map
+    if by_code:
+        return by_code
+    for country in set(CCTLD_COUNTRY.values()):
+        if key == _fold_country_surface(country):
+            return country
+    return ""
+
+
+@dataclass(frozen=True)
+class CountryDecision:
+    """The one authoritative answer to "which country is this brand in?", and how we know.
+
+    `source` is not decoration, for the same reason it is not decoration on
+    `ContentLanguageDecision`. "the UAE" read off a stated address and "the UAE" inferred from a
+    .ae domain are different facts with different strength, and a value that keeps only the string
+    can never tell them apart again — including once it reaches a database.
+
+    `raw` is the surface actually seen, before normalization, so the evidence survives beside the
+    canonical answer instead of being folded away.
+    """
+
+    country: str
+    source: str          # explicit_country | location_country | website_cctld
+                         # | service_area | phone_prefix | unknown
+    raw: str = ""
+
+    @property
+    def is_known(self) -> bool:
+        return bool(self.country) and self.source != "unknown"
+
+
+def _cctld_country(p: Any) -> tuple[str, str]:
+    url = _fv(p, "source_url") or _fv(p, "url") or _fv(p, "website")
+    try:
+        host = urlparse(url if "://" in url else "https://" + url).netloc.lower()
+    except Exception:  # noqa: BLE001 — a malformed URL is simply no evidence
+        return "", ""
+    if not host:
+        return "", ""
+    tld = host.rsplit(".", 1)[-1]
+    return (CCTLD_COUNTRY.get(tld, ""), tld)
+
+
+def country_decision(profile: Any) -> CountryDecision:
+    """Resolve the brand's country, STATED evidence before INFERRED, and say which was used.
+
+    The order below is the correction (C6-R1). The ccTLD used to come first and was described as
+    "the most reliable signal" — a ranking that was true when a URL was the only thing a profile
+    carried, and quietly wrong from the moment structured country fields existed. A UK company on
+    a .ae domain was recorded as Emirati, over its own address.
+
+    1. explicit_country — the profile's own country field: the brand saying where it is
+    2. location_country — a country on the structured address (schema.org addressCountry)
+    3. website_cctld    — inferred from the domain
+    4. service_area     — a market the brand says it SERVES, which is not where it IS
+    5. phone_prefix     — inferred from a dial code
+    6. unknown          — no evidence, and that stays empty rather than becoming a guess
+
+    Junk in a stronger field does not veto the weaker ones: an unrecognised surface is no evidence
+    at all, so resolution falls through to the next rung instead of returning nothing.
+    """
     p = profile or {}
     if isinstance(p, dict) and isinstance(p.get("profile"), dict):
         p = p["profile"]
 
-    # 1. ccTLD of the brand's own domain (the most reliable signal)
-    url = _fv(p, "source_url") or _fv(p, "url") or _fv(p, "website")
-    try:
-        host = urlparse(url if "://" in url else "https://" + url).netloc.lower()
-    except Exception:
-        host = ""
-    if host:
-        tld = host.rsplit(".", 1)[-1]
-        if tld in CCTLD_COUNTRY:
-            return CCTLD_COUNTRY[tld]
+    raw = _fv(p, "country")
+    direct = _known_country(raw)
+    if direct:
+        return CountryDecision(direct, "explicit_country", raw)
 
-    # 2. service_areas — an evidenced profile field ("Egypt", "Cairo, Egypt", ...)
+    for location in (_get(p, "locations") or []):
+        raw = _fv(location, "country")
+        direct = _known_country(raw)
+        if direct:
+            return CountryDecision(direct, "location_country", raw)
+
+    name, tld = _cctld_country(p)
+    if name:
+        return CountryDecision(name, "website_cctld", tld)
+
     for area in (_get(p, "service_areas") or []):
         a = area.get("value") if isinstance(area, dict) else getattr(area, "value", area)
         a = str(a or "").strip()
-        for country in set(CCTLD_COUNTRY.values()):
+        # WORD boundaries, not a bare substring. This rung reads FREE TEXT ("all over Egypt",
+        # "Cairo, Egypt"), so it has to find a country name inside a phrase — but `in` found one
+        # inside any WORD that merely contained the letters. MEASURED (elabdfoods.com,
+        # 2026-08-27): service area "El Shorouk City" -> "the UK" (Shor-OUK), so a Cairo
+        # patisserie resolved British, `search_locale` went ("gb","en"), the brand research
+        # deep-searched the UK, and the poster shipped "Now delivering across London." Same trap
+        # elsewhere: "Souk Waqif" (Doha), "Bukit Timah", "Fukuoka" -> the UK; "Indiana" -> India.
+        # Longest name first so a phrase containing "Papua New Guinea" is not read as "Guinea";
+        # sorted() also makes the answer deterministic, which iterating a set never was.
+        for country in sorted(set(CCTLD_COUNTRY.values()), key=len, reverse=True):
             plain = country.replace("the ", "")
-            if plain and plain.lower() in a.lower():
-                return country
+            if plain and re.search(rf"(?<!\w){re.escape(plain)}(?!\w)", a, re.IGNORECASE):
+                return CountryDecision(country, "service_area", a)
 
-    # 3. phone e164 prefix (longest match wins)
     cc = _get(p, "contact_channels") or {}
     for ph in (_get(cc, "phones") or []):
         e164 = ph.get("e164") if isinstance(ph, dict) else getattr(ph, "e164", None)
@@ -161,8 +298,120 @@ def country_of(profile: Any) -> str:
         if e164.startswith("+"):
             for pref in sorted(_E164_COUNTRY, key=len, reverse=True):
                 if e164.startswith(pref):
-                    return _E164_COUNTRY[pref]
-    return ""
+                    return CountryDecision(_E164_COUNTRY[pref], "phone_prefix", pref)
+
+    return CountryDecision("", "unknown", "")
+
+
+def country_of(profile: Any) -> str:
+    """Compatibility wrapper — the string form of the authoritative decision.
+
+    Callers that only need a name keep working and nobody rebuilds the precedence locally. Callers
+    that need to know HOW the country was established — anything that stores it — use
+    `country_decision` instead, or the provenance is lost at the persistence boundary.
+    """
+    return country_decision(profile).country
+
+
+# The product's language of last resort. It is a PRODUCT DECISION, never a finding about a
+# brand, and every decision built on it says so in `source`.
+PRODUCT_FALLBACK_LANGUAGE = "en"
+
+
+@dataclass(frozen=True)
+class ContentLanguageDecision:
+    """The one authoritative answer to "what language should this brand's content be?".
+
+    `source` is not decoration. `product_fallback` means nobody established a language and the
+    product had to pick one to render at all — storing that back as observed evidence is how a
+    system starts citing itself.
+    """
+
+    language: str
+    source: str          # explicit_owner | neutral_representation_evidence
+                         # | trusted_measured_content | legacy_measured_content | product_fallback
+
+    @property
+    def is_evidence(self) -> bool:
+        """False for anything the product invented rather than observed."""
+        return self.source in ("explicit_owner", "neutral_representation_evidence",
+                               "trusted_measured_content", "legacy_measured_content")
+
+
+def _profile_root(profile: Any) -> Any:
+    p = profile or {}
+    if isinstance(p, dict):
+        if isinstance(p.get("profile"), dict):
+            p = p["profile"]
+        elif isinstance(p.get("_profile"), dict):
+            p = p["_profile"]
+    return p
+
+
+def _measured_language(p: Any) -> str:
+    for entry in (_get(p, "languages") or []):
+        code = getattr(entry, "code", None) or (entry.get("code") if isinstance(entry, dict) else entry)
+        code = str(code or "").strip().lower()[:2]
+        if code:
+            return code
+    declared: list[str] = []
+    for entry in (_get(p, "declared_languages") or []):
+        code = str(entry or "").strip().lower()[:2]
+        if code and code not in declared:
+            declared.append(code)
+    return declared[0] if len(declared) == 1 else ""
+
+
+def content_language_decision(profile: Any, *, owner_language: str = "") -> ContentLanguageDecision:
+    """The AUTO hierarchy, in one place. Market country is deliberately absent from it.
+
+    1. the owner said so
+    2. the SERVER's preference-free representation named its language
+    3. a measured language whose acquisition was not steered by our own fallback locale
+    4. the product fallback — labelled as such, so it can never be mistaken for evidence
+    """
+    owner = str(owner_language or "").strip().lower()[:2]
+    if owner in ("ar", "en") or (owner and owner.isalpha()):
+        return ContentLanguageDecision(owner, "explicit_owner")
+
+    p = _profile_root(profile)
+    evidence = _get(p, "language_evidence") or {}
+    if not isinstance(evidence, dict):
+        evidence = {}
+
+    # 2. The representation the site itself served when we expressed no preference.
+    represented = str(evidence.get("representation_language") or "").strip().lower()[:2]
+    if represented and evidence.get("render_locale_source") == "evidence":
+        return ContentLanguageDecision(represented, "neutral_representation_evidence")
+
+    measured = _measured_language(p)
+    if not measured:
+        return ContentLanguageDecision(PRODUCT_FALLBACK_LANGUAGE, "product_fallback")
+
+    source = str(evidence.get("render_locale_source") or "").strip()
+    if not source or source == "unknown":
+        # LEGACY: profiles scraped before provenance existed. Their language still decides — a
+        # silent mass re-labelling of every stored brand would be a worse lie than the one being
+        # fixed — but it is named `legacy_measured_content`, NOT newly proven evidence.
+        return ContentLanguageDecision(measured, "legacy_measured_content")
+
+    if source == "evidence" or not evidence.get("representation_changed"):
+        return ContentLanguageDecision(measured, "trusted_measured_content")
+
+    # A FALLBACK render locale, and the browser then moved into another representation: the
+    # language we measured afterwards may be the one our own locale asked for. Not evidence.
+    return ContentLanguageDecision(PRODUCT_FALLBACK_LANGUAGE, "product_fallback")
+
+
+def content_language_of(profile: Any) -> str:
+    """Compatibility wrapper — the string form of the authoritative decision.
+
+    Callers that only need a language keep working; nobody rebuilds the hierarchy locally.
+    Returns "" when no language could be ESTABLISHED, so an unknown brand stays unknown here
+    instead of being handed the product fallback as though it were a measurement.
+    """
+    decision = content_language_decision(profile)
+    return decision.language if decision.is_evidence else ""
 
 
 def search_locale(profile: Any) -> tuple[str, str]:

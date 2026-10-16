@@ -296,7 +296,7 @@ def _scenes_for(max_seconds: float, requested: int, *, has_insert: bool = False)
     return min(max(3, int(requested)), affordable)
 
 
-def main() -> int:
+def _legacy_main(argv=None) -> int:
     _load_env()
     import json
 
@@ -367,7 +367,7 @@ def main() -> int:
                          "(the user picked it from the scraped catalogue) instead of the whole set.")
     ap.add_argument("--product-name", default=None,
                     help="the picked product's name, woven into the story/voice-over.")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     profile_path = Path(args.profile)
     if not profile_path.is_file():
@@ -665,6 +665,32 @@ def main() -> int:
     print(f"     {result.width}x{result.height}  {result.duration_s}s  "
           f"audio={result.has_audio}  provider={result.provider}")
     return 0
+
+
+def main() -> int:
+    """Choose canonical authority preparation or the explicitly named legacy renderer."""
+    if len(sys.argv) < 2 or sys.argv[1] not in {
+            "canonical", "execution-dry-run", "legacy"}:
+        print("usage: python -m reel {canonical|execution-dry-run|legacy} ...",
+              file=sys.stderr)
+        print("legacy profile-led rendering is never selected implicitly", file=sys.stderr)
+        return 2
+    mode = sys.argv[1]
+    if mode == "canonical":
+        from reel.canonical_cli import main as canonical_main
+        return canonical_main(sys.argv[2:])
+    if mode == "execution-dry-run":
+        from reel.canonical_production_cli import main as production_dry_run_main
+        return production_dry_run_main(sys.argv[2:])
+
+    # Keep the long-standing paid tripwire visible at the public paid entrypoint as well as inside
+    # `_legacy_main`; canonical mode above is provider-free and must not be falsely labelled paid.
+    from spend_tripwire import refuse_if_no_spend
+    refuse_if_no_spend("renders a LEGACY profile-led reel via paid video/vision/TTS providers",
+                       alternative=(
+                           "use `python -m reel canonical ...` or "
+                           "`python -m reel execution-dry-run ...` for offline preparation"))
+    return _legacy_main(sys.argv[2:])
 
 
 if __name__ == "__main__":

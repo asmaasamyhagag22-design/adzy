@@ -26,8 +26,6 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 _LATIN_RE = re.compile(r"[A-Za-z]")
-# Arabic / Arabic-presentation ranges — to detect an Arabic brand.
-_AR_RE = re.compile(r"[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]")
 
 
 class CreativeConcept(BaseModel):
@@ -77,13 +75,14 @@ def _fv(profile: dict, key: str) -> str:
 
 
 def brand_is_arabic(profile: dict) -> bool:
-    """True when the brand should speak Arabic: an 'ar' site language, or Arabic script in
-    its name / tagline / description."""
-    langs = [str(x).lower() for x in ((profile or {}).get("languages") or [])]
-    if any(l.startswith("ar") for l in langs):
-        return True
-    blob = " ".join(_fv(profile, k) for k in ("name", "tagline", "description"))
-    return bool(_AR_RE.search(blob))
+    """True only when the profile's evidenced dominant content language is Arabic.
+
+    Country is a separate fact, and Arabic glyphs in a bilingual name/quote are not a declaration
+    that the complete creative should switch languages.
+    """
+    from poster.locale import content_language_of
+
+    return content_language_of(profile) == "ar"
 
 
 def has_latin(text: str) -> bool:
@@ -111,7 +110,7 @@ def _dna_tone_lines(brand_dna: Any) -> str:
     return "; ".join(parts)
 
 
-def _concept_clean(c: CreativeConcept, *, arabic: bool, ledger: Any = None,
+def _concept_clean(c: CreativeConcept, *, arabic: bool, profile: Any = None, ledger: Any = None,
                    _sense_caller: Any = None) -> CreativeConcept:
     """Drop any chip that violates the language lock (Latin in an Arabic brand) OR — when a
     grounding ledger is supplied — carries an UNSOURCED falsifiable claim (a final
@@ -127,6 +126,7 @@ def _concept_clean(c: CreativeConcept, *, arabic: bool, ledger: Any = None,
         _sense = sense_check({"headline": c.headline, "subheadline": c.subheadline,
                               "cta": c.cta},
                              language=("ar" if arabic else "en"),
+                             profile=profile,
                              caller=_sense_caller)   # None -> copy_qa resolves its own
         for _f, _new in (_sense.rewrites or {}).items():
             setattr(c, _f, _new)
@@ -308,6 +308,7 @@ def build_creative_concept(
     raw_facts: Optional[str] = None,
     featured_product: Optional[str] = None,
     product_facts: Optional[str] = None,
+    creative_contract: Any = None,
 ) -> CreativeConcept:
     """One coherent campaign concept + brand-language copy. Arabic brands -> Arabic copy with
     ZERO Latin (validated + regenerated). Never raises.
@@ -348,7 +349,11 @@ def build_creative_concept(
         except Exception:  # noqa: BLE001 — grounding must never break copy generation
             ledger = None
     if caller is None:
-        return _fallback_concept(profile, arabic)
+        fallback = _fallback_concept(profile, arabic)
+        if creative_contract is not None:
+            from poster.strategy_contract import strategy_repair_concept
+            fallback = strategy_repair_concept(fallback, creative_contract)
+        return fallback
 
     name = _fv(profile, "name") or "the brand"
     desc = _fv(profile, "description")
@@ -517,6 +522,14 @@ def build_creative_concept(
         "THEY DO + the SPECIFIC service + one REAL proof? Is the visual the real world of THIS "
         "service, not a stock person? If any is missing, rewrite."
     )
+    if creative_contract is not None:
+        system += (
+            "\n\n[APPROVED STRATEGY — FROZEN]\n"
+            "Creative choices are headline form, emotional tone, visual idea, and product "
+            "placement. Never redefine audience, single_message, core_benefit, proof, or CTA. "
+            "Those exact fields are supplied below and are frozen after this response. Do not "
+            "introduce any factual statement outside the allowed proof."
+        )
     # CS-14 (P-72 pattern): scraped fields are UNTRUSTED text. Neutralize the characters that
     # let a page's own copy break out of its slot or counterfeit prompt structure — the same
     # 3-char neutralization the evidence pack applies (" -> ', brackets -> parens), plus a
@@ -553,6 +566,15 @@ def build_creative_concept(
         + vary
         + "\nReturn the structured concept."
     )
+    if creative_contract is not None:
+        _proof = " | ".join(v.statement for v in creative_contract.proof_points)
+        user += (
+            "\n\nFROZEN approved target: " + creative_contract.target
+            + "\nFROZEN primary message: " + creative_contract.primary_message
+            + "\nFROZEN consumer value: " + creative_contract.consumer_value
+            + "\nFROZEN allowed proof: " + _proof
+            + "\nFROZEN CTA: " + creative_contract.cta_direction
+        )
 
     remediation: list[dict] = []
     caught_spine: dict[str, dict] = {}   # field -> {original_text, unsourced_claims} (first seen)
@@ -609,7 +631,7 @@ def build_creative_concept(
             problems.extend(_grounding_problems(c, ledger))
         if not problems:
             pre_chips = list(c.proof_points)
-            c = _concept_clean(c, arabic=arabic, ledger=ledger)
+            c = _concept_clean(c, arabic=arabic, profile=profile, ledger=ledger)
             # The spine survived clean -> the claims caught earlier were softened away.
             for rec in caught_spine.values():
                 remediation.append({**rec, "action": "softened",
@@ -624,6 +646,9 @@ def build_creative_concept(
                                                 "unsourced_claims": uns, "action": "dropped",
                                                 "note": "fabricated proof chip removed"})
             c.remediation = remediation
+            if creative_contract is not None:
+                from poster.strategy_contract import constrain_concept_to_contract
+                c = constrain_concept_to_contract(c, creative_contract)
             return c
         strict_suffix = ("\n\nREGENERATE and fix ALL of these: " + "; ".join(problems) +
                          ". While fixing these, the four-part STRANGER TEST still must hold — "
@@ -634,5 +659,9 @@ def build_creative_concept(
     if not fb.subheadline:
         chips = [p for p in fb.proof_points if p]
         fb.subheadline = chips[0] if chips else fb.subheadline
-    return fb.model_copy(update={"note": "copy-critic retries exhausted; grounded fallback",
-                                 "remediation": _to_fallback()})
+    fb = fb.model_copy(update={"note": "copy-critic retries exhausted; grounded fallback",
+                               "remediation": _to_fallback()})
+    if creative_contract is not None:
+        from poster.strategy_contract import strategy_repair_concept
+        fb = strategy_repair_concept(fb, creative_contract)
+    return fb

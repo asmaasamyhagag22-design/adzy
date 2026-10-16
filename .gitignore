@@ -102,3 +102,17 @@ registry/
 /out.wav
 /x.mp3
 /image-*.png
+
+# Application runtime and publication exclusions
+/.venv-workflow*/
+/.venv-app*/
+/.review-demo*/
+/.review-app-demo*/
+/database_export/
+/.pytest-*/
+/scratchpad/
+/frontend/assets/showcase/
+/*_profile*.json
+/*_real.json
+/te_eg_gemini.json
+/logs/*.log

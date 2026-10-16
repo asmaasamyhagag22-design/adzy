@@ -42,8 +42,9 @@ class _FakeResponse:
 def _patch_urlopen_with(body: bytes):
     def _fake(req, timeout=None):
         return _FakeResponse(body)
-    # robots.py imports urllib.request and calls urllib.request.urlopen
-    return patch("scraper.robots.urllib.request.urlopen", _fake)
+    # This file tests robots parsing, not redirect policy.  The F-01 continuity
+    # suite exercises the real guarded opener; here the bounded transport is a fake.
+    return patch("scraper.robots.open_public_url", _fake)
 
 
 def test_robots_extracts_single_sitemap_directive():
@@ -90,7 +91,7 @@ def test_robots_unreachable_keeps_empty_sitemap_urls():
     allowed' AND sitemap_urls stays an empty list (not None)."""
     def _raise(req, timeout=None):
         raise OSError("connection refused")
-    with patch("scraper.robots.urllib.request.urlopen", _raise):
+    with patch("scraper.robots.open_public_url", _raise):
         _, record = load_robots("https://example.com/")
     assert record.allowed is True  # assume-allowed fallback
     assert record.sitemap_urls == []

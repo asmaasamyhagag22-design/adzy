@@ -1,0 +1,132 @@
+{
+  "synthetic": true,
+  "source_only_export": true,
+  "private_artifacts_copied": false,
+  "commands": [
+    {
+      "command": "python -m workflows.demo init ",
+      "output": {
+        "synthetic": true,
+        "initialized": true
+      }
+    },
+    {
+      "command": "python -m workflows.demo start ",
+      "output": {
+        "synthetic": true,
+        "version": "adzy.review.v1",
+        "workflow_id": "ec9e2d73-224c-4552-8420-e4f3c8d3a79e",
+        "subject_id": "9dfcc748-671f-4ee4-966e-c516a19e581f",
+        "subject_hash": "3dd1cdf1abea43a780b63de8f8a7b1472823cc28c676ecbaa0719b35ec19461e",
+        "profile_id": "0b631263-38e1-4a92-a16b-125b7cafad9a",
+        "evidence_hash": "0c13e6fa175010e8529562bd01cab71e8c49a2439642f1066247e45bc4bc0b69",
+        "status": "NEEDS_REVIEW",
+        "reasons": [],
+        "required_actions": [],
+        "pending_nodes": [
+          "human_review"
+        ]
+      }
+    },
+    {
+      "command": "python -m workflows.demo resume --decision approved",
+      "output": {
+        "synthetic": true,
+        "version": "adzy.review.v1",
+        "workflow_id": "ec9e2d73-224c-4552-8420-e4f3c8d3a79e",
+        "subject_id": "9dfcc748-671f-4ee4-966e-c516a19e581f",
+        "subject_hash": "3dd1cdf1abea43a780b63de8f8a7b1472823cc28c676ecbaa0719b35ec19461e",
+        "profile_id": "0b631263-38e1-4a92-a16b-125b7cafad9a",
+        "evidence_hash": "0c13e6fa175010e8529562bd01cab71e8c49a2439642f1066247e45bc4bc0b69",
+        "status": "READY_FOR_CREATIVE",
+        "reasons": [],
+        "required_actions": [],
+        "decision": {
+          "subject_id": "9dfcc748-671f-4ee4-966e-c516a19e581f",
+          "subject_hash": "3dd1cdf1abea43a780b63de8f8a7b1472823cc28c676ecbaa0719b35ec19461e",
+          "decision": "approved"
+        },
+        "contract_id": "cc_1d46000587bb5a78ba763ae016047ded",
+        "contract_hash": "771ee5e92127fcbaf6a4431b6accfede6ebfad6da1f342a320af588101abda38",
+        "pending_nodes": []
+      }
+    },
+    {
+      "command": "python -m workflows.demo status ",
+      "output": {
+        "synthetic": true,
+        "version": "adzy.review.v1",
+        "workflow_id": "ec9e2d73-224c-4552-8420-e4f3c8d3a79e",
+        "subject_id": "9dfcc748-671f-4ee4-966e-c516a19e581f",
+        "subject_hash": "3dd1cdf1abea43a780b63de8f8a7b1472823cc28c676ecbaa0719b35ec19461e",
+        "profile_id": "0b631263-38e1-4a92-a16b-125b7cafad9a",
+        "evidence_hash": "0c13e6fa175010e8529562bd01cab71e8c49a2439642f1066247e45bc4bc0b69",
+        "status": "READY_FOR_CREATIVE",
+        "reasons": [],
+        "required_actions": [],
+        "decision": {
+          "subject_id": "9dfcc748-671f-4ee4-966e-c516a19e581f",
+          "subject_hash": "3dd1cdf1abea43a780b63de8f8a7b1472823cc28c676ecbaa0719b35ec19461e",
+          "decision": "approved"
+        },
+        "contract_id": "cc_1d46000587bb5a78ba763ae016047ded",
+        "contract_hash": "771ee5e92127fcbaf6a4431b6accfede6ebfad6da1f342a320af588101abda38",
+        "pending_nodes": []
+      }
+    },
+    {
+      "command": "python -m workflows.verify -q tests/test_review_workflow.py -k \"already_approved or tools_reject\"",
+      "output": "..                                                                       [100%]\n=============================== warnings summary ===============================\ntests/test_review_workflow.py::test_already_approved_routes_without_another_review\n  /home/asmaa/project/marketing_project/scraper_v01/.venv-workflow-clean/lib/python3.12/site-packages/alembic/config.py:612: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.\n    util.warn_deprecated(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n2 passed, 14 deselected, 1 warning in 10.14s\n"
+    },
+    {
+      "command": "python -m workflows.demo cleanup",
+      "returncode": 0,
+      "output": "{\n  \"synthetic\": true,\n  \"cleaned\": true\n}\n"
+    }
+  ],
+  "working_tree_stale_and_cleanup": [
+    {
+      "command": "python -m workflows.demo resume --directory .review-demo-stale --decision approved",
+      "output": {
+        "synthetic": true,
+        "version": "adzy.review.v1",
+        "workflow_id": "4ce9847a-aa98-48ef-8e88-5c5b4743ee3f",
+        "subject_id": "58458178-5c36-4002-ba11-20235597d263",
+        "subject_hash": "a44dac5b25209ec4090cfc266c81ebdff70df5823943cae23c87b0dce9e9c6d1",
+        "profile_id": "771477d9-4010-4492-b3de-4cd83eec3ad4",
+        "evidence_hash": "0c13e6fa175010e8529562bd01cab71e8c49a2439642f1066247e45bc4bc0b69",
+        "status": "BLOCKED",
+        "reasons": [
+          "STALE_SUBJECT"
+        ],
+        "required_actions": [],
+        "pending_nodes": [
+          "human_review"
+        ],
+        "contract_id": "",
+        "contract_hash": ""
+      }
+    },
+    {
+      "command": "python -m workflows.demo cleanup --directory .review-demo",
+      "output": {
+        "synthetic": true,
+        "cleaned": true
+      }
+    },
+    {
+      "command": "python -m workflows.demo cleanup --directory .review-demo-stale",
+      "output": {
+        "synthetic": true,
+        "cleaned": true
+      }
+    },
+    {
+      "command": "python -m workflows.demo cleanup --directory .review-demo-final",
+      "output": {
+        "synthetic": true,
+        "cleaned": true
+      }
+    }
+  ]
+}

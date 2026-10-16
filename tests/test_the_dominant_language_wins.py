@@ -64,25 +64,56 @@ def test_a_genuinely_arabic_site_still_resolves_arabic():
 
 
 # =====================================================================
-# the higher rungs still outrank it
+# the shared content-language contract is authoritative
 # =====================================================================
 
-def test_a_declared_edition_beats_the_crawl():
-    """hreflang is the brand publishing its own answer; a crawl is ours about the brand."""
+def test_measured_content_language_beats_an_available_other_edition():
+    """An Arabic edition's existence does not make an English crawl Arabic."""
     profile = {"name": {"value": "AlFouad"}, "declared_languages": ["ar"],
                "source_url": {"value": "https://alfouadpharmacies.com/"},
                "languages": [{"code": "en", "proportion": 1.0}]}
     lang, _c, why = audience_language_for(profile)
+    assert lang == "English" and "dominant content language" in why
+
+
+def test_one_unambiguous_declared_edition_is_a_fallback_without_measurement():
+    profile = {"name": {"value": "Synthetic"}, "declared_languages": ["ar"],
+               "source_url": {"value": "https://shop.example/"}, "languages": []}
+    lang, _c, why = audience_language_for(profile)
     assert lang == "Arabic" and "hreflang" in why
 
 
-def test_the_market_beats_the_crawl():
-    """A pharmacy in Cairo serves Arabic speakers whatever language its storefront ships in."""
-    profile = {"name": {"value": "Shop"}, "country": {"value": "Egypt"},
-               "source_url": {"value": "https://shop.example/"},
-               "languages": [{"code": "en", "proportion": 1.0}]}
-    lang, country, why = audience_language_for(profile)
-    assert lang == "Arabic" and country == "eg" and "trades in" in why
+@pytest.mark.parametrize("country,language,expected_language,expected_dialect", [
+    ("Qatar", "en", "English", None),
+    ("Qatar", "ar", "Arabic", "Gulf/Khaleeji Arabic"),
+    ("Qatar", "", "English", None),  # existing safe fallback; country cannot choose Arabic
+    ("Egypt", "en", "English", None),
+    ("Egypt", "ar", "Arabic", "Egyptian Arabic"),
+    ("Saudi Arabia", "en", "English", None),
+    ("Saudi Arabia", "ar", "Arabic", "Gulf/Khaleeji Arabic"),
+    ("", "ar", "Arabic", "natural conversational Arabic"),
+])
+def test_market_country_never_overwrites_content_language(
+    country, language, expected_language, expected_dialect,
+):
+    """F-06: language is measured first; country only chooses an already-Arabic dialect."""
+    from poster.locale import arabic_dialect_for, content_language_of, country_of
+
+    profile = {
+        "name": {"value": "Synthetic"},
+        "source_url": {"value": "https://shop.example/"},
+        "locations": [{"country": country}],
+        "languages": ([{"code": language, "proportion": 1.0}] if language else []),
+    }
+    content_code = content_language_of(profile)
+    assert content_code == language
+    assert country_of(profile) == country
+
+    selected_language, _country_code, _why = audience_language_for(profile)
+    assert selected_language == expected_language
+
+    applied_dialect = arabic_dialect_for(profile) if content_code == "ar" else None
+    assert applied_dialect is None if expected_dialect is None else expected_dialect in applied_dialect
 
 
 # =====================================================================
@@ -93,12 +124,12 @@ def test_every_stored_brand_is_decided_by_evidence_it_actually_has():
     """A regression net over the real store: the answer, and the rung that produced it."""
     expected = {
         "volumeqatar_com": "English",           # dominant crawled language — the fix
-        "alfouadpharmacies_com": "Arabic",      # hreflang
-        "nanocareegypt_com": "Arabic",          # hreflang
-        "nahdionline_com": "Arabic",            # market 'sa'
-        "abuauf_com": "Arabic",                 # hreflang
-        "pepsi_com": "English",                 # nothing but English
-        "marasimltd_com": "Arabic",             # market 'eg'
+        "alfouadpharmacies_com": "English",      # measured content language
+        "nanocareegypt_com": "Arabic",          # measured content language
+        "nahdionline_com": "Arabic",            # measured content language
+        "abuauf_com": "Arabic",                 # measured content language
+        "pepsi_com": "English",                 # safe unknown-language fallback
+        "marasimltd_com": "English",            # measured content language
     }
     seen = 0
     for dk, want in expected.items():
@@ -112,8 +143,53 @@ def test_every_stored_brand_is_decided_by_evidence_it_actually_has():
     assert seen >= 3, "not enough stored brands to regression-test the ladder"
 
 
-def test_the_calendar_the_reel_and_the_poster_still_agree():
-    """The alignment closed earlier the same day must survive this change."""
+def test_incidental_arabic_glyphs_do_not_override_measured_english():
+    profile = {
+        "name": {"value": "English Shop متجر"},
+        "description": {"value": "English-first copy with an incidental مرحبا token."},
+        "source_url": {"value": "https://shop.example/"},
+        "locations": [{"country": "Qatar"}],
+        "languages": [
+            {"code": "en", "proportion": 0.97},
+            {"code": "ar", "proportion": 0.03},
+        ],
+    }
+    assert audience_language_for(profile)[0] == "English"
+
+
+def test_volume_prompt_preview_exposes_the_shared_english_decision(monkeypatch):
+    import api.prompt_preview as preview
+
+    monkeypatch.setattr(preview, "_dna_for", lambda _profile: None)
+    stored = json.loads((_BRANDS / "volumeqatar_com.json").read_text(encoding="utf-8"))
+    resolved = preview.reel_preview(stored["_profile"])["resolved"]
+    assert resolved["audience_language"] == "English"
+    assert resolved["language_effective"] == "en"
+
+
+def test_creative_director_receives_english_at_the_model_boundary(monkeypatch):
+    import reel.creative_director as director
+
+    stored = json.loads((_BRANDS / "volumeqatar_com.json").read_text(encoding="utf-8"))
+    captured = {}
+
+    def fake_system_prompt(*args, **kwargs):
+        captured["language"] = args[1]
+        return "synthetic prompt"
+
+    def no_model_call(*_args, **_kwargs):
+        raise RuntimeError("intentional hermetic stop before any provider call")
+
+    monkeypatch.setattr(director, "_system_prompt", fake_system_prompt)
+    assert director.design_creative_reel(
+        stored["_profile"], [], caller=no_model_call,
+    ) is None
+    assert captured["language"] == "en"
+
+
+def test_the_calendar_uses_the_profiles_dominant_content_language():
+    """F-06: market/audience inference may not overwrite the calendar's content language."""
+    from poster.locale import content_language_of
     from strategy.builder import _brand_is_arabic
     seen = 0
     for p in sorted(_BRANDS.glob("*.json")):
@@ -122,8 +198,8 @@ def test_the_calendar_the_reel_and_the_poster_still_agree():
         profile = (json.loads(p.read_text(encoding="utf-8")) or {}).get("_profile") or {}
         if not profile:
             continue
-        lang, _c, _w = audience_language_for(profile)
-        assert _brand_is_arabic(profile) == str(lang).lower().startswith("ar"), (
-            f"{p.name}: the calendar and the reel disagree again")
+        expected = content_language_of(profile) == "ar"
+        assert _brand_is_arabic(profile) == expected, (
+            f"{p.name}: the calendar ignored the profile's dominant content language")
         seen += 1
     assert seen >= 3

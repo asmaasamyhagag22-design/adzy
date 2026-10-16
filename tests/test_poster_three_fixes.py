@@ -37,6 +37,7 @@ Hermetic: no image model, no network.
 from __future__ import annotations
 
 import inspect
+from types import SimpleNamespace
 
 import poster.pipeline as pp
 
@@ -122,25 +123,42 @@ def test_revision_never_raises_on_a_verdict_it_cannot_read():
 
 # --- 3) shipping a failed render says so ---------------------------------------------------------
 
+def _bound_qa(payload: bytes, status: str, reason: str, score: int):
+    from poster.vision_qa import (
+        POSTER_QA_SOURCE, PosterQAVerdict, poster_attempt_identity,
+        required_poster_qa_policy,
+    )
+    policy = required_poster_qa_policy(
+        arabic=False, logo_composited=False,
+        expect_real_products=False, product_named=False)
+    checked = status != "not_checked"
+    overall = True if status == "pass" else False if status == "fail" else None
+    return PosterQAVerdict(
+        checked=checked, overall_pass=overall, critic_pass=overall,
+        text_lines=["Synthetic headline"], score=score, reason=reason,
+        qa_source=POSTER_QA_SOURCE, policy_id=policy.policy_id,
+        policy_version=policy.version, policy_context=dict(policy.context),
+        mandatory_checks_expected=list(policy.mandatory_checks),
+        mandatory_checks_completed=(list(policy.mandatory_checks) if checked else []),
+        non_applicable_checks=dict(policy.non_applicable_checks),
+        attempt_identity=poster_attempt_identity(
+            payload, attempt_id="legacy-three-fixes", candidate_id=status),
+    )
+
+
 def test_a_failed_qa_verdict_reaches_the_client(monkeypatch):
     """`returning best (score=3)` must not look like a finished poster."""
     import api.webapp_images as wi
 
-    class _QA:
-        overall_pass = False
-        checked = True
-        score = 3
-        reason = "Amateur typography with heavy drop shadows."
-
-    class _Res:
-        image_base64 = None
-        trust_violation = False
-        trust_note_ar = ""
-        qa = _QA()
+    payload = b"\x89PNG" + b"0" * 40
+    qa = _bound_qa(
+        payload, "fail", "Amateur typography with heavy drop shadows.", 3)
+    result = SimpleNamespace(
+        image_base64=None, trust_violation=False, trust_note_ar="", qa=qa)
 
     monkeypatch.setattr(wi, "paid_images_enabled", lambda: True)
     monkeypatch.setattr(wi, "_render_real",
-                        lambda b, **k: wi.RealRender(png=b"\x89PNG" + b"0" * 40, result=_Res()))
+                        lambda b, **k: wi.RealRender(png=payload, result=result))
     out = wi.generate_image({"domain_key": "x", "_profile": {"name": "X"}}, headline="h")
     assert out.get("qa_failed") is True, "a rejected render shipped indistinguishable from a good one"
     assert "typography" in (out.get("qa_note") or "").lower()
@@ -149,21 +167,14 @@ def test_a_failed_qa_verdict_reaches_the_client(monkeypatch):
 def test_a_passing_render_carries_no_scary_flag(monkeypatch):
     import api.webapp_images as wi
 
-    class _QA:
-        overall_pass = True
-        checked = True
-        score = 9
-        reason = "Clean, professional, on-brand."
-
-    class _Res:
-        image_base64 = None
-        trust_violation = False
-        trust_note_ar = ""
-        qa = _QA()
+    payload = b"\x89PNG" + b"0" * 40
+    qa = _bound_qa(payload, "pass", "Clean, professional, on-brand.", 9)
+    result = SimpleNamespace(
+        image_base64=None, trust_violation=False, trust_note_ar="", qa=qa)
 
     monkeypatch.setattr(wi, "paid_images_enabled", lambda: True)
     monkeypatch.setattr(wi, "_render_real",
-                        lambda b, **k: wi.RealRender(png=b"\x89PNG" + b"0" * 40, result=_Res()))
+                        lambda b, **k: wi.RealRender(png=payload, result=result))
     out = wi.generate_image({"domain_key": "x", "_profile": {"name": "X"}}, headline="h")
     assert not out.get("qa_failed")
 
@@ -172,23 +183,18 @@ def test_an_unchecked_render_is_not_reported_as_failed(monkeypatch):
     """NOT_CHECKED is a third state and already visible as None. It is not a failure."""
     import api.webapp_images as wi
 
-    class _QA:
-        overall_pass = None
-        checked = False
-        score = 0
-        reason = ""
-
-    class _Res:
-        image_base64 = None
-        trust_violation = False
-        trust_note_ar = ""
-        qa = _QA()
+    payload = b"\x89PNG" + b"0" * 40
+    qa = _bound_qa(payload, "not_checked", "QA unavailable", 0)
+    result = SimpleNamespace(
+        image_base64=None, trust_violation=False, trust_note_ar="", qa=qa)
 
     monkeypatch.setattr(wi, "paid_images_enabled", lambda: True)
     monkeypatch.setattr(wi, "_render_real",
-                        lambda b, **k: wi.RealRender(png=b"\x89PNG" + b"0" * 40, result=_Res()))
+                        lambda b, **k: wi.RealRender(png=payload, result=result))
     out = wi.generate_image({"domain_key": "x", "_profile": {"name": "X"}}, headline="h")
     assert not out.get("qa_failed")
+    assert out["canonical_qa_status"] == "QA_UNVERIFIED"
+    assert out["accepted"] is False
 
 
 def test_the_frontend_shows_the_rejected_verdict():

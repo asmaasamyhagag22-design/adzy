@@ -85,6 +85,9 @@ class RunRequest(BaseModel):
 class RunResponse(BaseModel):
     """POST /api/run response."""
     job_id: str
+    # Legacy /run has no account/session principal.  Return this opaque capability once; callers
+    # present it as X-Job-Token on status/result/stream reads.  Only its digest is stored.
+    job_token: str
 
 
 class HealthResponse(BaseModel):

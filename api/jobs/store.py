@@ -28,6 +28,9 @@ Thread-safety:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures as _futures
+from contextlib import contextmanager
+from contextvars import ContextVar
 import logging
 import time
 import uuid
@@ -42,6 +45,7 @@ logger = logging.getLogger(__name__)
 
 # Sentinel event meaning "stream is closing; stop listening".
 _STREAM_CLOSE = object()
+_KEEP_RESULT = object()
 
 
 @dataclass
@@ -50,6 +54,9 @@ class Job:
     status: JobStatus
     created_at: datetime
     updated_at: datetime
+    # Authorization identity fixed at creation.  A web-app job stores ``user:<id>``; a legacy
+    # no-user job stores only a one-way capability digest.  Never included in HTTP projections.
+    owner_principal: str = field(default="", repr=False)
     current_stage: Optional[Stage] = None
     error: Optional[str] = None
     events: list[StageEvent] = field(default_factory=list)
@@ -157,9 +164,13 @@ class JobStore:
     # CRUD
     # ------------------------------------------------------------------
 
-    def create(self) -> Job:
+    def create(self, *, owner_principal: str = "") -> Job:
         """Create a new job in QUEUED state. Caller must call attach_loop()
-        before the runner starts so cross-thread event pushes work."""
+        before the runner starts so cross-thread event pushes work.
+
+        Public creation routes always pass an explicit principal.  An omitted principal remains
+        useful for internal runner tests, but is deliberately unreadable through public routes.
+        """
         job_id = uuid.uuid4().hex[:16]
         now = datetime.now(timezone.utc)
         job = Job(
@@ -167,6 +178,7 @@ class JobStore:
             status=JobStatus.QUEUED,
             created_at=now,
             updated_at=now,
+            owner_principal=str(owner_principal or ""),
         )
         self._jobs[job_id] = job
         return job
@@ -186,7 +198,7 @@ class JobStore:
     # by HTTP handlers on the event loop.
     # ------------------------------------------------------------------
 
-    def append_event(self, job_id: str, event: StageEvent) -> None:
+    def append_event(self, job_id: str, event: StageEvent) -> bool:
         """Record an event, update job status, and push to the queue.
 
         Must be called on the asyncio loop. The runner thread uses
@@ -195,7 +207,12 @@ class JobStore:
         job = self._jobs.get(job_id)
         if job is None:
             logger.warning("append_event: unknown job_id=%s", job_id)
-            return
+            return False
+        if job.is_terminal():
+            # Terminal state is immutable.  A delayed callback must not turn a durable-commit
+            # failure into success (or vice versa), and subscribers have already received CLOSE.
+            logger.warning("append_event: ignored event for terminal job_id=%s", job_id)
+            return False
         job.events.append(event)
         job.updated_at = event.timestamp
         # Status transitions driven by the event stream:
@@ -205,9 +222,11 @@ class JobStore:
         elif event.status == StageStatus.ERROR:
             job.status = JobStatus.FAILED
             job.error = event.error
+            job.current_stage = None
             job.finished_at = time.monotonic()
         elif event.stage == Stage.FINAL and event.status == StageStatus.DONE:
             job.status = JobStatus.SUCCEEDED
+            job.error = None
             job.current_stage = None
             job.finished_at = time.monotonic()
         # Fan out to EVERY live subscriber's own queue (CS-82) — non-blocking (queues are unbounded).
@@ -223,6 +242,47 @@ class JobStore:
                     q.put_nowait(_STREAM_CLOSE)
                 except Exception:
                     pass
+        return True
+
+    def finish_success(self, job_id: str, *, result: Any = _KEEP_RESULT,
+                       payload: Optional[dict[str, Any]] = None,
+                       warning: str = "") -> bool:
+        """Publish one authoritative success transition on the event loop.
+
+        ``result`` is set before the terminal event, so a SUCCEEDED job never has a missing result
+        when that job type promises one.  Omit it for pipeline jobs whose result was already queued
+        through ``set_result_threadsafe``.
+
+        ``warning`` is a soft note the poll surfaces beside a successful outcome ("the scrape
+        worked but the AI step degraded"). It arrives with the transition rather than being written
+        onto the job separately, because a warning that lands after the SPA has already read `done`
+        is a warning nobody sees.
+        """
+        job = self._jobs.get(job_id)
+        if job is None or job.is_terminal():
+            return False
+        if result is not _KEEP_RESULT:
+            job.result = result
+        if warning:
+            job.warning = warning
+        event = StageEvent(
+            job_id=job_id, stage=Stage.FINAL, status=StageStatus.DONE,
+            timestamp=datetime.now(timezone.utc), payload=payload,
+        )
+        return self.append_event(job_id, event)
+
+    def finish_failure(self, job_id: str, error: str, *,
+                       payload: Optional[dict[str, Any]] = None) -> bool:
+        """Publish one safe failure transition and revoke any provisional success result."""
+        job = self._jobs.get(job_id)
+        if job is None or job.is_terminal():
+            return False
+        job.result = None
+        event = StageEvent(
+            job_id=job_id, stage=Stage.FINAL, status=StageStatus.ERROR,
+            timestamp=datetime.now(timezone.utc), error=str(error), payload=payload,
+        )
+        return self.append_event(job_id, event)
 
     def subscribe(self, job_id: str) -> Optional[asyncio.Queue]:
         """Register a NEW live-event queue for one SSE connection (CS-82 fan-out). Returns None for
@@ -261,7 +321,7 @@ class JobStore:
     ) -> None:
         """Attach the final result + audit paths. Safe to call on the loop."""
         job = self._jobs.get(job_id)
-        if job is None:
+        if job is None or job.status == JobStatus.FAILED:
             return
         job.result = result
         job.manifest_path = manifest_path
@@ -282,6 +342,63 @@ class JobStore:
         except RuntimeError:
             pass
 
+    # ------------------------------------------------------------------
+    # Terminal transitions, callable from a worker thread
+    # ------------------------------------------------------------------
+
+    def _apply_on_loop(self, job_id: str, fn, *args, **kwargs) -> bool:
+        """Run one store mutation on the job's own loop from ANY thread and return ITS answer.
+
+        `emit_threadsafe` is fire-and-forget, which is right for progress and wrong for a terminal
+        transition: the caller has to know whether IT published the outcome or lost to an earlier
+        one, and a callback scheduled into the void cannot say. So the answer comes back on a
+        `concurrent.futures.Future`.
+
+        Waiting on that future from the loop thread itself would deadlock — the callback can only
+        run once this returns — so a call already on the owning loop is applied inline instead.
+        """
+        job = self._jobs.get(job_id)
+        if job is None:
+            return False
+        loop = job.loop
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if loop is None or running is loop:
+            return bool(fn(*args, **kwargs))
+        answer: "_futures.Future[bool]" = _futures.Future()
+
+        def _apply() -> None:
+            try:
+                answer.set_result(bool(fn(*args, **kwargs)))
+            except BaseException as exc:  # noqa: BLE001 — re-raised in the waiting thread
+                answer.set_exception(exc)
+
+        try:
+            loop.call_soon_threadsafe(_apply)
+        except RuntimeError:
+            # Loop has shut down. Nothing was published, and saying so is the truthful answer:
+            # reporting True here would let a caller record a success the store never made.
+            return False
+        try:
+            return answer.result(timeout=30)
+        except _futures.TimeoutError:
+            logger.warning("terminal transition for job %s did not reach the loop", job_id)
+            return False
+
+    def finish_success_threadsafe(self, job_id: str, *, result: Any = _KEEP_RESULT,
+                                  payload: Optional[dict[str, Any]] = None,
+                                  warning: str = "") -> bool:
+        """`finish_success` from a worker thread, with its answer preserved."""
+        return self._apply_on_loop(job_id, self.finish_success, job_id,
+                                   result=result, payload=payload, warning=warning)
+
+    def finish_failure_threadsafe(self, job_id: str, error: str, *,
+                                  payload: Optional[dict[str, Any]] = None) -> bool:
+        """`finish_failure` from a worker thread, with its answer preserved."""
+        return self._apply_on_loop(job_id, self.finish_failure, job_id, error, payload=payload)
+
     def all_job_ids(self) -> list[str]:
         return list(self._jobs.keys())
 
@@ -293,6 +410,64 @@ class JobStore:
 def get_store(app) -> JobStore:
     """Return the JobStore mounted on the FastAPI app."""
     return app.state.store
+
+
+# ---------------------------------------------------------------------
+# Request-scoped handle, for the LEGACY persistence backend only
+# ---------------------------------------------------------------------
+# `get_persistence()` is a process-global cached singleton; the JobStore is created per app in the
+# lifespan and mounted on `app.state`. So `LegacyPersistence` cannot be handed the store at
+# construction time, and routes must stop reaching for `request.app.state.store` themselves.
+#
+# THIS WAS A PROCESS-GLOBAL AND THAT WAS WRONG. A module-level `_active_store` set from each app's
+# lifespan is last-writer-wins: mounting a second app in one process silently rebinds the handle,
+# so the FIRST app stops seeing its own jobs while it is still serving. MEASURED by
+# `tests/test_legacy_store_isolation.py`, which is why that gate runs before any Job route is wired
+# onto this. The global also only *appeared* to deny cross-app reads — it denied them by clobbering,
+# not by isolating, which is the kind of accidental pass that stops holding the moment the ordering
+# changes.
+#
+# A ContextVar is bound per REQUEST from `request.app.state.store`, so two apps served by one
+# process never share it, and concurrent requests to different apps each see their own. Work
+# spawned with `asyncio.create_task` during a request copies the current context, so a background
+# job runner keeps the store its request was serving even after that request returns.
+_active_store: "ContextVar[Optional[JobStore]]" = ContextVar(
+    "baseera_active_job_store", default=None)
+
+
+def bind_active_store(store: Optional[JobStore]):
+    """Bind the store for the current context. Returns a token for `reset_active_store`."""
+    return _active_store.set(store)
+
+
+def reset_active_store(token) -> None:
+    """Undo one `bind_active_store`, restoring whatever was bound before it."""
+    _active_store.reset(token)
+
+
+def active_store() -> Optional[JobStore]:
+    """The store being served in THIS context, or None outside a request.
+
+    None is a real answer, not an error: under the PostgreSQL backend no JobStore is mounted at
+    all, and a legacy provider asked for a job outside any request must say "no such job" rather
+    than raise into a caller.
+    """
+    return _active_store.get()
+
+
+@contextmanager
+def serving_store(store: Optional[JobStore]):
+    """Bind `store` for the duration of a block, then restore what was bound before.
+
+    Production binds per REQUEST, in the middleware. This is for the callers that drive a job
+    outside one — harnesses and tests — which otherwise have no way to say WHICH store is serving
+    the work, and would silently write into nothing.
+    """
+    token = bind_active_store(store)
+    try:
+        yield store
+    finally:
+        reset_active_store(token)
 
 
 # Re-export the close sentinel for the SSE route

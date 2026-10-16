@@ -1,4 +1,8 @@
-"""Reel Studio — turn a BusinessProfile into a vertical marketing reel (1080x1920).
+"""Reel Studio.
+
+The BusinessProfile pipeline documented below is the explicitly isolated LEGACY renderer.
+Canonical StrategyVersion authority is defined in :mod:`reel.canonical_contract` and never calls
+this renderer during Gate 2D.1.
 
 The natural extension of the Poster Studio: where the poster uses Imagen for a
 still + an HTML/CSS overlay, the reel uses **Veo** for the moving visual + an
@@ -23,6 +27,36 @@ from __future__ import annotations
 from .from_profile import build_reel_brief, is_rtl
 from .storyboard import build_storyboard
 from .schemas import ReelScene, Storyboard, ReelRenderResult, REEL_W, REEL_H
+from .canonical_contract import (
+    ClaimIntent,
+    ClaimSurface,
+    ReelCreativeContract,
+    ReelCreativeContractCompiler,
+    authorize_claim,
+)
+from .canonical_creative import (
+    CanonicalReelExecutionPlan,
+    ConceptTournament,
+    CreativeConcept,
+    Platform,
+    PlatformProfile,
+    ReelBlueprint,
+    ShotContract,
+    compile_canonical_creative_plan,
+)
+from .canonical_production import (
+    CompiledAudioRequest,
+    CompiledSeedRequest,
+    CompiledVideoRequest,
+    ShotExecutionManifest,
+    dry_run_execution_plan,
+)
+from .canonical_media_preconditions import (
+    CanonicalMediaCostPlanner,
+    MediaPricingRegistry,
+    ProviderSurfaceIdentity,
+    SafeZoneAssetRegistry,
+)
 
 __all__ = [
     "build_reel_brief",
@@ -33,4 +67,26 @@ __all__ = [
     "ReelRenderResult",
     "REEL_W",
     "REEL_H",
+    "ClaimIntent",
+    "ClaimSurface",
+    "ReelCreativeContract",
+    "ReelCreativeContractCompiler",
+    "authorize_claim",
+    "CanonicalReelExecutionPlan",
+    "ConceptTournament",
+    "CreativeConcept",
+    "Platform",
+    "PlatformProfile",
+    "ReelBlueprint",
+    "ShotContract",
+    "compile_canonical_creative_plan",
+    "CompiledAudioRequest",
+    "CompiledSeedRequest",
+    "CompiledVideoRequest",
+    "ShotExecutionManifest",
+    "dry_run_execution_plan",
+    "CanonicalMediaCostPlanner",
+    "MediaPricingRegistry",
+    "ProviderSurfaceIdentity",
+    "SafeZoneAssetRegistry",
 ]

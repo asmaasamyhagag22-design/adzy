@@ -13,22 +13,27 @@ that something had been approved, not which portrait, and a later candidate inhe
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Optional
 
 from fastapi import Depends, APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from .auth import require_user
-from ..brand_store import BrandStore
+from ..persistence import get_persistence
 from ..webapp_jobs import start_brand_job
 from .. import webapp_influencer as influencer
 
 router = APIRouter()
 
+#: Every influencer write is one Run kind: the candidate set and the poster are the same stage of
+#: the same creative, and splitting them would make "the current influencer state" two answers.
+_KIND = "influencer_poster"
+
 
 def _brand_or_404(domain_key: str, user_id: str = "") -> dict:
     """Scoped like every other brand read — another account's brand resolves to 404."""
-    brand = BrandStore().get(domain_key, for_user=user_id or None)
+    brand = get_persistence().visible_brand(domain_key=domain_key, user_id=user_id or "")
     if brand is None:
         raise HTTPException(status_code=404, detail="Brand not found.")
     return brand
@@ -68,7 +73,8 @@ class PosterRequest(BaseModel):
     scene_description: str = ""
 
 
-def _candidate_job(request: Request, req: "CreateRequest", user: dict, *, reset: bool) -> dict:
+async def _candidate_job(request: Request, req: "CreateRequest", user: dict, *,
+                         reset: bool) -> dict:
     brand = _brand_or_404(req.domain_key, user["id"])
     cfg: dict[str, Any] = req.model_dump()
     if not reset:
@@ -84,14 +90,20 @@ def _candidate_job(request: Request, req: "CreateRequest", user: dict, *, reset:
         # dict this passes merged into the old one and removed nothing. MEASURED — the reset was a
         # no-op, the second click left two candidates, and the fourth hit MAX_CANDIDATES and
         # reached the user as "Generation step failed."
-        BrandStore().replace_block(req.domain_key, "ai_influencer",
-                                   {"candidates": {}, "selected_id": "",
-                                    "has_portrait": False, "validated": False,
-                                    "portrait_url": None},
-                                   for_user=user["id"])
+        # OFF THE LOOP: a sync helper called straight from a coroutine runs on the loop thread just
+        # as much as an inline call does, and this takes the BrandStore locks. MEASURED: a 1.5s
+        # competing write froze the loop for 1.467s through this path. Only the location changes —
+        # the reset is still the same single locked replace, still scoped to this account.
+        await asyncio.to_thread(
+            get_persistence().replace_section,
+            domain_key=req.domain_key, user_id=user["id"], kind=_KIND,
+            section="ai_influencer",
+            value={"candidates": {}, "selected_id": "",
+                   "has_portrait": False, "validated": False,
+                   "portrait_url": None})
     return start_brand_job(request, req.domain_key,
                            lambda b: influencer.generate_candidate(b, cfg),
-                           owner_id=user["id"])
+                           owner_id=user["id"], kind=_KIND)
 
 
 @router.get("/influencer/defaults")
@@ -130,14 +142,14 @@ def defaults(domain_key: str, user: dict = Depends(require_user)) -> dict:
 @router.post("/influencer/create")
 async def create(req: CreateRequest, request: Request, user: dict = Depends(require_user)) -> dict:
     """Start fresh: clear any previous looks and generate the FIRST candidate."""
-    return _candidate_job(request, req, user, reset=True)
+    return await _candidate_job(request, req, user, reset=True)
 
 
 @router.post("/influencer/another")
 async def another(req: CreateRequest, request: Request,
                   user: dict = Depends(require_user)) -> dict:
     """One MORE candidate — "التاني والتالت بطلب". Refuses past the third rather than spending."""
-    return _candidate_job(request, req, user, reset=False)
+    return await _candidate_job(request, req, user, reset=False)
 
 
 @router.post("/influencer/select")
@@ -148,7 +160,8 @@ def select(req: SelectRequest, user: dict = Depends(require_user)) -> dict:
         patch = influencer.select_candidate(brand, req.candidate_id)
     except influencer.UnknownCandidate as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    BrandStore().update(req.domain_key, patch, for_user=user["id"])
+    get_persistence().record_enrichment(domain_key=req.domain_key, user_id=user["id"],
+                                        kind=_KIND, patch=patch)
     return {"ok": True, "selected_id": req.candidate_id}
 
 
@@ -167,9 +180,9 @@ def validate(req: ValidateRequest, user: dict = Depends(require_user)) -> dict:
         raise HTTPException(
             status_code=409,
             detail="Several looks exist — choose one with /api/influencer/select {candidate_id}.")
-    BrandStore().update(req.domain_key,
-                        influencer.select_candidate(brand, next(iter(cands))),
-                        for_user=user["id"])
+    get_persistence().record_enrichment(
+        domain_key=req.domain_key, user_id=user["id"], kind=_KIND,
+        patch=influencer.select_candidate(brand, next(iter(cands))))
     return {"ok": True, "validated": bool(req.approved)}
 
 
@@ -184,4 +197,4 @@ async def poster(req: PosterRequest, request: Request, user: dict = Depends(requ
                            lambda brand: influencer.generate_influencer_poster(
                                brand, product_hint=req.product_hint,
                                scene_description=req.scene_description),
-                           owner_id=user["id"])
+                           owner_id=user["id"], kind=_KIND)

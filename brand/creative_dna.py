@@ -40,6 +40,17 @@ from scraper.url_utils import _registrable_domain, same_registrable_host
 class BrandCreativeDNA(BaseModel):
     """The brand's learned visual design language — read by the poster/reel art-director."""
     business_name: str
+    # --- IDENTITY / PROVENANCE (the filename carries identity; these make the file describe
+    # itself, so a stray copy or rename is caught instead of silently obeyed). `domain_key` is
+    # the canonical key — NEVER the display name, which is mutable and localized. See
+    # brand/brandbook_identity.py for why: an all-Arabic name slugged to "brand" and three
+    # brands shared one file.
+    domain_key: str = ""
+    display_name: str = ""
+    source_url: str = ""
+    dna_hash: str = ""
+    generated_at: int = 0
+    schema_version: int = 0
     used_vision: bool = False
     references_seen: list[str] = Field(default_factory=list)   # the creative URLs analyzed
     # Brand-ownership filter accounting (so the before/after is visible per brand): how many
@@ -485,8 +496,25 @@ def main() -> int:
     if dna.dont_list:
         print("- DON'T:", " | ".join(dna.dont_list))
 
-    out = args.out or f"outputs/brandbooks/{(dna.business_name or 'brand').lower().replace(' ', '_')}_dna.json"
-    save_creative_dna(dna, out)
+    # Identity is the domain_key, never the (mutable, localized) business name - the old
+    # name-derived filename is what let three Arabic-named brands share one brandbook.
+    from brand.brandbook_identity import (BrandbookIdentityError, domain_key_for,
+                                          save_brandbook, stamp_identity)
+    key = domain_key_for(profile)
+    if args.out:
+        save_creative_dna(stamp_identity(dna, domain_key=key, profile=profile) if key else dna,
+                          args.out)
+        out = args.out
+    elif not key:
+        print("\nERROR: BRANDBOOK_IDENTITY_UNRESOLVED - this profile has no domain_key "
+              "and no final_url/source_url to derive one from. Pass --out to write it.")
+        return 2
+    else:
+        try:
+            out = str(save_brandbook(dna, domain_key=key, profile=profile))
+        except BrandbookIdentityError as exc:
+            print(f"\nERROR: {exc}")
+            return 2
     print("\nDONE ->", out)
     return 0
 

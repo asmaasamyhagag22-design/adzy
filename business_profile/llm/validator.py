@@ -220,7 +220,66 @@ _HARD_CLAIM_KINDS = frozenset({"number", "first", "only", "award", "certificatio
                                "guarantee", "free"})
 
 
-def _value_hard_claims_supported(value: object, accepted: list) -> bool:
+def _price_currency_marks(text: str) -> set[str]:
+    """Currency marks attached to prices, using the scraper's D-8-neutral price grammar."""
+    from grounding.ledger import normalize
+    from scraper.catalog import _PRICE_RE
+
+    marks: set[str] = set()
+    for match in _PRICE_RE.finditer(text or ""):
+        # The shared price regex has already established that this span is currency+number.
+        # Removing number punctuation leaves only the ISO code, symbol, or currency word.
+        mark = re.sub(r"[\d\s,.\u066b\u066c]+", "", normalize(match.group(0)))
+        if mark:
+            marks.add(mark)
+    return marks
+
+
+def _strict_number_context_supported(text: str, entries: list) -> bool:
+    """Require extracted numeric facts to match both unit class and visible subject."""
+    from grounding.ledger import (
+        _STRONG_CLASSES,
+        _digit_classes,
+        _subject_stems_after,
+        extract_claims,
+    )
+
+    for claim in extract_claims(text):
+        if claim.kind != "number":
+            continue
+        claim_classes = _digit_classes(claim.text, claim.token)
+        claim_strong = claim_classes.intersection(_STRONG_CLASSES)
+        claim_subjects = _subject_stems_after(claim.text, claim.token)
+        supported = False
+        for entry in entries:
+            evidence_classes = _digit_classes(entry.norm, claim.token)
+            if not evidence_classes:
+                continue
+            evidence_strong = evidence_classes.intersection(_STRONG_CLASSES)
+            # Symmetric unit check. The general Ledger intentionally permits a bare count to
+            # resolve against a priced occurrence of the same digit; extracted profile values
+            # cannot, because they become evidence for later stages.
+            if claim_strong or evidence_strong:
+                if not claim_strong or not evidence_strong \
+                        or claim_strong.isdisjoint(evidence_strong):
+                    continue
+            elif claim_subjects:
+                evidence_subjects = _subject_stems_after(entry.norm, claim.token)
+                if not evidence_subjects or claim_subjects.isdisjoint(evidence_subjects):
+                    continue
+            supported = True
+            break
+        if not supported:
+            return False
+    return True
+
+
+def _value_hard_claims_supported(
+    value: object,
+    accepted: list,
+    *,
+    strict_extracted_value: bool = False,
+) -> bool:
     """True unless the value carries an UNSOURCED hard claim (P-70). Reuses the Evidence Ledger's
     claim resolution against the accepted evidence quotes. Pure paraphrase / puffery -> True.
     Degrades to True (no block) whenever grounding is unavailable or there is no evidence to check
@@ -236,6 +295,21 @@ def _value_hard_claims_supported(value: object, accepted: list) -> bool:
                for it in accepted if getattr(it, "quote", None)]
     if not entries:
         return True
+    # The Ledger distinguishes price from percentage/duration, but deliberately treats all
+    # currencies as one strong class. That is correct for generic copy gating and insufficient
+    # for extracted profile values: EUR 500 is not supported by a real USD 500 quote. Keep the
+    # scalar contract unchanged; offering/list callers opt into exact marks because those values
+    # later become evidence themselves.
+    if strict_extracted_value:
+        claimed_marks = _price_currency_marks(text)
+        if claimed_marks:
+            evidence_marks = set().union(*(
+                _price_currency_marks(entry.raw) for entry in entries
+            ))
+            if not claimed_marks.issubset(evidence_marks):
+                return False
+        if not _strict_number_context_supported(text, entries):
+            return False
     try:
         verdicts = EvidenceLedger(entries).audit_text(text)
     except Exception:  # noqa: BLE001
@@ -565,6 +639,27 @@ def _validate_offerings(
             )
             dropped += 1
             continue
+        unsupported_field = None
+        for field_name, value in (
+            ("name", item.name),
+            ("short_description", item.short_description),
+            ("price_text", item.price_text),
+        ):
+            if value and not _value_hard_claims_supported(
+                value, accepted, strict_extracted_value=True,
+            ):
+                unsupported_field = field_name
+                bucket.append(RejectionRecord(
+                    code=RejectionCode.CLAIM_NOT_SUPPORTED,
+                    block_id=None,
+                    quote=str(value)[:200],
+                    note=(f"offering {field_name} carries a hard claim not supported "
+                          "by the cited evidence"),
+                ))
+                break
+        if unsupported_field is not None:
+            dropped += 1
+            continue
         kept_offerings.append(ValidatedOffering(
             name=item.name.strip(),
             short_description=(item.short_description or None),
@@ -623,6 +718,17 @@ def _validate_string_list(
             blacklist_hits.append(
                 f"{item.value!r}: '{offending}' not in cited quotes"
             )
+            dropped += 1
+            continue
+        if not _value_hard_claims_supported(
+            item.value, accepted, strict_extracted_value=True,
+        ):
+            diag_bucket.append(RejectionRecord(
+                code=RejectionCode.CLAIM_NOT_SUPPORTED,
+                block_id=None,
+                quote=item.value[:200],
+                note=f"{item_label} value carries a hard claim not supported by the cited evidence",
+            ))
             dropped += 1
             continue
         kept.append(ValidatedListItem(

@@ -32,6 +32,37 @@ DEFAULT_ONESHOT_MODEL = os.getenv("ONESHOT_IMAGE_MODEL", "gemini-3.1-flash-image
 DEFAULT_LOCATION = "global"
 
 
+# --- TRANSPORT ACCOUNTING (§14) ---------------------------------------------
+#
+# The previous controlled run reported "1 provider call" while three HTTP requests were actually
+# made: one logical generation, two 429 auto-retries inside this loop. Reporting the logical count
+# as the provider count understates what the provider saw and hides rate-limit pressure, so the
+# two are now counted separately. A transport retry re-sends the IDENTICAL request — it is not a
+# new creative attempt and must never be reported as one.
+TRANSPORT_STATS: dict = {
+    "provider_request_attempts": 0,      # HTTP requests actually issued
+    "transport_retries": 0,              # re-sends of an identical request after a retryable error
+    "provider_errors": 0,                # exceptions raised by the provider
+    "successful_billable_generations": 0,
+    "models_tried": [],
+}
+
+
+def reset_transport_stats() -> None:
+    TRANSPORT_STATS.update({"provider_request_attempts": 0, "transport_retries": 0,
+                            "provider_errors": 0, "successful_billable_generations": 0,
+                            "models_tried": []})
+
+
+def transport_stats() -> dict:
+    """A copy of the counters, plus an explicit note on what is NOT observable from here."""
+    out = dict(TRANSPORT_STATS)
+    out["models_tried"] = list(TRANSPORT_STATS["models_tried"])
+    out["note"] = ("counts requests issued by THIS loop; retries performed internally by the "
+                   "google-genai SDK or its transport are not observable here")
+    return out
+
+
 def resolve_oneshot_model() -> str:
     """The effective default image model, honouring the owner's lane preference.
 
@@ -418,6 +449,9 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
                 _cfg_kw: dict = {"response_modalities": ["IMAGE", "TEXT"]}
                 if aspect:
                     _cfg_kw["image_config"] = types.ImageConfig(aspect_ratio=aspect)
+                TRANSPORT_STATS["provider_request_attempts"] += 1
+                if cand_model not in TRANSPORT_STATS["models_tried"]:
+                    TRANSPORT_STATS["models_tried"].append(cand_model)
                 resp = cl.models.generate_content(
                     model=cand_model,
                     contents=contents,
@@ -426,10 +460,13 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
                 break
             except Exception as e:  # noqa: BLE001
                 last_exc = e
+                TRANSPORT_STATS["provider_errors"] += 1
                 if _is_missing_model(e):
                     break                    # retired here — the NEXT model, not the same one again
                 if not _is_retryable(e) or i == len(delays_s) - 1:
                     raise
+                # An identical request re-sent after a retryable error: transport, not creative.
+                TRANSPORT_STATS["transport_retries"] += 1
         if resp is not None:
             if cand_model != tried[0]:
                 # SAY WHICH MODEL ACTUALLY RENDERED. The chain exists so a retired id cannot kill
@@ -464,6 +501,7 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
                 # the same way. The guard above keeps the requested price: worst-case is right
                 # for the budget CHECK; only the RECORD must be true.
                 from vertex_spend import est_image_cost_usd
+                TRANSPORT_STATS["successful_billable_generations"] += 1
                 record("image", 1, est_image_cost_usd(1, model),
                        model=model, detail=Path(out_path).name)  # metered, honestly
                 return out_path

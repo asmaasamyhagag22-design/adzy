@@ -56,6 +56,7 @@ from .browser_launch import launch_chromium as _launch_chromium
 from .browser_launch import looks_like_http2_failure as _looks_like_http2_failure
 from .language import detect_languages
 from .readiness import compute_readiness
+from .representation import probe_neutral_representation, render_locale_for
 from .robots import can_fetch, load_robots
 from .time_utils import utc_now
 from .schemas import (
@@ -65,6 +66,7 @@ from .schemas import (
     PageTier,
     PageType,
     ScrapeManifest,
+    LanguageEvidence,
     ScrapeMeta,
     SiteMetadata,
     Section,
@@ -662,7 +664,9 @@ def _process_fetched_page(
 # ---------------------------------------------------------------------
 
 def scrape(input_url: str, output_root: str = "", *, light: bool = False,
-           thorough: bool = False) -> tuple[ScrapeManifest, Path]:
+           thorough: bool = False, max_pages: Optional[int] = None,
+           max_depth: Optional[int] = None,
+           delay: Optional[float] = None) -> tuple[ScrapeManifest, Path]:
     """Scrape one business URL and return (manifest, output_dir).
 
     Always returns a manifest, even on failure — failures are recorded inside.
@@ -681,6 +685,10 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
     # CLI reads — see `scraper/config.py:DEFAULT_OUTPUT_ROOT`.
     output_root = str(output_root or scrapes_root())
     two_phase = TWO_PHASE_IMAGE_FETCH and not thorough
+    # None is how the direct scraper/CLI selects the longstanding config defaults.  API jobs pass
+    # a concrete immutable request snapshot, including zero where zero has useful semantics.
+    crawl_depth_limit = MAX_CRAWL_DEPTH if max_depth is None else max_depth
+    inter_page_delay = INTER_PAGE_DELAY_SECONDS if delay is None else delay
     started = time.monotonic()
     # Validate the USER INPUT once, here at the boundary (ensure_scheme no longer validates,
     # so a malformed scraped LINK can't crash the crawl — but a concatenated/malformed input
@@ -695,19 +703,27 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
     home_fetch_url = deep_root or normalized
     out_dir = _make_output_dir(normalized, output_root)
 
+    # ---- robots.txt -----------------------------------------------
+    # ONE logical load per scrape, and its answer IS the policy for the whole run.
+    #
+    # `ScrapeManifest.robots` is a required field, so the manifest below used to be seeded with a
+    # SECOND, throwaway `load_robots()` call whose parser was discarded — and the real load then
+    # replaced its record. Two observations of the same endpoint, and the later one won: a site
+    # that answered `Disallow: /` on the first and 429 on the second became "robots unavailable
+    # -> assume allowed", and the crawl proceeded into the browser. Loading before the manifest
+    # is built removes the second acquisition entirely; nothing is cached beyond this call frame,
+    # so a separate scrape still observes robots for itself.
+    rp, robots_record = load_robots(normalized)
+
     manifest = ScrapeManifest(
         scrape_meta=ScrapeMeta(
             input_url=input_url,
             normalized_url=normalized,
             scraped_at=utc_now(),
         ),
-        robots=load_robots(normalized)[1],  # placeholder; replaced below
+        robots=robots_record,
         readiness=_empty_readiness(),
     )
-
-    # ---- robots.txt -----------------------------------------------
-    rp, robots_record = load_robots(normalized)
-    manifest.robots = robots_record
     if not robots_record.allowed:
         manifest.failures.append(FailureRecord(
             code=ErrorCode.ROBOTS_DISALLOWED,
@@ -718,6 +734,43 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
         manifest.readiness = compute_readiness(manifest)
         _write_manifest(manifest, out_dir)
         return manifest, out_dir
+
+    # ---- Which representation does this site serve by default? ----
+    # ONE preference-free HTTP GET, before any browser exists. Its only job is to let the SERVER
+    # choose, so the browser locale below can follow that choice instead of making it. Without
+    # this the crawl still selected a language: `navigator.language` is readable by the page, and
+    # a locale-adaptive site routes on it even with Accept-Language absent.
+    #
+    # Cost is one request per scrape, not per page, and it is never retried: a failed probe simply
+    # leaves the render locale on its deterministic fallback.
+    # The authoritative robots decision governs THIS request too. `robots_record.allowed` was
+    # computed for the input URL; when the seed was deep the probe targets the site root instead,
+    # so ask the same parser about the URL actually being fetched.
+    representation = (probe_neutral_representation(home_fetch_url)
+                      if can_fetch(rp, home_fetch_url) else None)
+    render_locale, locale_provenance = render_locale_for(representation)
+    _served = getattr(representation, "observed_language", "") or "unknown"
+    _note = f"representation: served={_served} render_locale={render_locale} ({locale_provenance})"
+    if getattr(representation, "is_language_selector", False):
+        # Recorded because it is an ANSWER — the site declined to name one language — and the
+        # render locale below is therefore a fallback, not a finding about the brand.
+        _note += f" selector_page=yes variants={sorted(representation.hreflang)}"
+    if getattr(representation, "vary_accept_language", False):
+        _note += " negotiates=yes"
+    manifest.notes.append(_note)
+    # STRUCTURED, because downstream has to reason about it. `browser_final_url` /
+    # `representation_changed` are filled in after the homepage render below.
+    manifest.language_evidence = LanguageEvidence(
+        bootstrap_url=home_fetch_url,
+        bootstrap_final_url=getattr(representation, "final_url", None),
+        representation_language=getattr(representation, "observed_language", "") or "",
+        render_locale=render_locale,
+        render_locale_source=locale_provenance,
+        is_language_selector=bool(getattr(representation, "is_language_selector", False)),
+        negotiates_language=bool(getattr(representation, "vary_accept_language", False)),
+        hreflang=dict(getattr(representation, "hreflang", {}) or {}),
+        x_default_url=getattr(representation, "x_default_url", None),
+    )
 
     # ---- Sitemap discovery (PR-1) ---------------------------------
     # Pull URLs from Sitemap: directives in robots.txt and, if those
@@ -770,7 +823,7 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
         browser = _launch_chromium(pw)
         _http2_disabled = False
         try:
-            context = make_browser_context(browser)
+            context = make_browser_context(browser, locale=render_locale)
             try:
                 # ---- Fetch homepage -------------------------------
                 # Seed was deep -> fetch the site ROOT for identity. If the root is
@@ -801,7 +854,7 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
                         pass
                     browser = _launch_chromium(pw, http2=False)
                     _http2_disabled = True
-                    context = make_browser_context(browser)
+                    context = make_browser_context(browser, locale=render_locale)
                     home_result = fetch_page(context, home_fetch_url, keep_page=True,
                                              rate_limit_retries=HOMEPAGE_RATE_LIMIT_RETRIES,
                                              two_phase=two_phase)
@@ -855,6 +908,15 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
                     return manifest, out_dir
 
                 manifest.scrape_meta.final_url = home_result.final_url
+                if manifest.language_evidence is not None:
+                    # Did the BROWSER end up somewhere other than the representation the server
+                    # chose? Compared on the normalized URL, not on a path suffix: "/en" in a URL
+                    # is a guess, a different destination is a fact.
+                    _boot = manifest.language_evidence.bootstrap_final_url or home_fetch_url
+                    manifest.language_evidence.browser_final_url = home_result.final_url
+                    manifest.language_evidence.representation_changed = (
+                        normalize_url(str(home_result.final_url or "")) != normalize_url(str(_boot))
+                    )
                 manifest.scrape_meta.pages_succeeded += 1
 
                 # Visual identity from homepage (only place we read computed CSS)
@@ -903,10 +965,19 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
                 # RE-EVALUATED over accumulated links inside the fetch loop below.
                 is_store, n_prod = _looks_like_ecommerce(home_links, sitemap_result.urls)
                 if light:                      # competitor benchmarking: surface signals only
-                    is_store, page_cap, budget_secs = False, 4, 70
+                    is_store, budget_secs = False, 70
+                    page_cap = 4 if max_pages is None else min(4, max_pages)
+                elif max_pages is not None:
+                    # An explicit request ceiling wins over the adaptive store upgrade.  The store
+                    # signal may still select its established time budget; it may not buy more
+                    # page slots than the caller requested.
+                    page_cap = max_pages
+                    budget_secs = ECOMMERCE_BUDGET_SECONDS if is_store else TOTAL_BUDGET_SECONDS
                 else:
                     page_cap = ECOMMERCE_MAX_INTERNAL_PAGES if is_store else MAX_INTERNAL_PAGES
                     budget_secs = ECOMMERCE_BUDGET_SECONDS if is_store else TOTAL_BUDGET_SECONDS
+                if crawl_depth_limit == 0:
+                    page_cap = 0
                 if is_store:
                     manifest.notes.append(
                         f"E-commerce detected ({n_prod}+ product URLs) -> adaptive crawl budget "
@@ -929,9 +1000,14 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
                     manifest.notes.append(
                         f"cross_domain_redirect: internality re-anchored to "
                         f"{home_result.final_url} (requested {normalized})")
+                frontier_cap = (
+                    ECOMMERCE_MAX_INTERNAL_PAGES if max_pages is None else max_pages
+                )
+                if crawl_depth_limit == 0:
+                    frontier_cap = 0
                 subpages = _select_subpages_to_fetch(
                     home_links, anchor_url, home_result.final_url,
-                    extra_urls=sitemap_result.urls, cap=ECOMMERCE_MAX_INTERNAL_PAGES,
+                    extra_urls=sitemap_result.urls, cap=frontier_cap,
                 )
                 # Re-anchored to the root -> ensure the ORIGINAL deep seed is fetched
                 # FIRST (its content — offerings / menu / track — is why the user gave
@@ -972,13 +1048,17 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
                 depth_by_norm = {normalize_url(s[0]): 1 for s in subpages}
                 _bfs_added_total = 0
 
-                def _add_ajax_details(page_html: str, page_final_url: str, insert_at: int = 0) -> int:
+                def _add_ajax_details(
+                    page_html: str, page_final_url: str, insert_at: int = 0,
+                    page_depth: int = 0,
+                ) -> int:
                     """Resolve JS-built detail URLs on a page and splice them into the frontier at
                     `insert_at` (right AFTER the page being processed) so they're fetched NEXT —
                     they're the real content the user came for, not tail candidates. Returns how
                     many were added. Best-effort; never raises into the crawl."""
                     nonlocal _ajax_added, page_cap
-                    if light or _ajax_added >= _AJAX_MAX or not page_html:
+                    if (light or (max_depth is not None and page_depth >= crawl_depth_limit)
+                            or _ajax_added >= _AJAX_MAX or not page_html):
                         return 0
                     added = 0
                     try:
@@ -998,6 +1078,7 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
                             frontier_norms.add(ndu)
                             dpt, dtier = classify_url(du)
                             subpages.insert(pos, (du, dpt, dtier, ""))   # splice in ahead of the tail
+                            depth_by_norm[normalize_url(du)] = page_depth + 1
                             pos += 1
                             added += 1
                             _ajax_added += 1
@@ -1007,7 +1088,8 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
                         return added
                     # Give the resolved detail pages their OWN slots so they don't push planned
                     # pages past the cap (the time budget still bounds the crawl). Bounded by _AJAX_MAX.
-                    page_cap += added
+                    if max_pages is None:
+                        page_cap += added
                     return added
 
                 _home_ajax = _add_ajax_details(home_result.html or "", home_result.final_url)
@@ -1051,8 +1133,8 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
                         continue
 
                     # Polite delay
-                    delay = max(INTER_PAGE_DELAY_SECONDS, manifest.robots.crawl_delay_seconds)
-                    time.sleep(delay)
+                    effective_delay = max(inter_page_delay, manifest.robots.crawl_delay_seconds)
+                    time.sleep(effective_delay)
 
                     manifest.scrape_meta.pages_attempted += 1
                     # CRASH-SAFETY: a single heavy page can hard-fail (Playwright
@@ -1111,8 +1193,11 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
                         # This subpage may itself reveal url-less 'modal' details (e.g. the NTI
                         # category page carries the course popovers). Splice them in right AFTER the
                         # current page (0-based index i) so they're fetched next, not at the tail.
-                        _sub_ajax = _add_ajax_details(sub_result.html or "", sub_result.final_url,
-                                                      insert_at=i)
+                        _cur_depth = depth_by_norm.get(normalize_url(sub_url), 1)
+                        _sub_ajax = _add_ajax_details(
+                            sub_result.html or "", sub_result.final_url,
+                            insert_at=i, page_depth=_cur_depth,
+                        )
                         if _sub_ajax:
                             manifest.notes.append(
                                 f"ajax_modal_details({sub_url}): +{_sub_ajax} JS-built detail URLs")
@@ -1120,8 +1205,7 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
                         # frontier tail — category pages surface their leaf items (courses,
                         # services, menu dishes) which the old build-once frontier never fetched.
                         # Bounded by the same live page_cap/time checks + BFS_MAX_NEW_CANDIDATES.
-                        _cur_depth = depth_by_norm.get(normalize_url(sub_url), 1)
-                        if (not light and _cur_depth < MAX_CRAWL_DEPTH
+                        if (not light and _cur_depth < crawl_depth_limit
                                 and _bfs_added_total < BFS_MAX_NEW_CANDIDATES):
                             _new = _bfs_new_candidates(
                                 sub_links, anchor_url, frontier_norms,
@@ -1150,7 +1234,9 @@ def scrape(input_url: str, output_root: str = "", *, light: bool = False,
                         # under-counts when a JS store renders few links on the snapshot
                         # (offline-validated: nahdi's failing 6-page run had 15 product
                         # URLs across the pages it DID fetch — enough to flip).
-                        if not is_store and not light:   # light stays shallow — never upgrade
+                        if (not is_store and not light and max_pages is None):
+                            # A caller-supplied page ceiling is immutable for this job; only jobs
+                            # using the crawler default participate in the adaptive cap upgrade.
                             is_store, n_prod = _looks_like_ecommerce(all_links, sitemap_result.urls)
                             if is_store:
                                 page_cap = ECOMMERCE_MAX_INTERNAL_PAGES

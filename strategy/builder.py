@@ -109,9 +109,8 @@ class ContentItem:
     # P-15: funnel intent per item — the calendar is now a funnel plan, not a flat post list.
     funnel_stage: str = ""         # tofu | mofu | bofu
     cta: str = ""
-    # Recording ONLY (additive): what the grounding gate blanked on THIS item — so the
-    # audit trail shows the item's hook/angle was fabricated and remediated (the item then
-    # runs on its sourced `topic`), not that it silently vanished. Empty when nothing blanked.
+    # Recording ONLY (additive): what the grounding gate blanked or replaced on THIS item, so the
+    # audit trail shows the remediation rather than making removed copy silently vanish.
     remediation: list[dict] = field(default_factory=list)
 
 
@@ -142,7 +141,6 @@ def _profile_name(profile: dict[str, Any]) -> str:
     return str(n) if n else "The brand"
 
 
-_AR_RE = re.compile(r"[؀-ۿ]")
 # Language-matched generic themes for the LAST-RESORT fallback — an Arabic brand must not get
 # hardcoded ENGLISH topics that then render as English poster headlines (the language lock).
 _FILLER_EN = ["Brand highlight", "Customer story", "Behind the scenes", "Offer spotlight"]
@@ -167,38 +165,14 @@ def _cadence_for(category: str) -> int:
 
 
 def _brand_is_arabic(profile: dict[str, Any]) -> bool:
-    """True when this brand's AUDIENCE reads Arabic — asked of the resolver the reel and the
-    poster already ask, and only then falling back to counting glyphs.
+    """Whether the evidenced dominant content language is Arabic.
 
-    MEASURED 2026-08-06 on the stored AlFouad Pharmacies record — an Egyptian pharmacy chain:
-
-        reel/poster (`audience_language_for`) -> Arabic / eg
-            ("the site declares an Arabic edition (hreflang)")
-        content calendar (this function)      -> English
-            12 of 12 topics: "Special Offers", "Bundles", "Vitamins"
-
-    Same brand, same evidence on disk, two answers depending on which surface asked — the exact
-    defect `info/STATE.md` records for the reel («نفس البراند، لغتين، حسب الباب») and closed there
-    by making the weaker calculator ask the stronger one. This was the last surface still counting
-    glyphs: the crawl reached AlFouad's ENGLISH edition, so `languages: ['en']` and the brand's own
-    stored text is Latin — the glyph count is answering "what did we happen to fetch", not "who is
-    this ad for". It matters beyond the calendar, because `poster/from_profile` can take a calendar
-    TOPIC as a headline, so an English topic leaks into an Arabic poster.
-
-    The glyph count stays as the fallback: with no audience evidence at all it is a real answer,
-    and it is the behaviour every previous run had.
+    Market country, audience geography, and incidental Arabic glyphs are deliberately excluded:
+    each answers a different question and none may overwrite a measured content language.
     """
-    try:
-        from reel.audience import audience_language_for
-        lang, _country, _why = audience_language_for(profile)
-        if lang:
-            return str(lang).strip().lower().startswith("ar")
-    except Exception:  # noqa: BLE001 — no resolver, no crash; count the glyphs like before
-        pass
-    blob = " ".join(str(_val(profile.get(k)) or "") for k in ("name", "description", "tagline"))
-    for o in (profile.get("offerings") or [])[:6]:
-        blob += " " + str(_val(o.get("name") if isinstance(o, dict) else o) or "")
-    return len(_AR_RE.findall(blob)) >= 3
+    from poster.locale import content_language_of
+
+    return content_language_of(profile) == "ar"
 
 
 def _profile_topics(profile: dict[str, Any]) -> list[str]:
@@ -395,7 +369,7 @@ def _fallback_plan(profile, *, days, platforms, target) -> list[_PlanItem]:
 
 
 def _hook_is_grounded(text: str, ledger: Any) -> bool:
-    """Evidence-Ledger predicate for one generated copy line (a calendar hook/angle).
+    """Evidence-Ledger predicate for one generated calendar copy field.
 
     True iff `text` carries NO unsourced falsifiable claim — a number/year, a
     superlative/ranking, a credential (award/certification/guarantee), or a free-offer
@@ -411,13 +385,21 @@ def _hook_is_grounded(text: str, ledger: Any) -> bool:
 
 
 def _blank_record(field_name: str, text: str, ledger: Any) -> dict:
-    """RECORDING ONLY — describe a hook/angle the gate blanked (it does NOT decide the
+    """RECORDING ONLY — describe a calendar field the gate blanked (it does NOT decide the
     blank; the caller already did). Captures the original text + the unsourced claim kinds
     so the per-item audit shows the fabrication was caught and handled."""
     uns = sorted({v.claim.kind for v in ledger.audit_text(text or "") if not v.sourced})
     return {"field": field_name, "original_text": text, "unsourced_claims": uns,
             "action": "blanked",
             "note": f"fabricated {field_name} removed; item runs on its sourced topic"}
+
+
+def _topic_replacement_record(text: str, replacement: str, ledger: Any) -> dict:
+    """Record a rejected generated topic and the existing grounded fallback that replaced it."""
+    uns = sorted({v.claim.kind for v in ledger.audit_text(text or "") if not v.sourced})
+    return {"field": "topic", "original_text": text, "unsourced_claims": uns,
+            "action": "replaced", "replacement_text": replacement,
+            "note": "fabricated topic removed; replaced with a grounded profile topic"}
 
 
 def build_strategy(
@@ -436,11 +418,10 @@ def build_strategy(
     """Build an N-day `ContentCalendar`. Uses the LLM when `caller` is given; otherwise
     (or on error) a deterministic plan over the brand's real offerings.
 
-    When an Evidence `ledger` is supplied (opt-in; the live CLI builds it from the profile),
-    each generated `hook`/`angle` passes the grounding gate: a line carrying an UNSOURCED
-    falsifiable claim is blanked (drop-to-grounded — the item keeps its real `topic`, which
-    the creative's headline falls back to). Pure paraphrase passes untouched. Without a
-    ledger the behaviour is exactly as before."""
+    When an Evidence `ledger` is supplied, every generated textual field passes the grounding
+    gate: unsupported hook/angle/CTA copy is blanked and an unsupported topic is replaced by the
+    existing profile-derived fallback because topic is also a downstream headline. Pure creative
+    copy passes untouched. Without a ledger the behaviour is exactly as before."""
     platforms = platforms or _platforms_for(profile)   # P-09: brand's own channels, not a trio
     start = _coerce_date(start_date)
     # P-14: posting cadence is PER-CATEGORY (a clinic ≠ a restaurant ≠ a SaaS), not a flat 4/week.
@@ -472,8 +453,14 @@ def build_strategy(
     if not plan:
         plan = _fallback_plan(profile, days=days, platforms=platforms, target=target)
 
+    # Existing deterministic topics are the honest replacement strategy when a generated TOPIC
+    # itself carries an unsupported hard claim. Keep only candidates that pass this same Ledger;
+    # with no Ledger this list is irrelevant and the backwards-compatible behaviour is unchanged.
+    grounded_topic_fallbacks = [t for t in _profile_topics(profile)
+                                if ledger is None or _hook_is_grounded(t, ledger)]
+
     items: list[ContentItem] = []
-    for it in plan:
+    for item_index, it in enumerate(plan):
         off = max(0, min(days - 1, int(getattr(it, "day_offset", 0))))
         hook, angle = str(it.hook or ""), str(it.angle or "")
         topic = str(it.topic or "")
@@ -493,14 +480,17 @@ def build_strategy(
             cta = ""
         rem: list[dict] = []
         if ledger is not None:
-            # Drop-to-grounded: a hook/angle carrying an UNSOURCED falsifiable claim is
-            # blanked. The item keeps its real `topic` (the creative's headline falls back
-            # hook->topic), so the headline stays a grounded value consistent with the
-            # item's own topic — an empty hook beats a fabricated or topic-contradicting
-            # one. We never synthesize a replacement (that would re-introduce fabrication)
-            # nor substitute an unrelated offering.
+            # Drop-to-grounded: every generated factual surface uses one contract. Hook, angle,
+            # and CTA can be honestly omitted; topic is structurally central and becomes a poster
+            # headline downstream, so a rejected topic uses the existing profile-derived fallback
+            # plan rather than inventing a replacement or shipping an empty calendar concept.
             # (The `rem.append(...)` lines are RECORDING ONLY — the blank conditions and
             # their results are byte-for-byte unchanged; they only make the catch visible.)
+            if topic and not _hook_is_grounded(topic, ledger):
+                replacement = (grounded_topic_fallbacks[
+                    item_index % len(grounded_topic_fallbacks)] if grounded_topic_fallbacks else "")
+                rem.append(_topic_replacement_record(topic, replacement, ledger))
+                topic = replacement
             if hook and not _hook_is_grounded(hook, ledger):
                 rem.append(_blank_record("hook", hook, ledger))
                 hook = ""
@@ -513,7 +503,7 @@ def build_strategy(
         items.append(ContentItem(
             date=(start + timedelta(days=off)).isoformat(),
             platform=str(it.platform), content_type=str(it.content_type),
-            topic=str(it.topic), angle=angle, hook=hook,
+            topic=topic, angle=angle, hook=hook,
             funnel_stage=funnel_stage, cta=cta, remediation=rem,
         ))
     items.sort(key=lambda c: (c.date, c.platform))

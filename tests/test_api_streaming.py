@@ -25,6 +25,7 @@ sys.modules.setdefault("playwright.sync_api", _fake_sync)
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from api.job_access import issue_job_capability  # noqa: E402
 from api.jobs.runner import run_pipeline_job  # noqa: E402
 from api.jobs.store import JobStore  # noqa: E402
 from api.main import app  # noqa: E402
@@ -53,7 +54,8 @@ def test_stream_replays_events_for_completed_job():
     with TestClient(app) as client:
         client.get("/api/health")  # warm up the app
         store = app.state.store
-        job = store.create()
+        job_token, owner_principal = issue_job_capability()
+        job = store.create(owner_principal=owner_principal)
         loop = asyncio.new_event_loop()
 
         async def emit_events():
@@ -67,7 +69,8 @@ def test_stream_replays_events_for_completed_job():
         # Job is now terminal — connect AFTER the fact
         assert store.get(job.job_id).status == JobStatus.SUCCEEDED
 
-        with client.stream("GET", f"/api/jobs/{job.job_id}/stream") as resp:
+        with client.stream("GET", f"/api/jobs/{job.job_id}/stream",
+                           headers={"X-Job-Token": job_token}) as resp:
             assert resp.status_code == 200
             raw = b""
             for chunk in resp.iter_bytes():

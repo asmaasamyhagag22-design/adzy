@@ -1,0 +1,14 @@
+# Optional isolated Python 3.12 review/demo environment, no model providers.
+# Install the exact resolved set in requirements-workflow.txt.
+langgraph==1.2.15
+langchain-core==1.6.11
+langgraph-checkpoint-sqlite==3.1.0
+langfuse==5.0.1
+pydantic==2.13.4
+SQLAlchemy==2.0.48
+alembic==1.18.4
+psycopg[binary]==3.3.3
+pytest==9.0.2
+# Imported by existing api.persistence -> api.job_access; match application pins.
+fastapi==0.136.1
+starlette==1.0.0

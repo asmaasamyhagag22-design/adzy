@@ -77,3 +77,23 @@ def test_the_banner_is_hidden_when_there_is_nothing_to_disclose(html):
     fn = fn[:fn.find("\n}")]
     assert re.search(r"display\s*=\s*['\"]none['\"]", fn), (
         "a clean paid render would still show a notice")
+
+
+def test_persisted_qa_contract_distinguishes_fail_not_checked_and_old_unknown(html):
+    """Projection wiring only; the persistence/identity invariant is behavioral in the F-08 tests."""
+    assert "qa_status" in html
+    assert "not_checked" in html
+    assert "QA status unavailable for this older creative" in html
+    assert "The quality check did not pass this render" in html
+
+
+def test_calendar_history_and_influencer_project_their_own_persisted_disclosure(html):
+    expected_calls = (
+        "appendCreativeQADisclosure(posterArea, poster, true)",
+        "appendCreativeQADisclosure(posterArea, result, false)",
+        "showDisclosure(item, true)",
+        "appendCreativeQADisclosure(overlay, item, true)",
+        "appendCreativeQADisclosure(posterImg.parentElement, inf, true, 'influencer')",
+    )
+    for call in expected_calls:
+        assert call in html, f"persisted creative surface does not render QA state: {call}"

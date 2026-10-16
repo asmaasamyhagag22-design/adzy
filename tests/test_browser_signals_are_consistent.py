@@ -50,9 +50,22 @@ def test_accept_language_and_locale_agree():
     assert locale_for("") == "en-US"
 
 
-def test_the_project_default_header_is_carried_through():
+def test_the_identity_headers_carry_no_language_preference():
+    """CONTRACT CHANGED 2026-08-11, and the old one was false in two ways.
+
+    It asserted `browser_headers()["Accept-Language"] == ACCEPT_LANGUAGE`, i.e. "the project's
+    language preference is carried through to the crawl". MEASURED against a local origin:
+    Chromium serves the TOP-LEVEL navigation's Accept-Language from the context LOCALE and applies
+    this dict only to subresources — so this header never reached the request that decides which
+    edition a negotiating site returns. The test passed while the thing it named did not happen.
+
+    Second, and the reason it is not simply re-pointed: sending a preference at all is the F-06
+    root cause. A negotiating server returns the representation we asked for, and measuring that
+    is circular. Language preference now lives in `fetcher._continue_with_language_policy`, which
+    sends nothing by default; identity headers state who we are, not what we want served.
+    """
     h = browser_headers("147.0.7727.15")
-    assert h["Accept-Language"] == ACCEPT_LANGUAGE
+    assert not any(k.lower() == "accept-language" for k in h)
 
 
 def test_an_unknown_version_degrades_to_something_valid():

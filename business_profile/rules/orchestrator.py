@@ -158,6 +158,12 @@ def apply_rules(
         languages=languages,
         # The site's OWN declaration outranks the edition we crawled (see the field).
         declared_languages=list(getattr(manifest, "declared_languages", None) or []),
+        # Provenance travels with the value it qualifies, or AUTO downstream cannot tell a
+        # site-evidenced language from one our own render locale may have selected.
+        language_evidence=(
+            manifest.language_evidence.model_dump(mode="json")
+            if getattr(manifest, "language_evidence", None) is not None else {}
+        ),
         extraction_meta=ExtractionMeta(
             manifest_path=manifest_path,
             extracted_at=datetime.now(timezone.utc),

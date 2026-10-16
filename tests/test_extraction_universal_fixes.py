@@ -55,7 +55,7 @@ def test_robots_retries_transient_then_succeeds(monkeypatch):
             raise urllib.error.URLError("temporary blip")  # transient
         return _Resp()
 
-    monkeypatch.setattr(R.urllib.request, "urlopen", _flaky_urlopen)
+    monkeypatch.setattr(R, "open_public_url", _flaky_urlopen)
     monkeypatch.setattr(R.time, "sleep", lambda *_: None)
     body = R._fetch_robots_body("https://example.com/robots.txt", timeout=1.0)
     assert "Disallow: /admin" in body
@@ -70,7 +70,7 @@ def test_robots_404_is_not_retried(monkeypatch):
         calls["n"] += 1
         raise urllib.error.HTTPError("u", 404, "Not Found", {}, None)
 
-    monkeypatch.setattr(R.urllib.request, "urlopen", _404)
+    monkeypatch.setattr(R, "open_public_url", _404)
     monkeypatch.setattr(R.time, "sleep", lambda *_: None)
     try:
         R._fetch_robots_body("https://example.com/robots.txt", timeout=1.0)

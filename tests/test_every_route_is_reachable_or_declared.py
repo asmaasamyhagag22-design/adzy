@@ -28,6 +28,8 @@ API_ONLY = {
     "/run": "whole-pipeline runner for scripts and cron; the UI drives the steps separately",
     "/poster/from-profile": "stateless profile-in/poster-out variant; the Studio uses /generate "
                             "because it works off a stored brand",
+    "/reel/canonical/prepare": "Gate 2D.1 provider-free authority API; frontend wiring and "
+                               "creative planning belong to the later Reel creative-core gate",
     "/swot/from-profile": "stateless variant of /swot/generate for callers with no stored brand",
 }
 

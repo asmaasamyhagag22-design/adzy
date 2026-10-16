@@ -85,7 +85,12 @@ def test_the_reset_route_uses_the_replacing_primitive():
     src = (_ROOT / "api" / "routes" / "influencer.py").read_text(encoding="utf-8")
     start = src.find("def _candidate_job")
     body = "\n".join(l.split("#")[0] for l in src[start:src.find("\n@router", start)].splitlines())
-    assert "replace_block" in body
+    # DB2G-B renamed the primitive as it moved behind the persistence provider: `replace_section`
+    # is the same operation with the same guarantee on both backends. The claim under test is
+    # unchanged — the reset REPLACES; it must never go back to the merging call.
+    assert "replace_section" in body
+    assert not re.search(r"record_enrichment\(\s*$|record_enrichment\([^)]*patch=", body), (
+        "the reset went back to a merging write; an empty dict deletes nothing")
     assert not re.search(r"update\(\s*req\.domain_key", body), (
         "the reset still merges; an empty dict deletes nothing")
 

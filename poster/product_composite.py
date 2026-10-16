@@ -45,9 +45,8 @@ UNMEASURED_ZONE = (0.54, 0.50, 0.34)
 def _fetch(url: str) -> Optional[bytes]:
     """Bytes for a remote asset. A seam so tests never touch the network."""
     try:
-        from reel.video_provider import _load_reference_image
-        loaded = _load_reference_image(str(url))
-        return loaded[0] if loaded else None
+        from poster.imagen_edit_provider import _fetch_bytes
+        return _fetch_bytes(str(url))
     except Exception:  # noqa: BLE001
         return None
 

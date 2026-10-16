@@ -144,7 +144,7 @@ def test_generate_unknown_brand_is_404(client):
 
 def test_swot_job_enriches_the_brand(monkeypatch):
     import asyncio
-    from api.jobs.store import JobStore
+    from api.jobs.store import JobStore, serving_store
     from api.routes.analysis import _run
     from api.schemas import JobStatus
 
@@ -152,12 +152,13 @@ def test_swot_job_enriches_the_brand(monkeypatch):
 
     async def run_it():
         store = JobStore(ttl_seconds=60)
-        job = store.create()
-        job.domain_key = "volumeqatar_com"
-        store.attach_loop(job.job_id, asyncio.get_running_loop())
-        await _run(job_id=job.job_id, domain_key="volumeqatar_com", store=store,
-                   work=analysis.generate_swot)
-        return store, job.job_id
+        with serving_store(store):
+            job = store.create()
+            job.domain_key = "volumeqatar_com"
+            store.attach_loop(job.job_id, asyncio.get_running_loop())
+            await _run(job_id=job.job_id, domain_key="volumeqatar_com",
+                       work=analysis.generate_swot)
+            return store, job.job_id
 
     store, job_id = asyncio.run(run_it())
     assert store.get(job_id).status == JobStatus.SUCCEEDED

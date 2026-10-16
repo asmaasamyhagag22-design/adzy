@@ -49,7 +49,8 @@ def _open_image_url(url: str, timeout: int):
     cosmetic, not a data/credential risk.
     """
     import ssl
-    from urllib.request import Request, urlopen
+    from urllib.request import Request
+    from scraper.url_utils import open_public_url
     req = Request(url, headers={"User-Agent": "Mozilla/5.0 (PosterStudio)"})
     try:
         try:
@@ -57,10 +58,12 @@ def _open_image_url(url: str, timeout: int):
             ctx = ssl.create_default_context(cafile=certifi.where())
         except Exception:
             ctx = ssl.create_default_context()
-        return urlopen(req, timeout=timeout, context=ctx)
+        return open_public_url(req, timeout=timeout, context=ctx)
     except Exception as exc:                       # noqa: BLE001
         if "CERTIFICATE_VERIFY_FAILED" in str(exc):
-            return urlopen(req, timeout=timeout, context=ssl._create_unverified_context())
+            return open_public_url(
+                req, timeout=timeout, context=ssl._create_unverified_context()
+            )
         raise
 
 
@@ -970,7 +973,13 @@ def render_poster_html(
                    f"border-bottom:3px solid {cta_bg};}}"
                    f".cta-text{{font-family:{font_body};font-weight:800;font-size:30px;"
                    "letter-spacing:.01em;}"
-                   f".cta::after{{content:'\2190';font-size:26px;color:{cta_bg};font-weight:900;}}")
+                   # `\\2190` so PYTHON emits the two characters \2190 and CSS reads them as its
+                   # own escape for U+2190 (←). Written `\2190`, Python ate it first: `\21` is a
+                   # valid OCTAL escape (U+0011, a control char) and `90` stayed literal, so the
+                   # CSS said content:'\x1190' and the poster rendered a missing-glyph box
+                   # followed by "90". MEASURED on elabdfoods.com 2026-08-27 — the tofu box is
+                   # visible in outputs/posters/elabd_poster_v2.png beside the CTA rule.
+                   f".cta::after{{content:'\\2190';font-size:26px;color:{cta_bg};font-weight:900;}}")
     else:
         cta_css = (f".cta{{display:inline-flex;align-items:center;gap:12px;background:{cta_bg};"
                    f"color:{cta_text};padding:22px 52px;border-radius:999px;"

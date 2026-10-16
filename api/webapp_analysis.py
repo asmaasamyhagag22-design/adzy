@@ -13,6 +13,8 @@ the brand projection carries.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import json
 import logging
 from typing import Any, Optional
 
@@ -520,6 +522,24 @@ def _swot_to_frontend(swot) -> dict:
     }
 
 
+def swot_identity(swot: Any) -> str:
+    """A stable content hash for one SWOT document — the thing an approval is ABOUT.
+
+    The legacy brand document has no run identity (`swot_run_id` is written only by the
+    Postgres read model), so a boolean `swot_approved` sat next to a SWOT that could be
+    replaced under it. This gives the legacy document the identity it was missing without
+    adding a table: approval records WHICH bytes were approved, and any other bytes are
+    unapproved by construction rather than by remembering to reset a flag.
+
+    Sorted keys and compact separators so the same SWOT hashes the same across processes.
+    """
+    try:
+        blob = json.dumps(swot or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError):
+        blob = repr(swot)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 def generate_swot(brand: dict) -> dict:
     """Returns the patch to apply to the stored brand: swot + _swot_raw + has_swot.
 
@@ -540,11 +560,38 @@ def generate_swot(brand: dict) -> dict:
     # Stored under a separate key rather than overwriting `competitors`: that field is the OWNER's
     # registry, which she curates by hand through /api/brands/{dk}/competitors, and a generated
     # list must not silently replace a chosen one.
+    _frontend = _swot_to_frontend(swot)
     out = {
-        "swot": _swot_to_frontend(swot),
+        "swot": _frontend,
         "_swot_raw": _swot_raw_dict(swot),   # asdict alone erased the trends it had just computed
         "has_swot": True,
     }
+
+    # A SUCCESSFUL REGENERATION INVALIDATES THE PREVIOUS HUMAN APPROVAL.
+    #
+    # MEASURED 2026-08-31 on the live app: a SWOT was regenerated for `marasimltd_com` (peer
+    # average moved 1.2 -> 1.4, so the content genuinely changed) and `swot_approved` stayed
+    # `true`. `/api/swot/approve` already refuses to approve a SWOT that changed under the
+    # reviewer — but nothing on the GENERATE side dropped the flag, so the strategy gate stayed
+    # open for a document no human had ever read. The guard was on the door nobody walks through.
+    #
+    # Ordering is deliberate: the hash is taken from the SWOT we just computed successfully. If
+    # `_compute_swot` raises, this line is never reached, the patch is never built, and the last
+    # valid SWOT and its approval are left exactly as they were — a failed regeneration must not
+    # destroy content or silently revoke a signature.
+    new_hash = swot_identity(_frontend)
+    out["swot_content_hash"] = new_hash
+    if (brand or {}).get("swot_approved"):
+        approved_for = str((brand or {}).get("swot_approved_hash") or "")
+        # No recorded hash = a legacy approval whose subject is unknown. It cannot be shown to
+        # cover these bytes, so it does not.
+        if approved_for != new_hash:
+            out["swot_approved"] = False
+            out["swot_approval_invalidated"] = {
+                "reason": "swot_regenerated",
+                "previous_approved_hash": approved_for or None,
+                "current_hash": new_hash,
+            }
     try:
         found = []
         for p in (_peers or []):
@@ -812,11 +859,16 @@ def _plan_to_frontend(media_plan, cal, brand: dict, objective: str) -> dict:
 
 def generate_plan(brand: dict, *, planning_period: str = "1_month",
                   campaign_objective: str = "") -> dict:
+    from grounding import EvidenceLedger
     from strategy.builder import build_strategy
 
     profile = _profile_of(brand)
     days = _PERIOD_DAYS.get((planning_period or "").lower(), 30)
     caller = _caller(strong=True)
+    # The primary web path must not opt out merely because build_strategy keeps its Ledger
+    # argument optional for explicit backwards-compatible callers. Build one canonical Ledger
+    # from this exact profile and reuse it for every generated calendar field.
+    ledger = EvidenceLedger.from_profile(profile)
 
     media_plan = None
     try:
@@ -827,7 +879,8 @@ def generate_plan(brand: dict, *, planning_period: str = "1_month",
 
     swot = _swot_from_raw(brand["_swot_raw"]) if brand.get("_swot_raw") else None
     try:
-        cal = build_strategy(profile, caller, days=days, swot=swot, media_plan=media_plan)
+        cal = build_strategy(profile, caller, days=days, swot=swot, media_plan=media_plan,
+                             ledger=ledger)
     except Exception:  # noqa: BLE001
         logger.exception("build_strategy failed")
         cal = None

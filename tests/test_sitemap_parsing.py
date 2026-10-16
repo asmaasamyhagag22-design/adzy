@@ -162,7 +162,7 @@ def test_urlset_parses_and_returns_urls():
             f"{_HOST}/contact",
         ])),
     })
-    with patch("scraper.sitemap.urlopen", fake):
+    with patch("scraper.sitemap.open_public_url", fake):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_sitemap(sm_url))
     assert result.sitemap_used is True
     assert result.sitemap_urls_found == 3
@@ -180,7 +180,7 @@ def test_urlset_rejects_cross_host_urls():
             f"{_HOST}/contact",
         ])),
     })
-    with patch("scraper.sitemap.urlopen", fake):
+    with patch("scraper.sitemap.open_public_url", fake):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_sitemap(sm_url))
     # All three were "found" in the raw XML
     assert result.sitemap_urls_found == 3
@@ -205,7 +205,7 @@ def test_urlset_dedupes_normalized_urls():
             f"{_HOST}/contact",       # exact duplicate → must dedupe
         ])),
     })
-    with patch("scraper.sitemap.urlopen", fake):
+    with patch("scraper.sitemap.open_public_url", fake):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_sitemap(sm_url))
     # /menu and /menu? collapse → 1; /contact dedupes → 1; total 2
     assert set(result.urls) == {f"{_HOST}/menu", f"{_HOST}/contact"}
@@ -215,7 +215,7 @@ def test_urlset_caps_at_max_sitemap_urls():
     sm_url = f"{_HOST}/sitemap.xml"
     huge = [f"{_HOST}/page-{i}" for i in range(MAX_SITEMAP_URLS + 50)]
     fake = _make_urlopen({sm_url: _FakeResponse(_urlset_xml(huge))})
-    with patch("scraper.sitemap.urlopen", fake):
+    with patch("scraper.sitemap.open_public_url", fake):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_sitemap(sm_url))
     assert len(result.urls) == MAX_SITEMAP_URLS
     assert "url_cap_reached" in result.notes
@@ -235,7 +235,7 @@ def test_sitemap_index_recurses_one_level():
         child1_url: _FakeResponse(_urlset_xml([f"{_HOST}/a", f"{_HOST}/b"])),
         child2_url: _FakeResponse(_urlset_xml([f"{_HOST}/c"])),
     })
-    with patch("scraper.sitemap.urlopen", fake):
+    with patch("scraper.sitemap.open_public_url", fake):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_sitemap(root_url))
     assert set(result.urls) == {f"{_HOST}/a", f"{_HOST}/b", f"{_HOST}/c"}
     assert result.sitemap_used is True
@@ -253,7 +253,7 @@ def test_sitemap_index_does_not_recurse_two_levels():
         # If we were (incorrectly) recursing, we'd fetch this. We must not.
         deep_child_url: _FakeResponse(_urlset_xml([f"{_HOST}/deep"])),
     })
-    with patch("scraper.sitemap.urlopen", fake):
+    with patch("scraper.sitemap.open_public_url", fake):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_sitemap(root_url))
     # No URLs surfaced — the deep level was correctly NOT followed.
     assert result.urls == []
@@ -271,7 +271,7 @@ def test_sitemap_index_filters_cross_host_children():
     }
     # We do NOT register other_host_child — if discovery tries to fetch it,
     # the fake will raise OSError and the test will fail.
-    with patch("scraper.sitemap.urlopen", _make_urlopen(fake_responses)):
+    with patch("scraper.sitemap.open_public_url", _make_urlopen(fake_responses)):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_sitemap(root_url))
     assert f"{_HOST}/legit" in result.urls
 
@@ -285,7 +285,7 @@ def test_gzipped_sitemap_decoded():
     raw = _urlset_xml([f"{_HOST}/menu"])
     gz_body = gzip.compress(raw)
     fake = _make_urlopen({sm_url: _FakeResponse(gz_body)})
-    with patch("scraper.sitemap.urlopen", fake):
+    with patch("scraper.sitemap.open_public_url", fake):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_sitemap(sm_url))
     assert f"{_HOST}/menu" in result.urls
 
@@ -297,7 +297,7 @@ def test_gzipped_via_content_encoding():
     fake = _make_urlopen({
         sm_url: _FakeResponse(gz_body, headers={"Content-Encoding": "gzip"}),
     })
-    with patch("scraper.sitemap.urlopen", fake):
+    with patch("scraper.sitemap.open_public_url", fake):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_sitemap(sm_url))
     assert f"{_HOST}/about" in result.urls
 
@@ -309,7 +309,7 @@ def test_gzipped_via_content_encoding():
 def test_malformed_xml_returns_empty_no_crash():
     sm_url = f"{_HOST}/sitemap.xml"
     fake = _make_urlopen({sm_url: _FakeResponse(b"<not valid xml")})
-    with patch("scraper.sitemap.urlopen", fake):
+    with patch("scraper.sitemap.open_public_url", fake):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_sitemap(sm_url))
     assert result.urls == []
     assert any("sitemap_invalid" in n for n in result.notes)
@@ -319,7 +319,7 @@ def test_malformed_xml_returns_empty_no_crash():
 def test_unreachable_sitemap_returns_empty_no_crash():
     sm_url = f"{_HOST}/sitemap.xml"
     fake = _make_urlopen({sm_url: OSError("connection refused")})
-    with patch("scraper.sitemap.urlopen", fake):
+    with patch("scraper.sitemap.open_public_url", fake):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_sitemap(sm_url))
     assert result.urls == []
     assert any("sitemap_unreachable" in n for n in result.notes)
@@ -331,7 +331,7 @@ def test_no_sitemap_in_robots_falls_back_to_default_path():
     fake = _make_urlopen({
         default_sm: _FakeResponse(_urlset_xml([f"{_HOST}/x"])),
     })
-    with patch("scraper.sitemap.urlopen", fake):
+    with patch("scraper.sitemap.open_public_url", fake):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_no_sitemap())
     assert f"{_HOST}/x" in result.urls
     assert default_sm in result.sitemaps_attempted
@@ -341,7 +341,7 @@ def test_neither_robots_sitemap_nor_default_exists():
     """When everything fails, return empty but never raise."""
     default_sm = f"{_HOST}/sitemap.xml"
     fake = _make_urlopen({default_sm: OSError("404")})
-    with patch("scraper.sitemap.urlopen", fake):
+    with patch("scraper.sitemap.open_public_url", fake):
         result = discover_sitemap_urls(f"{_HOST}/", _robots_with_no_sitemap())
     assert result.urls == []
     assert result.sitemap_used is False

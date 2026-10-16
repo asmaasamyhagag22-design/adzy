@@ -21,5 +21,7 @@ def test_browser_context_ignores_https_errors():
     make_browser_context(_FakeBrowser())
     # a bad/expired cert must not sink the scrape (read-only public content)
     assert captured.get("ignore_https_errors") is True
+    # Service workers can otherwise satisfy requests before page.route sees them.
+    assert captured.get("service_workers") == "block"
     # fingerprint still applied
     assert captured.get("user_agent") and captured.get("viewport")

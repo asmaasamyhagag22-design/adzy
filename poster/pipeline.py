@@ -35,7 +35,14 @@ from poster.schemas import PosterBrief, PosterDesignSpec
 from poster.template import render_poster_html
 from poster.render_playwright import render_html_to_png
 from poster.variation import build_variation
-from poster.vision_qa import PosterQAVerdict, poster_vision_qa
+from poster.vision_qa import (
+    PosterAcceptanceDecision,
+    PosterQAVerdict,
+    decide_poster_acceptance,
+    poster_attempt_identity,
+    poster_vision_qa,
+    required_poster_qa_policy,
+)
 
 _FALLBACK_MODEL = "imagen-4.0-generate-001"
 
@@ -66,16 +73,22 @@ class PosterGenResult:
     model_used: str
     prompt: str
     qa: PosterQAVerdict
+    acceptance: Optional[PosterAcceptanceDecision] = None
     width: int = 1080
     height: int = 1350
     audit: Optional[dict] = None   # brand-safety trail (claim->source + gate remediation)
     engine: str = "classic"        # "classic" (bg + HTML overlay) | "oneshot" (Gemini-designed)
     # Set ONLY when every attempt carried a grounding-class defect and the least-bad one is
-    # being returned: an explicit top-level disclosure, because the qa verdict alone was
+    # retained as a diagnostic artifact: an explicit top-level disclosure, because the QA verdict alone was
     # MEASURED being ignored downstream (nanocare 2026-07-24: fabricated "Lifosemul Iron"
-    # shipped silently). trust_note_ar is the client-facing Arabic line, ready to display.
+    # previously projected as accepted). trust_note_ar is the client-facing Arabic line, ready to display.
     trust_violation: bool = False
     trust_note_ar: str = ""
+    creative_contract: Optional[dict] = None
+    poster_strategy_brief: Optional[dict] = None
+    strategy_verification: Optional[dict] = None
+    repair_history: Optional[list] = None
+    claim_ids_used: Optional[list] = None
 
 
 def _fv(profile: dict, key: str) -> str:
@@ -85,24 +98,48 @@ def _fv(profile: dict, key: str) -> str:
     return "" if v is None else str(v)
 
 
-def _slug(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", (name or "brand").lower()).strip("_") or "brand"
+def load_or_build_dna(profile: dict, caller: Any, *, cache_dir: str = "outputs/brandbooks",
+                      domain_key: str = "") -> Any:
+    """Build-or-load the BrandCreativeDNA for ONE brand, addressed by `domain_key`.
 
+    IDENTITY (2026-09-01). This used to address the cache by slugging the DISPLAY NAME:
+    `re.sub(r"[^a-z0-9]+", "_", name.lower()) or "brand"`. An all-Arabic name matched nothing,
+    so it fell through to the literal `"brand"` and every Arabic-named brand shared
+    `outputs/brandbooks/brand_dna.json`. MEASURED: `elabdfoods_com`, `marasimltd_com` and
+    `nahdionline_com` all resolved there, the file held Al Nahdi's DNA, and a Marasim poster
+    was rendered under a Saudi pharmacy's visual authority — turquoise/dusty-blue palette,
+    giant discount number, "Shop Now" button — while Marasim's real DNA (sepia/golden hour,
+    black field, fiery orange, Cairo/Giza, "no blues, greens or purples") sat unread beside it.
 
-def load_or_build_dna(profile: dict, caller: Any, *, cache_dir: str = "outputs/brandbooks") -> Any:
-    """Build-or-load the BrandCreativeDNA: load the cached file for this brand, else build it
-    once (Serper image search + Gemini vision) and cache. None on failure (pipeline proceeds
-    with a generic — but still concept-driven, Arabic, safe — poster)."""
+    The key is now `domain_key`, which is stable across renames and languages. See
+    `brand/brandbook_identity.py`. The display name lives INSIDE the artifact.
+
+    Returns None when there is genuinely no DNA and none can be built — the pipeline then runs
+    a generic (but concept-driven, Arabic, safe) poster, which is the long-standing contract.
+    Raises `BrandbookIdentityError` when identity itself cannot be established while prior DNA
+    evidence exists: rebuilding there is exactly what hid this defect, so it is refused loudly
+    instead of healed into a second wrong brandbook.
+    """
+    from brand.brandbook_identity import (BrandbookIdentityError, resolve_brandbook,
+                                          save_brandbook)
     try:
-        from brand.creative_dna import build_creative_dna, load_creative_dna, save_creative_dna
+        from brand.creative_dna import build_creative_dna, load_creative_dna
     except Exception:
         return None
-    path = Path(cache_dir) / f"{_slug(_fv(profile, 'name'))}_dna.json"
-    if path.exists():
+
+    lookup = resolve_brandbook(profile, domain_key, cache_dir=cache_dir)
+    if lookup.exists and lookup.path is not None:
         try:
-            return load_creative_dna(path)
+            return load_creative_dna(lookup.path)
         except Exception:
-            pass
+            _safe_log(f"[dna] canonical artifact unreadable: {lookup.path}")
+    elif lookup.code:
+        # An identity failure, NOT a cache miss. Never silently rebuild over it.
+        raise BrandbookIdentityError(lookup.code, lookup.reason,
+                                     detail={"domain_key": lookup.domain_key,
+                                             "legacy_files": lookup.legacy_files,
+                                             "path": str(lookup.path or "")})
+
     if caller is None:
         return None
     try:
@@ -111,7 +148,12 @@ def load_or_build_dna(profile: dict, caller: Any, *, cache_dir: str = "outputs/b
         return None
     if getattr(dna, "used_vision", False):
         try:
-            save_creative_dna(dna, path)
+            save_brandbook(dna, domain_key=lookup.domain_key, profile=profile,
+                           cache_dir=cache_dir)
+        except BrandbookIdentityError as exc:
+            # A brandbook that cannot prove whose it is must not be persisted; the render may
+            # still proceed on the in-memory DNA it just built for THIS profile.
+            _safe_log(f"[dna] not cached — {exc}")
         except Exception:
             pass
     return dna
@@ -416,11 +458,37 @@ def _generate_nano_background(
     # ONE LOOK FOR THE BRAND (owner 2026-07-26: «ثبّت كلمات وصف الإضاءة والألوان في كل
     # البرومبتات»). The poster and the reel of one brand must come out of the same camera, so
     # they share the same lock — derived from the brand's own DNA, not a house style.
+    #
+    # THE LOOK IS NOW ASSEMBLED FROM THE BRAND'S OWN RESOLVED DIRECTION, not picked from five
+    # presets. `look_lock` classified a brand into ONE bucket by substring match and tested
+    # CLINICAL before WARM, so marasimltd.com's incidental "clean" (about typography) sent
+    # "cool clean colour palette" to the model for a brand whose `dont_list` says "Do not use a
+    # cool color palette (no blues, greens, or purples)". Re-ordering the tuples would have
+    # fixed one brand and left the defect; a brand may be warm AND clean AND documentary at once.
+    #
+    # The prohibitions travel with it. They previously reached `art_director` only, so the image
+    # request never learned what this brand forbids.
     try:
-        from brand.look import look_lock
-        _look = look_lock(brand_dna=brand_dna, profile=profile)
-        if _look:
-            bg_prompt += f"\n\nTHE LOOK (identical for every asset of this brand): {_look}"
+        from brand.visual_direction import (INSUFFICIENT_VISUAL_AUTHORITY, legacy_look,
+                                            resolve_visual_direction)
+        from poster.visual_spec import compile_visual_spec
+
+        _rvd = resolve_visual_direction(brand_dna=brand_dna, profile=profile)
+        if _rvd.authority_status == INSUFFICIENT_VISUAL_AUTHORITY:
+            _look = legacy_look(brand_dna=brand_dna, profile=profile)   # §14 legacy fallback
+            if _look:
+                bg_prompt += f"\n\nTHE LOOK (identical for every asset of this brand): {_look}"
+        else:
+            _spec = compile_visual_spec(_rvd)
+            _pos, _neg = _spec.to_provider_directives()
+            # POSITIVE FIRST (§7). Provider non-compliance is not fixed by a longer negative
+            # block: the mandatory direction leads the section, and the prohibitions close it.
+            bg_prompt += ("\n\nTHE LOOK (identical for every asset of this brand): "
+                          + _rvd.look_sentence())
+            if _pos:
+                bg_prompt += "\n\nBRAND VISUAL AUTHORITY (mandatory):\n" + _pos
+            if _neg:
+                bg_prompt += "\n\nPROHIBITED BY THIS BRAND (hard constraints):\n" + _neg
     except Exception:  # noqa: BLE001
         pass
     # THE REAL MARK IS COMPOSITED ON TOP, so any mark the model draws is fake by definition —
@@ -484,6 +552,31 @@ def _generate_nano_background(
     # of that match was how LARGE the product sat in the frame. `resolve_oneshot_model()` still
     # picks pro the moment the owner sets the lane and Google re-opens the id.
     nano = oneshot.resolve_oneshot_model()
+    # CONTRADICTION SCAN ON THE FINAL SERIALIZED REQUEST, BEFORE SPEND (§8). Auditing the spec
+    # was not enough: the spec was already correct when "cool clean colour palette" reached the
+    # model, because the contradiction entered later from a prompt helper's generic cinematic
+    # boilerplate. This reads the exact string about to be sent, so the money is never spent on a
+    # request that argues with itself.
+    try:
+        from poster.palette_compliance import request_hash, scan_request_for_contradictions
+        _rvd_scan = None
+        try:
+            from brand.visual_direction import resolve_visual_direction as _rvd_fn2
+            _rvd_scan = _rvd_fn2(brand_dna=brand_dna, profile=profile)
+        except Exception:  # noqa: BLE001
+            _rvd_scan = None
+        if _rvd_scan is not None:
+            _bad = scan_request_for_contradictions(bg_prompt, _rvd_scan)
+            log(f"[request] hash={request_hash(bg_prompt)[:16]} contradictions={len(_bad)}")
+            if _bad:
+                raise RuntimeError(
+                    "GENERATION_REQUEST_CONTRADICTS_VISUAL_AUTHORITY: "
+                    + "; ".join(f"{b['phrase']!r} ({b['group']})" for b in _bad)
+                    + " — blocked before spend")
+    except RuntimeError:
+        raise
+    except Exception:  # noqa: BLE001 — the scan must not become a new failure mode
+        pass
     oneshot.generate_oneshot_poster(bg_prompt, out_path, model=nano, logo_bytes=None,
                                     product_images=refs or None,
                                     identity_ref=identity_ref or None)
@@ -604,32 +697,29 @@ def _logo_bytes(logo_url: Optional[str]) -> tuple[Optional[bytes], str]:
 
 # البند 1 (owner-caught "فشل وهو موجود"): the canonical <slug>_poster.png used to be written
 # ONCE at the very end (poster/__main__), so the 900s wall left orphaned poster_<uuid>.png files
-# and a 404 dashboard. Every successful render now also refreshes this sink IMMEDIATELY — a later
-# timeout still leaves a served poster. Set per-run by generate_poster(canonical_out=...).
+# and a 404 dashboard. Only an explicitly accepted render may refresh this sink; failed or
+# unverified attempts remain diagnostic artifacts. Set per-run by generate_poster(canonical_out=...).
 _CANONICAL_SINK: dict = {"path": None}
 
 
-def _refresh_canonical(attempt_path, *, passed: bool = True) -> None:
-    """Publish an attempt as THE poster.
-
-    `passed=False` means the render has not cleared the verbatim-text / placeholder gates yet.
-    OWNER-FACING FAILURE (Volume Qatar, 2026-07-21): every attempt was published the instant it was
-    generated, so a render the gate REJECTED for garbled copy ("speciaity coffee coffee", "Mall of
-    Maqur") overwrote a good poster on disk. An unverified render may still be published when there
-    is NOTHING else — the sink's original purpose (البند 1: a later timeout must leave something
-    served) — but it must never replace an existing deliverable.
-    """
+def _refresh_canonical(
+    attempt_path,
+    *,
+    decision: Optional[PosterAcceptanceDecision],
+) -> bool:
+    """Publish only an explicitly accepted exact attempt to the canonical delivery sink."""
+    if decision is None or not decision.publishable or not decision.accepted:
+        return False
     dst = _CANONICAL_SINK.get("path")
     if not dst:
-        return
+        return False
     try:
-        if not passed and Path(dst).is_file():
-            return                     # a verified poster already stands — don't downgrade it
         import shutil as _sh
         Path(dst).parent.mkdir(parents=True, exist_ok=True)
         _sh.copyfile(attempt_path, dst)
+        return True
     except Exception:  # noqa: BLE001 — the sink must never break a render
-        pass
+        return False
 
 
 # A pixel counts as "ink" above this edge magnitude (0-255) — text and graphics clear it easily,
@@ -956,7 +1046,8 @@ def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
                  out_dir, variation, max_retries, log,
                  qa_caller=None, product_image: Optional[str] = None,
                  identity_image: Optional[tuple] = None, identity_persona: str = "",
-                 prompt_override: Optional[str] = None) -> Optional[PosterGenResult]:
+                 prompt_override: Optional[str] = None,
+                 generation_attempt_id: str = "") -> Optional[PosterGenResult]:
     """ONE-SHOT engine: a Gemini image model composes the ENTIRE creative (layout +
     typography + graphics) in one call — the measured pilot (poster/oneshot.py:
     Arabic fidelity 5/5) earned it this pipeline mode; same idea as TrendPulse's
@@ -1048,9 +1139,6 @@ def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
             except Exception as e:  # noqa: BLE001
                 log(f"[oneshot] attempt {attempt} generation failed: {type(e).__name__}: {e}")
                 continue
-            # Publish as UNVERIFIED: keeps البند 1's promise (a timeout still leaves a poster)
-            # without letting a not-yet-gated render replace a good one.
-            _refresh_canonical(out_path, passed=False)
             # FIX-C1: reject a render whose reserved corner carries a painted placeholder
             # slot (the white box the owner has fought for 2 months) BEFORE compositing.
             if logo_bytes and _corner_placeholder_detected(out_path, rtl=arabic):
@@ -1085,9 +1173,30 @@ def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
                 continue    # hard gates: verbatim copy / no painted branding / no label junk
 
             # ART-CRITIC pass (was classic-path only): clutter, weak contrast,
-            # competing focal points — retry when the failure is image-fixable,
-            # keep the BEST attempt by score.
-            qa = poster_vision_qa(out_path, caller=qa_caller, brand_dna=brand_dna,
+            # competing focal points — retry when the failure is image-fixable. Candidate
+            # selection is a separate decision: integrity class outranks score, exactly as it
+            # does in the classic fallback.
+            qa_policy = required_poster_qa_policy(
+                arabic=arabic,
+                logo_composited=bool(logo_bytes),
+                expect_real_products=bool(product_imgs),
+                product_named=bool(product_image),
+            )
+            identity = poster_attempt_identity(
+                out_path,
+                attempt_id=(generation_attempt_id or out_path.stem),
+                candidate_id=out_path.stem,
+            )
+            # PARITY (§8): the verifier judges against the SAME resolved direction the
+            # image request was built from. Resolution is deterministic for identical
+            # inputs, so both sides carry the same `resolution_hash`.
+            try:
+                from brand.visual_direction import resolve_visual_direction as _rvd_fn
+                _qa_direction = _rvd_fn(brand_dna=brand_dna, profile=profile)
+            except Exception:  # noqa: BLE001
+                _qa_direction = None
+            qa = poster_vision_qa(out_path, caller=qa_caller, brand_dna=brand_dna, profile=profile,
+                                  visual_direction=_qa_direction,
                                   arabic=arabic,
                                   # product-authenticity context (topshoes fix): with no real
                                   # product attached, an invented hero product must FAIL.
@@ -1095,43 +1204,85 @@ def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
                                   # the REAL mark was composited pixel-exactly, so the critic must
                                   # judge its visibility — not its letterforms (a stylised wordmark
                                   # is the brand's design; MEASURED on Volume Qatar).
-                                  logo_composited=bool(logo_bytes))
+                                  logo_composited=bool(logo_bytes),
+                                  product_named=bool(product_image),
+                                  expected_attempt_identity=identity,
+                                  required_policy=qa_policy)
+            # DETERMINISTIC PALETTE GATE — authoritative over the model for the constraints that
+            # are measurable. MEASURED on `poster_e3a5e608`: the model returned on_brand_color=
+            # true over a frame that was 76.5% the hues this brand forbids and a background 3.9%
+            # dark against an explicit "deep black field". A model cannot cancel a deterministic
+            # grounded violation, so the measurement decides and the reason carries its lineage.
+            try:
+                from poster.palette_compliance import FAIL as _PAL_FAIL
+                from poster.palette_compliance import analyze_palette, merge_findings
+                if _qa_direction is not None:
+                    _pal = analyze_palette(out_path, _qa_direction)
+                    _merged = merge_findings(
+                        _pal, getattr(qa, "on_brand_color", None),
+                        (getattr(qa, "brand_constraint_lineage", None) or {}).get("grounded"))
+                    log(f"[palette] {_pal.verdict} prohibited={_pal.prohibited_ratio:.1%} "
+                        f"bg_dark={_pal.background_dark_ratio:.1%} "
+                        f"accent={_pal.required_accent_ratio:.3%} -> {_merged['verdict']}")
+                    if _pal.verdict == _PAL_FAIL:
+                        qa.on_brand_color = False
+                        qa.overall_pass = False
+                        qa.critic_pass = False
+                        _codes = ", ".join(d["defect"] for d in _pal.defects)
+                        qa.reason = (f"{_codes} (deterministic, "
+                                     f"{_pal.threshold_policy_id}): "
+                                     + "; ".join(f"{d['defect']} {d['measured']:.1%} vs "
+                                                 f"threshold {d['threshold']:.0%} in "
+                                                 f"{d['region']}" for d in _pal.defects)
+                                     + (f" | model said: {qa.reason}" if qa.reason else ""))
+                        qa.brand_constraint_lineage = {
+                            "grounded": True, "defect": _codes,
+                            "lineage": _pal.constraint_lineage,
+                            "direction_hash": getattr(_qa_direction, "resolution_hash", "")}
+            except Exception as _pe:  # noqa: BLE001 — measurement must never crash a render
+                log(f"[palette] gate skipped ({type(_pe).__name__}: {_pe})")
+            decision = decide_poster_acceptance(
+                qa,
+                attempt_identity=identity,
+                required_policy=qa_policy,
+                current_attempt_identity=poster_attempt_identity(
+                    out_path,
+                    attempt_id=identity.attempt_id,
+                    candidate_id=identity.candidate_id),
+            )
             result = PosterGenResult(
                 poster_path=str(out_path), filename=Path(out_path).name,
                 image_base64=base64.b64encode(Path(out_path).read_bytes()).decode("ascii"),
                 brief=brief, spec=default_design_spec(brief), concept=concept,
                 brand_dna=brand_dna, background_path=str(out_path),
                 model_used=oneshot.DEFAULT_ONESHOT_MODEL, prompt=prompt, qa=qa,
-                audit=audit, engine="oneshot",
+                acceptance=decision, audit=audit, engine="oneshot",
             )
-            if best is None or qa.score > best.qa.score:
+            if best is None or _attempt_rank(result) > _attempt_rank(best):
                 best = result
-            _refresh_canonical(out_path, passed=True)   # cleared the verbatim + placeholder gates
-            # PERMISSIVE, DELIBERATE (P6 Tier-4 — the tri-state makes it visible, not silent): a
-            # poster whose art-critic could not run still ships rather than blocking the deliverable
-            # on a Vertex blip. `is not False` states that; the old `qa.overall_pass or not
-            # qa.checked` read a fabricated True. qa.overall_pass is None => NOT_CHECKED, and
-            # PosterResult carries `checked` so a caller can tell "clean" from "never looked".
-            if qa.overall_pass is not False:
+            if decision.accepted:
+                _refresh_canonical(out_path, decision=decision)
                 return result
             log(f"[oneshot] attempt {attempt}: art-critic fail (score={qa.score}) "
                 f"{qa.reason[:100]}")
             if not _qa_image_fixable(qa):
-                return result           # re-rolling the image won't fix it — ship best
+                # Stop paying for retries that cannot fix this failure, but do not confuse that
+                # stop decision with candidate selection. `best` may be an earlier, safer render.
+                break
         return best
     except Exception as e:  # noqa: BLE001 — the engine must never break poster generation
         log(f"[oneshot] engine error ({type(e).__name__}: {e}); falling back to classic")
         return None
 
 
-# The client-facing disclosure when the least-bad attempt still lies (owner principle:
-# «الضعف المُفصح عنه درع»). Owner's OPEN decision D-7: refuse outright vs disclose — until
-# she rules, the result ships flagged + noted, never silently.
+# The client-facing disclosure when the least-bad diagnostic attempt still lies (owner principle:
+# «الضعف المُفصح عنه درع»). It may remain in generation history, but is never accepted or publishable.
 _TRUST_NOTE_AR = ("كل محاولات التوليد رجعت بعيب موثوقية في المشهد (ليبل منتج أو علامة "
                   "اترسمت غلط). دي أفضل محاولة، بس ماتتنشرش من غير مراجعة بصرية.")
 
 
-def _excuse_expected_brand(verdict, product_name: str):
+def _excuse_expected_brand(verdict, product_name: str, *, arabic: bool = True,
+                           logo_composited: bool = False):
     """Clear `third_party_mark` when the "third party" IS the product the owner asked for.
 
     ROOT (Al Fouad 2026-07-26): she pasted a La Roche-Posay link, the poster showed exactly that
@@ -1140,15 +1291,34 @@ def _excuse_expected_brand(verdict, product_name: str):
     client disclosure) sees one consistent story, and `overall_pass` is recomputed rather than
     left contradicting its own flags. Unrelated marks are untouched."""
     try:
-        from poster.vision_qa import third_party_is_expected
+        from poster.vision_qa import _recompute_verdict_pass, third_party_is_expected
         if not (getattr(verdict, "third_party_mark", False) and product_name):
             return verdict
         if not third_party_is_expected(getattr(verdict, "reason", ""), product_name=product_name):
             return verdict
         cleared = verdict.model_copy(update={"third_party_mark": False})
-        if cleared.overall_pass is False and not _trust_violation(cleared)                 and int(cleared.score or 0) >= 7 and cleared.logo_ok:
-            cleared = cleared.model_copy(update={"overall_pass": True})
-        return cleared
+        # THE EXCUSE CLEARS ONE CODE-SIDE FLAG. IT DOES NOT SPEAK FOR THE CRITIC.
+        #
+        # `overall_pass` is the conjunction of the code-side gates AND the critic's own
+        # aggregate, so re-deciding it needs that aggregate. This used to hand the recomputation
+        # a literal `True` — approval nobody gave. When the critic had vetoed for something the
+        # conjunction does not represent (`garbled_text`, placement, focal points, or plain
+        # prose), the excuse published that veto as a PASS.
+        #
+        # A veto may only be overridden with evidence that it was EXCLUSIVELY the excused
+        # condition, and one boolean over free text cannot carry that evidence — so the critic's
+        # answer is used as given. The intended exception survives untouched, because the case
+        # it was built for (Al Fouad) is a critic PASS that the `third_party_mark` gate failed.
+        critic_pass = getattr(verdict, "critic_pass", None)
+        if critic_pass is None:
+            # No recorded aggregate: dropping the false positive is safe, inventing the critic's
+            # approval is not. The strict verdict stands.
+            return cleared
+        return cleared.model_copy(update={
+            "overall_pass": _recompute_verdict_pass(
+                cleared, arabic=arabic, logo_composited=logo_composited,
+                model_pass=bool(critic_pass)),
+        })
     except Exception:  # noqa: BLE001 — an excuse that fails leaves the strict verdict standing
         return verdict
 
@@ -1245,10 +1415,11 @@ def _revise_spec_for(spec, verdict, *, attempt: int = 0):
         return spec
 
 
-def _attempt_rank(r: "PosterGenResult") -> tuple[int, int]:
-    """Best-attempt ordering: honesty first, THEN beauty. Score only breaks ties within the
-    same honesty class."""
-    return (0 if _trust_violation(r.qa) else 1, int(r.qa.score or 0))
+def _attempt_rank(r: "PosterGenResult") -> tuple[int, int, int]:
+    """Accepted PASS first, then honesty, then quality for diagnostic best-available ordering."""
+    accepted = bool(r.acceptance and r.acceptance.accepted)
+    return (1 if accepted else 0, 0 if _trust_violation(r.qa) else 1,
+            int(r.qa.score or 0))
 
 
 def _qa_image_fixable(v: PosterQAVerdict) -> bool:
@@ -1341,6 +1512,11 @@ def generate_poster(
     # `expect_real_products` — treats those attachments as merchandise. A face is a person.
     identity_image: Optional[tuple] = None,
     identity_persona: str = "",
+    creative_contract: Any = None,
+    generation_attempt_id: str = "",
+    # The brand's canonical identity. Optional: when omitted it is derived from the
+    # profile's own final_url/source_url. NEVER from the display name.
+    domain_key: str = "",
     log=_safe_log,
 ) -> PosterGenResult:
     """The one pipeline. `caller` = a (multimodal) Gemini caller; `qa_caller` defaults to it.
@@ -1361,7 +1537,7 @@ def generate_poster(
 
     # 1) Brand's learned visual language (cached per brand).
     if brand_dna is None and use_dna:
-        brand_dna = load_or_build_dna(profile, caller)
+        brand_dna = load_or_build_dna(profile, caller, domain_key=domain_key)
     log(f"[concept] dna={'yes' if getattr(brand_dna,'used_vision',False) else 'no'} arabic={arabic}")
 
     # 1b) FRESH sourced copy material: live web research about the brand (was CLI-only
@@ -1403,9 +1579,14 @@ def generate_poster(
     concept = build_creative_concept(profile, caller=caller, brand_dna=brand_dna,
                                      featured_product=product_name,
                                      product_facts=_facts,
-                                     variation=variation, enforce_grounding=True,
+                                     variation=variation,
+                                     # Canonical claims are gated by the exact StrategyVersion
+                                     # allowlist below; the legacy Profile ledger does not contain
+                                     # competitor-derived strategy claims and must not erase them.
+                                     enforce_grounding=(creative_contract is None),
                                      arabic=arabic, research=research,
-                                     trend_context=trend_context)
+                                     trend_context=trend_context,
+                                     creative_contract=creative_contract)
     # THE CLAIM LINTER, on what will actually ship (reviewer: absolutes and operational
     # promises never went through the medical softener at all).
     # AND IT ENFORCES. This block used to detect, log, record — and ship the copy unchanged.
@@ -1449,6 +1630,12 @@ def generate_poster(
     except Exception:  # noqa: BLE001
         pass
 
+    if creative_contract is not None:
+        # Claim-rule cleanup may touch the frozen proof line. Re-apply the approved strategic
+        # fields before verification; creative headline/visual/tone remain untouched.
+        from poster.strategy_contract import constrain_concept_to_contract
+        concept = constrain_concept_to_contract(concept, creative_contract)
+
     log(f"[concept] msg={concept.single_message!r} headline={concept.headline!r} "
         f"chips={concept.proof_points}")
 
@@ -1485,21 +1672,80 @@ def generate_poster(
     if updates:
         brief = brief.model_copy(update=updates)
 
-    # 3b) Brand-safety audit trail (Step 3c): the (claim->source) proof of the SHIPPED copy +
+    strategy_brief = None
+    strategy_verification = None
+    repair_history: list[dict] = []
+    if creative_contract is not None:
+        from poster.strategy_contract import (
+            CreativeContractError, CreativeContractCompiler, PosterStrategyVerifier,
+            strategy_repair_concept,
+        )
+        strategy_brief = CreativeContractCompiler.poster_brief(creative_contract)
+        verifier = PosterStrategyVerifier()
+        strategy_verification = verifier.verify(
+            contract=creative_contract, concept=concept, brief=brief,
+            product_context=(product_name or ""), language=("ar" if arabic else "en"))
+        if not strategy_verification.overall_pass:
+            before = [v.code for v in strategy_verification.defects]
+            concept = strategy_repair_concept(concept, creative_contract)
+            brief = build_poster_brief(profile, headline_override=concept.headline)
+            brief = brief.model_copy(update={
+                "subheadline": concept.subheadline,
+                "cta_text": concept.cta,
+                "offerings": list(concept.proof_points)[:3],
+            })
+            strategy_verification = verifier.verify(
+                contract=creative_contract, concept=concept, brief=brief,
+                product_context=(product_name or ""), language=("ar" if arabic else "en"))
+            repair_history.append({
+                "repair": "COPY_ONLY_DETERMINISTIC",
+                "defects": before,
+                "strategy_version_id": creative_contract.strategy_version_id,
+                "creative_contract_id": creative_contract.creative_contract_id,
+            })
+        if not strategy_verification.overall_pass:
+            codes = ", ".join(v.code for v in strategy_verification.defects)
+            raise CreativeContractError(
+                "POSTER_STRATEGY_VERIFICATION_FAILED",
+                f"Poster strategy verification failed after targeted repair: {codes}")
+
+    # 3b) Brand-safety audit trail (Step 3c): the (claim->source) proof of the generated copy +
     #     the gate's remediation log + explicit scoping. Built once (independent of the
-    #     image/QA loop); written as a sidecar next to the poster that ships.
+    #     image/QA loop); written as a sidecar next to the generated poster.
     try:
         from poster.audit import build_poster_audit
         audit = build_poster_audit(profile, concept, brief)
     except Exception:  # noqa: BLE001 — the trail must never break poster generation
         audit = None
+    if audit is not None and creative_contract is not None:
+        audit["canonical_strategy"] = {
+            "canonical": True,
+            "strategy_version_id": creative_contract.strategy_version_id,
+            "creative_contract_id": creative_contract.creative_contract_id,
+            "objective_id": creative_contract.objective_id,
+            "decision_id": creative_contract.decision_id,
+            "profile_snapshot_id": creative_contract.profile_snapshot_id,
+            "claim_ids_used": list(strategy_verification.claim_ids_used),
+            "strategy_verification": strategy_verification.model_dump(mode="json"),
+            "repair_history": repair_history,
+        }
 
     def _emit(r: PosterGenResult) -> PosterGenResult:
+        if creative_contract is not None:
+            import dataclasses as _dc
+            r = _dc.replace(
+                r,
+                creative_contract=creative_contract.model_dump(mode="json"),
+                poster_strategy_brief=strategy_brief.model_dump(mode="json"),
+                strategy_verification=strategy_verification.model_dump(mode="json"),
+                repair_history=list(repair_history),
+                claim_ids_used=list(strategy_verification.claim_ids_used),
+            )
         if r.audit:
-            # P-42: record the SHIPPED attempt's vision-QA verdict in the sidecar (was in-memory only).
+            # P-42: record the generated attempt's vision-QA verdict in the sidecar (was in-memory only).
             try:
                 from poster.audit import attach_vision_qa
-                attach_vision_qa(r.audit, r.qa)
+                attach_vision_qa(r.audit, r.qa, r.acceptance)
             except Exception:  # noqa: BLE001 — the trail must never break poster generation
                 pass
             try:
@@ -1545,7 +1791,8 @@ def generate_poster(
                          audit=audit, out_dir=out_dir, variation=variation,
                          max_retries=max_qa_retries, log=log, qa_caller=qa_caller,
                          product_image=product_image, prompt_override=prompt_override,
-                         identity_image=identity_image, identity_persona=identity_persona)
+                         identity_image=identity_image, identity_persona=identity_persona,
+                         generation_attempt_id=generation_attempt_id)
         if r is not None:
             return _emit(r)
         log("[oneshot] gate not passed / unavailable -> classic overlay pipeline")
@@ -1797,10 +2044,9 @@ def generate_poster(
             render_poster_html(brief, bg_path, spec=spec, copy_ink=_ink,
                                product_zone=(_paste_zone if _mode_composited else None),
                                product_width=_paste_width), out / filename))
-        _refresh_canonical(poster_path)   # البند 1
         # A CONTRAST RATIO, MEASURED (reviewer 2026-07-26: «أقل من 4.5:1 = reject»). Every
         # legibility fix before this was an argument about gradient stops; this is the number
-        # the standard is written in, computed on the pixels that actually shipped.
+        # the standard is written in, computed on the exact generated pixels under assessment.
         _contrast = None
         try:
             from poster.contrast_gate import check_copy_contrast
@@ -1842,12 +2088,29 @@ def generate_poster(
         #     answering "distorted" is the brand's design, and it was another hard gate.
         # Both are the session's recurring class: produced, then never delivered one step later.
         _real_product_in_frame = _mode_composited or (_composite_after and _mode == "full_bleed")
+        qa_policy = required_poster_qa_policy(
+            arabic=arabic,
+            logo_composited=bool(getattr(brief, "logo_url", "")),
+            expect_real_products=(True if _real_product_in_frame else
+                                  (False if not _composite_after else None)),
+            product_named=bool(product_name),
+        )
+        identity = poster_attempt_identity(
+            poster_path,
+            attempt_id=(generation_attempt_id or Path(poster_path).stem),
+            candidate_id=Path(poster_path).stem,
+        )
         verdict = poster_vision_qa(
             poster_path, caller=qa_caller, brand_dna=brand_dna, arabic=arabic,
             expect_real_products=(True if _real_product_in_frame else
                                   (False if not _composite_after else None)),
+            logo_composited=bool(getattr(brief, "logo_url", "")),
+            product_named=bool(product_name),
+            expected_attempt_identity=identity,
+            required_policy=qa_policy)
+        verdict = _excuse_expected_brand(
+            verdict, product_name or "", arabic=arabic,
             logo_composited=bool(getattr(brief, "logo_url", "")))
-        verdict = _excuse_expected_brand(verdict, product_name or "")
         # MALFORMED TEXT AND EXTRA PRODUCTS, judged on the pixels. Both were shipped repeatedly
         # today under a `overall_pass` the critic itself had granted, because neither question
         # was ever asked.
@@ -1929,6 +2192,15 @@ def generate_poster(
             verdict = verdict.model_copy(update={
                 "overall_pass": False,
                 "reason": (verdict.reason + " | " if verdict.reason else "") + _contrast.reason})
+        decision = decide_poster_acceptance(
+            verdict,
+            attempt_identity=identity,
+            required_policy=qa_policy,
+            current_attempt_identity=poster_attempt_identity(
+                poster_path,
+                attempt_id=identity.attempt_id,
+                candidate_id=identity.candidate_id),
+        )
         log(f"[qa] attempt={attempt} pass={verdict.overall_pass} checked={verdict.checked} "
             f"latin={verdict.has_latin_text} clip={verdict.cta_clipped} "
             f"color={verdict.on_brand_color} candid={verdict.candid_violation} :: {verdict.reason}")
@@ -1937,16 +2209,13 @@ def generate_poster(
             image_base64=base64.b64encode(Path(poster_path).read_bytes()).decode("ascii"),
             brief=brief, spec=spec, concept=concept, brand_dna=brand_dna,
             background_path=str(bg_path), model_used=model_used, prompt=prompt, qa=verdict,
-            audit=audit,
+            acceptance=decision, audit=audit,
         )
         if best is None or _attempt_rank(result) > _attempt_rank(best):
             best = result           # honesty outranks score — see _attempt_rank
-        # PERMISSIVE, DELIBERATE (P6 Tier-4): `is not False` — ship on PASS or NOT_CHECKED, block
-        # only on an explicit FAIL. Same reasoning as the oneshot branch above; the difference from
-        # the old `verdict.overall_pass or not verdict.checked` is that NOT_CHECKED is now visible
-        # as None instead of masquerading as True.
-        if no_image or verdict.overall_pass is not False:
-            return _emit(result)                # passed, or could not gate -> ship it
+        if decision.accepted:
+            _refresh_canonical(poster_path, decision=decision)
+            return _emit(result)
         if attempt < max_qa_retries and _qa_image_fixable(verdict):
             # Answer what was CRITICISED, not just re-roll the background. Until now `spec` was
             # fixed before this loop, so a "weak typography" verdict was followed by an identical
@@ -1970,7 +2239,7 @@ def generate_poster(
         log(f"[qa] no attempt passed; returning best (score={best.qa.score}): {best.qa.reason}")
     if _trust_violation(best.qa):
         # Every attempt lied somewhere. The verdict alone was MEASURED being ignored
-        # downstream, so the disclosure is stamped TOP-LEVEL (D-7 pending: refuse vs disclose).
+        # downstream, so the disclosure is stamped TOP-LEVEL on the non-accepted diagnostic result.
         import dataclasses as _dc
         best = _dc.replace(best, trust_violation=True, trust_note_ar=_TRUST_NOTE_AR)
         log("[qa] TRUST violation in the returned best -> disclosed on the result "

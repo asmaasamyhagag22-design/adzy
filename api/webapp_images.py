@@ -24,9 +24,17 @@ from PIL import Image, ImageDraw, ImageFont
 
 from api.text_shaping import has_rtl, shape_for_pillow, wrap_shaped
 from api.user_auth import webapp_dir
-from api.webapp_influencer import selected_face_bytes
 
 logger = logging.getLogger(__name__)
+
+
+class CanonicalPosterQARejected(RuntimeError):
+    """An inspected/unverified candidate was refused; carry its safe QA projection."""
+
+    def __init__(self, decision):
+        self.decision = decision
+        super().__init__("Canonical poster was not accepted by authoritative visual QA: "
+                         + decision.explanation)
 
 
 def paid_images_enabled() -> bool:
@@ -175,6 +183,47 @@ class RealRender:
     result: object = None
 
 
+_QA_STATUSES = {"pass", "fail", "not_checked"}
+
+
+def acceptance_disclosure(decision: object) -> dict:
+    """Conservative compatibility projection of the canonical typed decision."""
+    from poster.vision_qa import QA_FAIL, QA_PASS
+
+    canonical = str(getattr(decision, "qa_status", "") or "")
+    status = "pass" if canonical == QA_PASS else "fail" if canonical == QA_FAIL else "not_checked"
+    return {
+        "qa_status": status,
+        "qa_failed": status == "fail",
+        "qa_note": ("" if status == "pass"
+                    else str(getattr(decision, "explanation", "") or "")),
+        "canonical_qa_status": canonical or "QA_UNVERIFIED",
+        "qa_executed": bool(getattr(decision, "qa_executed", False)),
+        "qa_passed": bool(getattr(decision, "qa_passed", False)),
+        "accepted": bool(getattr(decision, "accepted", False)),
+        "publishable": bool(getattr(decision, "publishable", False)),
+        "deliverable": bool(getattr(decision, "deliverable", False)),
+    }
+
+
+def qa_disclosure_for_verdict(qa: object = None) -> dict:
+    """Legacy disclosure-only translation used by out-of-scope non-Poster consumers.
+
+    Poster acceptance never calls this as authority: `generate_image`, routes, and persistence
+    re-derive the typed decision from raw QA plus exact bytes.
+    """
+    overall = getattr(qa, "overall_pass", None)
+    status = "pass" if overall is True else "fail" if overall is False else "not_checked"
+    note = "" if status == "pass" else str(getattr(qa, "reason", "") or "")
+    return {"qa_status": status, "qa_failed": status == "fail", "qa_note": note}
+
+
+def qa_disclosure_from_output(output: dict) -> dict:
+    """Re-derive from exact bytes and raw QA; never trust caller-supplied PASS flags."""
+    from poster.vision_qa import poster_acceptance_from_output
+    return acceptance_disclosure(poster_acceptance_from_output(output or {}))
+
+
 try:                                         # module seam, so a test can stub the scrape
     from scraper.product_page import scrape_product_page
 except Exception:  # noqa: BLE001 — Playwright may be unavailable; the feature degrades, nothing breaks
@@ -234,7 +283,8 @@ def product_from_link(url: str):
 
 
 def _render_real(brand: dict, *, headline: str, language: str, product=None,
-                 trend_context: str = "") -> RealRender:
+                 trend_context: str = "", creative_contract=None,
+                 generation_attempt_id: str = "") -> RealRender:
     """Real poster via poster.pipeline.generate_poster.
 
     Returns a RealRender whose `png` is None when the paid path could not deliver. Raises nothing:
@@ -264,6 +314,9 @@ def _render_real(brand: dict, *, headline: str, language: str, product=None,
     # path on every render — including Arabic, where it is measured to fail 100% of the time and
     # burn three image calls first. The pipeline picks the engine from the script.
     res = generate_poster(profile, caller=caller, language=language,
+                          # The STORED brand's own key is the authority for which
+                          # brandbook this render may read (never the display name).
+                          domain_key=str(brand.get("domain_key") or ""),
                           headline_override=headline or None,
                           trend_context=trend_context or None,
                           identity_image=((face, face_mime or "image/png") if face else None),
@@ -280,7 +333,9 @@ def _render_real(brand: dict, *, headline: str, language: str, product=None,
                           product_url=(getattr(product, "url", "") or "") if product else "",
                           product_description=(getattr(product, "description", "") or "") if product else "",
                           product_price=(getattr(product, "price", "") or "") if product else "",
-                          product_currency=(getattr(product, "currency", "") or "") if product else "")
+                          product_currency=(getattr(product, "currency", "") or "") if product else "",
+                          creative_contract=creative_contract,
+                          generation_attempt_id=generation_attempt_id)
     import base64
     png = base64.b64decode(res.image_base64) if res and res.image_base64 else None
     return RealRender(png=png, result=res)
@@ -317,8 +372,13 @@ def top_trend_context(brand: dict) -> tuple[str, dict, str]:
 
 def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: str = "",
                    language: str = "auto", content_type: str = "post",
-                   product_url: str = "", trend: bool = False) -> dict:
-    """Return the image plus an honest account of HOW it was produced. Always succeeds.
+                   product_url: str = "", trend: bool = False,
+                   creative_contract=None, generation_run_id: str = "",
+                   generation_attempt_id: str = "") -> dict:
+    """Return the image plus an honest account of HOW it was produced.
+
+    Legacy calls degrade to a placeholder. Canonical calls fail closed and name their real
+    PostgreSQL Run and Attempt, both created before the provider call.
 
     Beyond {image_b64, filename, headline, subtext, cta}:
       * `is_preview`    — True when this is the free placeholder, False for a real paid render. The
@@ -331,12 +391,22 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
                           carried through instead of dropped (see RealRender)."""
     import base64
 
+    if creative_contract is not None:
+        from poster.strategy_contract import CreativeContractError
+        status = str(getattr(getattr(creative_contract, "preflight", None), "status", "") or "")
+        if status != "READY":
+            raise CreativeContractError(
+                "STRATEGY_NOT_CREATIVE_READY",
+                f"Canonical poster preflight is {status or 'missing'}; provider call refused.",
+                preflight_status=(status or "STRATEGY_NOT_CREATIVE_READY"))
+
     png: Optional[bytes] = None
     degraded_reason = ""
     trust_violation = False
     trust_note_ar = ""
-    qa_failed = False
-    qa_note = ""
+    qa_disclosure = qa_disclosure_for_verdict()
+    visual_qa = None
+    acceptance = None
 
     # "Make me an ad for THIS product" — resolved BEFORE the render so its failure is a stated
     # note rather than a silently generic poster.
@@ -348,44 +418,65 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
     if trend:
         trend_context, trend_used, trend_note = top_trend_context(brand)
 
+    if creative_contract is not None and not paid_images_enabled():
+        raise RuntimeError(
+            "Canonical poster generation requires BASEERA_ENABLE_PAID_IMAGES=1; "
+            "no legacy preview fallback is allowed.")
+
     if paid_images_enabled():
         try:
             real = _render_real(brand, headline=headline, language=language, product=product,
-                                trend_context=trend_context)
+                                trend_context=trend_context,
+                                creative_contract=creative_contract,
+                                generation_attempt_id=generation_attempt_id)
             png = real.png
             if png is None:
                 degraded_reason = "the image model returned no image"
             res = real.result
             trust_violation = bool(getattr(res, "trust_violation", False))
             trust_note_ar = str(getattr(res, "trust_note_ar", "") or "")
-            # THE ART CRITIC'S REJECTION, carried. The pipeline's last resort is
-            # "no attempt passed; returning best (score=3)" — a poster its own critic turned down
-            # for amateur typography, invented products or a misspelled logo — and this response
-            # carried only `trust_violation`, so that render reached the client looking exactly
-            # like one that scored 9. `overall_pass` is tri-state: only an explicit False is a
-            # rejection; None means the critic could not run, which is a different fact and is not
-            # reported as failure.
-            _qa = getattr(res, "qa", None)
-            if _qa is not None and getattr(_qa, "overall_pass", None) is False:
-                qa_failed = True
-                qa_note = str(getattr(_qa, "reason", "") or "")
+            qa = getattr(res, "qa", None)
+            visual_qa = qa.model_dump(mode="json") if hasattr(qa, "model_dump") else None
+            from poster.vision_qa import poster_acceptance_from_output
+            acceptance = poster_acceptance_from_output({
+                "image_b64": base64.b64encode(png or b"").decode("ascii"),
+                "filename": "pipeline-poster.png",
+                "generation_attempt_id": generation_attempt_id,
+                "visual_qa": visual_qa,
+            }, payload=png or b"", expected_attempt_id=generation_attempt_id)
+            qa_disclosure = acceptance_disclosure(acceptance)
         except MissingProfile as exc:
             degraded_reason = str(exc)
             logger.warning("paid render skipped: %s", exc)
         except Exception as exc:  # noqa: BLE001 — degrade, but never in silence
+            if creative_contract is not None:
+                raise
             degraded_reason = f"{type(exc).__name__}: {exc}"[:200]
             logger.exception("real image generation failed; falling back to placeholder")
 
     if png is None:
+        if creative_contract is not None:
+            raise RuntimeError("Canonical poster pipeline returned no accepted image.")
         png = render_placeholder(brand, headline=headline, subtext=subtext, cta=cta)
         is_preview = True
         trust_violation, trust_note_ar = False, ""   # the placeholder makes no claims to violate
+        # A verdict about an attempted paid candidate cannot label the different placeholder that
+        # actually ships.  The placeholder itself was not inspected.
+        from poster.vision_qa import poster_acceptance_from_output
+        acceptance = poster_acceptance_from_output({
+            "image_b64": base64.b64encode(png).decode("ascii"),
+            "filename": "placeholder.png",
+            "generation_attempt_id": generation_attempt_id,
+            "visual_qa": None,
+        }, payload=png, expected_attempt_id=generation_attempt_id)
+        visual_qa = None
+        qa_disclosure = acceptance_disclosure(acceptance)
     else:
         is_preview = False
 
     key = (brand.get("domain_key") or "brand")
     digest = hashlib.md5(png).hexdigest()[:10]
-    return {
+    result = {
         "image_b64": base64.b64encode(png).decode("ascii"),
         "filename": f"{key}_{content_type}_{digest}.png",
         "headline": headline,
@@ -395,8 +486,10 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
         "degraded_reason": degraded_reason,
         "trust_violation": trust_violation,
         "trust_note_ar": trust_note_ar,
-        "qa_failed": qa_failed,
-        "qa_note": qa_note,
+        "visual_qa": visual_qa,
+        "acceptance_decision": (
+            acceptance.model_dump(mode="json") if hasattr(acceptance, "model_dump") else None),
+        **qa_disclosure,
         # What we actually read from the pasted link, and why it did not work when it did not.
         "product": ({"name": product.name, "image": product.image, "price": product.price,
                      "currency": product.currency, "url": product.url} if product else None),
@@ -407,6 +500,50 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
         # to post it with. Failure degrades to a grounded tagline caption, never breaks the image.
         "social_caption": _caption_for(brand, language=language, trend_context=trend_context),
     }
+    if creative_contract is not None:
+        pipeline_result = real.result
+        strategy_verification = dict(getattr(pipeline_result, "strategy_verification", None) or {})
+        if not bool(strategy_verification.get("overall_pass")):
+            raise RuntimeError("Canonical poster strategy verification did not pass.")
+        if bool(getattr(pipeline_result, "trust_violation", False)):
+            raise RuntimeError("Canonical poster was rejected for a trust violation.")
+        from poster.vision_qa import poster_acceptance_from_output
+        acceptance = poster_acceptance_from_output(
+            result, payload=png, expected_attempt_id=generation_attempt_id)
+        if not acceptance.accepted or not acceptance.publishable:
+            raise CanonicalPosterQARejected(acceptance)
+        result.update({
+            "acceptance_decision": acceptance.model_dump(mode="json"),
+            **acceptance_disclosure(acceptance),
+        })
+        result.update({
+            "headline": str(getattr(getattr(pipeline_result, "brief", None), "headline", "") or ""),
+            "subtext": str(getattr(getattr(pipeline_result, "brief", None), "subheadline", "") or ""),
+            "cta": str(getattr(getattr(pipeline_result, "brief", None), "cta_text", "") or ""),
+            "canonical": True,
+            "strategy_grounded": True,
+            "strategy_version_id": creative_contract.strategy_version_id,
+            "creative_contract_id": creative_contract.creative_contract_id,
+            "objective_id": creative_contract.objective_id,
+            "decision_id": creative_contract.decision_id,
+            "profile_snapshot_id": creative_contract.profile_snapshot_id,
+            "generation_run_id": generation_run_id,
+            "generation_attempt_id": generation_attempt_id,
+            "claim_ids_used": list(getattr(pipeline_result, "claim_ids_used", None) or []),
+            "creative_contract": dict(getattr(pipeline_result, "creative_contract", None) or {}),
+            "poster_brief": dict(getattr(pipeline_result, "poster_strategy_brief", None) or {}),
+            "strategy_verification": strategy_verification,
+            "repair_history": list(getattr(pipeline_result, "repair_history", None) or []),
+            "consumer_facing_disclosures": list(creative_contract.consumer_facing_disclosures),
+            "why_this_poster": {
+                "target": creative_contract.target,
+                "message": creative_contract.primary_message,
+                "proof": [v.statement for v in creative_contract.proof_points],
+            },
+        })
+    else:
+        result.update({"canonical": False, "strategy_grounded": False})
+    return result
 
 
 def _caption_for(brand: dict, *, language: str, trend_context: str = "") -> dict:
@@ -466,6 +603,35 @@ def read_generated_png(name: str) -> Optional[bytes]:
         return p.read_bytes() if p.is_file() else None
     except OSError:
         return None
+
+
+def selected_face_bytes(brand: dict) -> tuple:
+    """The chosen face as BYTES — what actually travels to a render.
+
+    Until now the only thing that reached the poster was a sentence describing the person
+    (`config.influencer_persona`), so "the same person" was a hope. Returns (None, "") when nothing
+    is selected or the file is gone: the caller must then refuse to claim an influencer render
+    rather than silently substituting a description.
+
+    LIVES HERE (C7) because that is what it does: it reads a stored selection off the brand
+    document and then fetches the ASSET, through `read_generated_png` directly above. Generated
+    asset storage is this module's responsibility — `save_generated_png`, `read_generated_png`,
+    `unique_asset_name` and `_generated_dir` are all here. Defining it in the influencer module
+    meant this module had to import back from its own consumer, and that cycle made
+    `api.webapp_influencer` unimportable in a fresh process: whichever of the two was imported
+    first got a partially initialised copy of the other. `api.webapp_influencer` re-exports the
+    name, so every existing caller and every monkeypatch keeps working.
+    """
+    ai = brand.get("ai_influencer") or {}
+    # STRICTLY the selected candidate. `portrait_url` is a display pointer at the NEWEST face, so
+    # falling back to it would render a poster starring whoever was generated last rather than
+    # whoever the owner chose — the exact ambiguity the selection id exists to remove.
+    chosen = (ai.get("candidates") or {}).get(ai.get("selected_id") or "")
+    url = str((chosen or {}).get("url") or "")
+    if not url:
+        return None, ""
+    data = read_generated_png(url.rsplit("/", 1)[-1])
+    return (data, "image/png") if data else (None, "")
 
 
 # The pasted hero link, resolved ONCE per URL. Two consumers need the answer — the insert needs

@@ -82,6 +82,15 @@ def create_poster_from_profile(
             poster_path=res.poster_path, filename=res.filename,
             width=res.width, height=res.height,
         )
+        from api.webapp_images import acceptance_disclosure
+        from poster.vision_qa import poster_acceptance_from_output
+        visual_qa = res.qa.model_dump(mode="json") if hasattr(res.qa, "model_dump") else None
+        decision = res.acceptance or poster_acceptance_from_output({
+            "image_b64": res.image_base64,
+            "filename": res.filename,
+            "visual_qa": visual_qa,
+        })
+        disclosure = acceptance_disclosure(decision)
         # Brand-safety proof: expose the audit trail + the client-facing Ad
         # Compliance Sheet (was previously written to disk only). Best-effort —
         # a sheet failure must never block the poster.
@@ -101,6 +110,14 @@ def create_poster_from_profile(
             audit=res.audit,
             compliance_sheet=compliance_sheet,
             engine_used=res.engine,
+            visual_qa=visual_qa,
+            acceptance_decision=decision.model_dump(mode="json"),
+            canonical_qa_status=disclosure["canonical_qa_status"],
+            qa_executed=disclosure["qa_executed"],
+            qa_passed=disclosure["qa_passed"],
+            accepted=disclosure["accepted"],
+            publishable=disclosure["publishable"],
+            deliverable=disclosure["deliverable"],
         )
 
     except HTTPException:

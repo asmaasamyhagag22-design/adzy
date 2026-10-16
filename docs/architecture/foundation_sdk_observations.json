@@ -1,0 +1,176 @@
+{
+  "synthetic": true,
+  "verification_scope": "LOCAL_SDK_EXPORT_CAPTURE_NOT_SERVER_INGESTION",
+  "observations": [
+    {
+      "name": "get_review_subject",
+      "scope": "langfuse-sdk",
+      "trace_id": "0abedb7f59e6ea0b19ca062a57d60e45",
+      "duration_ns": 38344802,
+      "attributes": {
+        "langfuse.observation.metadata.workflow_ref": "\"0abedb7f59e6ea0b19ca062a57d60e45\"",
+        "langfuse.observation.metadata.cost_status": "\"UNKNOWN\"",
+        "langfuse.internal.as_root": true,
+        "langfuse.observation.type": "tool",
+        "langfuse.observation.level": "DEFAULT",
+        "langfuse.observation.output": "{\"status\": \"OK\"}"
+      }
+    },
+    {
+      "name": "inspect_research_readiness",
+      "scope": "langfuse-sdk",
+      "trace_id": "0abedb7f59e6ea0b19ca062a57d60e45",
+      "duration_ns": 58938178,
+      "attributes": {
+        "langfuse.observation.metadata.workflow_ref": "\"0abedb7f59e6ea0b19ca062a57d60e45\"",
+        "langfuse.observation.metadata.cost_status": "\"UNKNOWN\"",
+        "langfuse.internal.as_root": true,
+        "langfuse.observation.type": "tool",
+        "langfuse.observation.level": "DEFAULT",
+        "langfuse.observation.output": "{\"status\": \"OK\"}"
+      }
+    },
+    {
+      "name": "inspect_creative_contract_requirements",
+      "scope": "langfuse-sdk",
+      "trace_id": "0abedb7f59e6ea0b19ca062a57d60e45",
+      "duration_ns": 115104294,
+      "attributes": {
+        "langfuse.observation.metadata.workflow_ref": "\"0abedb7f59e6ea0b19ca062a57d60e45\"",
+        "langfuse.observation.metadata.cost_status": "\"UNKNOWN\"",
+        "langfuse.internal.as_root": true,
+        "langfuse.observation.type": "tool",
+        "langfuse.observation.level": "DEFAULT",
+        "langfuse.observation.output": "{\"status\": \"OK\"}"
+      }
+    },
+    {
+      "name": "assess",
+      "scope": "langfuse-sdk",
+      "trace_id": "0abedb7f59e6ea0b19ca062a57d60e45",
+      "duration_ns": 219115366,
+      "attributes": {
+        "langfuse.observation.metadata.workflow_ref": "\"0abedb7f59e6ea0b19ca062a57d60e45\"",
+        "langfuse.observation.metadata.cost_status": "\"UNKNOWN\"",
+        "langfuse.internal.as_root": true,
+        "langfuse.observation.type": "span",
+        "langfuse.observation.level": "DEFAULT",
+        "langfuse.observation.output": "{\"status\": \"NEEDS_REVIEW\"}"
+      }
+    },
+    {
+      "name": "human_review",
+      "scope": "langfuse-sdk",
+      "trace_id": "0abedb7f59e6ea0b19ca062a57d60e45",
+      "duration_ns": 2741892,
+      "attributes": {
+        "langfuse.observation.metadata.workflow_ref": "\"0abedb7f59e6ea0b19ca062a57d60e45\"",
+        "langfuse.observation.metadata.cost_status": "\"UNKNOWN\"",
+        "langfuse.internal.as_root": true,
+        "langfuse.observation.type": "span",
+        "langfuse.observation.level": "ERROR",
+        "langfuse.observation.output": "{\"status\": \"PAUSED\"}"
+      }
+    },
+    {
+      "name": "review_segment",
+      "scope": "langfuse-sdk",
+      "trace_id": "0abedb7f59e6ea0b19ca062a57d60e45",
+      "duration_ns": 268319969,
+      "attributes": {
+        "langfuse.internal.is_app_root": true,
+        "langfuse.observation.metadata.workflow_ref": "\"0abedb7f59e6ea0b19ca062a57d60e45\"",
+        "langfuse.observation.metadata.cost_status": "\"UNKNOWN\"",
+        "langfuse.internal.as_root": true,
+        "langfuse.observation.type": "span",
+        "langfuse.observation.level": "DEFAULT",
+        "langfuse.observation.output": "{\"status\": \"OK\"}"
+      }
+    },
+    {
+      "name": "human_review",
+      "scope": "langfuse-sdk",
+      "trace_id": "0abedb7f59e6ea0b19ca062a57d60e45",
+      "duration_ns": 935109,
+      "attributes": {
+        "langfuse.observation.metadata.workflow_ref": "\"0abedb7f59e6ea0b19ca062a57d60e45\"",
+        "langfuse.observation.metadata.cost_status": "\"UNKNOWN\"",
+        "langfuse.internal.as_root": true,
+        "langfuse.observation.type": "span",
+        "langfuse.observation.level": "DEFAULT",
+        "langfuse.observation.output": "{\"status\": \"OK\"}"
+      }
+    },
+    {
+      "name": "apply_decision",
+      "scope": "langfuse-sdk",
+      "trace_id": "0abedb7f59e6ea0b19ca062a57d60e45",
+      "duration_ns": 59524510,
+      "attributes": {
+        "langfuse.observation.metadata.workflow_ref": "\"0abedb7f59e6ea0b19ca062a57d60e45\"",
+        "langfuse.observation.metadata.cost_status": "\"UNKNOWN\"",
+        "langfuse.internal.as_root": true,
+        "langfuse.observation.type": "span",
+        "langfuse.observation.level": "DEFAULT",
+        "langfuse.observation.output": "{\"status\": \"READY_FOR_CREATIVE\"}"
+      }
+    },
+    {
+      "name": "inspect_research_readiness",
+      "scope": "langfuse-sdk",
+      "trace_id": "0abedb7f59e6ea0b19ca062a57d60e45",
+      "duration_ns": 61334582,
+      "attributes": {
+        "langfuse.observation.metadata.workflow_ref": "\"0abedb7f59e6ea0b19ca062a57d60e45\"",
+        "langfuse.observation.metadata.cost_status": "\"UNKNOWN\"",
+        "langfuse.internal.as_root": true,
+        "langfuse.observation.type": "tool",
+        "langfuse.observation.level": "DEFAULT",
+        "langfuse.observation.output": "{\"status\": \"OK\"}"
+      }
+    },
+    {
+      "name": "inspect_creative_contract_requirements",
+      "scope": "langfuse-sdk",
+      "trace_id": "0abedb7f59e6ea0b19ca062a57d60e45",
+      "duration_ns": 122702255,
+      "attributes": {
+        "langfuse.observation.metadata.workflow_ref": "\"0abedb7f59e6ea0b19ca062a57d60e45\"",
+        "langfuse.observation.metadata.cost_status": "\"UNKNOWN\"",
+        "langfuse.internal.as_root": true,
+        "langfuse.observation.type": "tool",
+        "langfuse.observation.level": "DEFAULT",
+        "langfuse.observation.output": "{\"status\": \"OK\"}"
+      }
+    },
+    {
+      "name": "compile_contract",
+      "scope": "langfuse-sdk",
+      "trace_id": "0abedb7f59e6ea0b19ca062a57d60e45",
+      "duration_ns": 263351893,
+      "attributes": {
+        "langfuse.observation.metadata.workflow_ref": "\"0abedb7f59e6ea0b19ca062a57d60e45\"",
+        "langfuse.observation.metadata.cost_status": "\"UNKNOWN\"",
+        "langfuse.internal.as_root": true,
+        "langfuse.observation.type": "span",
+        "langfuse.observation.level": "DEFAULT",
+        "langfuse.observation.output": "{\"status\": \"READY_FOR_CREATIVE\"}"
+      }
+    },
+    {
+      "name": "review_segment",
+      "scope": "langfuse-sdk",
+      "trace_id": "0abedb7f59e6ea0b19ca062a57d60e45",
+      "duration_ns": 369902671,
+      "attributes": {
+        "langfuse.internal.is_app_root": true,
+        "langfuse.observation.metadata.workflow_ref": "\"0abedb7f59e6ea0b19ca062a57d60e45\"",
+        "langfuse.observation.metadata.cost_status": "\"UNKNOWN\"",
+        "langfuse.internal.as_root": true,
+        "langfuse.observation.type": "span",
+        "langfuse.observation.level": "DEFAULT",
+        "langfuse.observation.output": "{\"status\": \"OK\"}"
+      }
+    }
+  ]
+}

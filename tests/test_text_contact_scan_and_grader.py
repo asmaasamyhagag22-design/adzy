@@ -99,17 +99,16 @@ def test_text_scan_rejects_tracking_ids():
     assert out == [], f"tracking IDs leaked as phones: {out}"
 
 
-def test_text_scan_us_formatted_phone_caught():
-    """Fix C1 (2026-06): US-formatted numbers like '(888) 631-7760' get
-    extracted when scanning. Real failure case: Glamira's US support line.
-    The original 2-pass scan (EG + international-prefix) missed this."""
+def test_text_scan_us_formatted_phone_requires_us_context():
+    """A local US number is valid only when the caller supplies US context."""
     from business_profile.rules.from_contact import _scan_text_for_phones
 
-    out = _scan_text_for_phones(
+    text = (
         "WhatsApp Us  Show QR Code to Chat  Start WhatsApp Chat  or "
-        "Call us  (888) 631-7760  Available Mon-Fri, 8:00 AM - 6:00 PM",
-        region="EG",
+        "Call us  (888) 631-7760  Available Mon-Fri, 8:00 AM - 6:00 PM"
     )
+    assert _scan_text_for_phones(text, region="EG") == []
+    out = _scan_text_for_phones(text, region="US")
     assert "+18886317760" in out, (
         f"US-formatted phone should be extracted, got: {out}"
     )
@@ -272,8 +271,8 @@ def test_pollution_glamira_us_phone_no_short_code_substrings():
 
     manifest = ScrapeManifest(
         scrape_meta=ScrapeMeta(
-            input_url="https://x.example/",
-            normalized_url="https://x.example/",
+            input_url="https://x.us/",
+            normalized_url="https://x.us/",
             scraped_at=datetime.now(timezone.utc),
         ),
         robots=RobotsRecord(checked=True, allowed=True),
@@ -287,8 +286,8 @@ def test_pollution_glamira_us_phone_no_short_code_substrings():
         contact=ContactInfo(),
         pages=[
             PageRecord(
-                url="https://x.example/contact",
-                final_url="https://x.example/contact",
+                url="https://x.us/contact",
+                final_url="https://x.us/contact",
                 page_type=PageType.CONTACT,
                 tier=PageTier.HIGH,
                 fetched_at=datetime.now(timezone.utc),
@@ -297,7 +296,7 @@ def test_pollution_glamira_us_phone_no_short_code_substrings():
                 text_blocks=[
                     TextBlock(
                         block_id="b1",
-                        page_url="https://x.example/contact",
+                        page_url="https://x.us/contact",
                         tag="p",
                         # Real Glamira manifest text:
                         text=("WhatsApp Us\nShow QR Code to Chat\n"

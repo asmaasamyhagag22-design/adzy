@@ -1,167 +1,122 @@
-# Universal AI Marketing Strategist
+# ADZY — evidence-led marketing strategy and creative review
 
-You give it the URL of a business. It reads the site, works out what the business
-actually sells and who it competes with, and produces a campaign pack: posters, a
-vertical video ad, a competitor SWOT, and a content calendar.
+ADZY helps marketers and brand owners turn a business URL into a sourced brand profile, competitor research, SWOT, positioning, content calendars, media plans, and creative assets. Inputs include a URL, an explicit business objective, source evidence and human decisions. Outputs retain source references, unknowns, exact strategy approvals and creative constraints; evidence lineage does not guarantee factual correctness or campaign performance.
 
-The constraint that makes it interesting: every factual claim in the finished creative —
-a price, a phone number, a delivery time, a competitor comparison — has to trace back to
-something the scraper actually read on a real page. The system exports that trail as an
-audit sheet.
+A typical journey is **Discover → Think → review SWOT → review Strategy → Create → Work**. The existing Adzy Strategy interface now starts a real LangGraph execution, pauses for a human decision, and resumes the same workflow to compile a CreativeContract. A newer strategy needs a fresh review. Create uses that contract and the existing generation pipeline.
 
-<p align="center">
-  <img src="frontend/assets/showcase/01_nahdi_pharmacy_app.png" width="45%" alt="Poster generated for Nahdi Pharmacy">
-  <img src="frontend/assets/showcase/02_volume_qatar_cafe.png" width="45%" alt="Poster generated for Volume Cafe, Qatar">
-</p>
+![Actual Adzy human review pause](docs/images/app-review-paused.jpg)
+*Actual application shell, fictional Studio Fixture evidence, real authentication and disposable PostgreSQL. The review graph is paused at its human decision. No live market research or customer result is shown.*
 
-<p align="center"><sub>
-Generated end to end from the brands' own websites. Arabic and English, brand palette and
-logo taken from the real site, copy grounded in claims found on the pages.
-</sub></p>
-
-## A run, concretely
-
-```bash
-python -m scraper https://volumeqatar.com
-```
-
-Crawls the site with Playwright, respects robots.txt, and writes an evidence manifest:
-text blocks with stable IDs, the logo and colour palette it identified, contact details,
-forms, and a language breakdown. Nothing downstream re-fetches the site.
-
-```bash
-python -m business_profile scrapes/volumeqatar_com_<ts>/manifest.json
-```
-
-Turns the manifest into a structured profile — what the business sells, its positioning,
-its offers. Every field carries a citation back to the block it came from.
-
-```bash
-python -m poster --profile <profile.json>
-python -m reel   --profile <profile.json>
-```
-
-Produce the creative. The poster and reel pipelines pull copy from the profile, colours
-and logo from the scraped brand identity, and refuse to render a claim that has no source.
-
-## The hard part
-
-A language model writes fluent copy and will happily invent a discount that doesn't
-exist. That is a legal and commercial problem, not a quality problem, so the system
-doesn't try to solve it by prompting more carefully.
-
-Instead, output is split in two:
-
-*Facts* — prices, offers, phone numbers, piece counts, competitor claims. These are
-extracted deterministically from the scrape and validated. The model is allowed to help
-*find* them, never to be their source.
-
-*Design* — wording, imagery, layout, pacing, camera movement. Here the model is the
-author, bounded only by the brand's identity and by the facts it is allowed to use.
-
-`grounding/` enforces the split. A claim without a citation doesn't reach the render.
-
-The same rule applies to imagery. When a reel shows a product, the packaging is
-composited from the brand's own photography — moved, scaled, shadowed, never redrawn.
-Generative video handles the room, the light and the people; it never touches a logo or
-a line of Arabic. Fidelity is measured against the source file afterwards, not assumed.
-
-## The reel pipeline
-
-Generating video is the easy half. Deciding whether the result works as an advertisement
-is harder, so the pipeline ends with a critic instead of a checksum.
-
-`motion_contract.py`, `pacing.py`, `continuity.py` and `grade.py` turn a creative brief
-into something a renderer can honour. `film_critic.py` then watches the finished cut and
-judges it as advertising, and `revision.py` feeds those notes back into another pass —
-the critic changes the film rather than only rejecting it. `final_screening.py` is the
-last gate before delivery.
+![Actual Adzy approved strategy](docs/images/app-review-ready.jpg)
+*Actual UI after an application restart and a decision through the same workflow. PostgreSQL contains one approval for the reviewed subject. This is review readiness, not generated campaign performance.*
 
 ## Architecture
 
-```
-URL
- └── scraper/              Playwright crawl → ScrapeManifest
-      └── business_profile/  rules + LLM + RAG + validator → BusinessProfile
-           ├── grounding/       evidence ledger, audit, compliance sheet
-           ├── competitor/      discovery → comparison matrix → SWOT → TOWS
-           ├── brand/           palette, logo, tone → BrandBook
-           ├── poster/          concept → render → QA gates
-           ├── reel/            brief → shots → composite → critic → revision
-           ├── strategy/        content calendar → campaign/ fan-out
-           ├── media_plan/      objective deduction, budget shape
-           ├── ads_intel/       Meta Ad Library, competitor live ads
-           └── instagram_intelligence/  collection + engagement analytics
+```mermaid
+flowchart LR
+    UI[Adzy Think / Strategy] --> API[Authenticated start / status / resume]
+    API --> G[LangGraph assess → human_review → apply_decision → compile_contract]
+    G --> T[Three deterministic typed LangChain inspection tools]
+    G --> S[Existing canonical application services]
+    T --> S
+    S --> PG[(PostgreSQL business records / approvals)]
+    G --> SQ[(Local SQLite bindings / checkpoints / execution gate)]
+    API --> C[Authoritative CreativeContract → existing Create interface]
+    C --> P[Existing creative generation pipeline]
+    G -. opt-in redacted SDK observations .-> LF[Langfuse]
 ```
 
-`api/` is a FastAPI service: authentication, a brand store with a claim flow, async jobs
-with a server-sent-event progress stream, and it serves the frontend. `frontend/` is a
-single static surface — an earlier build had a Next.js app and a separate dashboard, and
-both were removed in favour of one.
+- **LangGraph** orchestrates research readiness, exact-version review, canonical decisions and contract compilation through application routes. It stops at creative readiness.
+- **LangChain tools** execute three typed, deterministic inspections. No model selects tools and no autonomous agent loop is claimed.
+- **Langfuse** receives explicit SDK observations only when enabled. Local SDK capture verifies correlation, redaction and exporter-failure isolation. Hosted/server ingestion is unverified. Default operation performs no external telemetry export; deterministic nodes have no invented tokens or model costs.
+- **PostgreSQL** owns users, profiles, strategy Runs and approvals. **SQLite** owns local workflow progress. Single-instance local persistence and cross-process restart are supported; distributed execution is not certified.
 
-## Setup
+See the [application architecture and recovery protocol](docs/architecture/app_review.md), [compiled graph](docs/architecture/review_graph.mmd) and [integration evidence](APP_GRAPH_INTEGRATION_RESULT.md).
+
+## Credential-free graph demo
+
+Prerequisites: Linux, **Python 3.12**, Docker daemon, public `postgres:16-alpine` image. Installation needs internet; execution uses fictional evidence, local files and loopback PostgreSQL. It does not load private `.env`, call providers, scrape websites or generate media.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-playwright install chromium
-cp .env.example .env               # add credentials for the providers you intend to use
-uvicorn api.main:app --reload --port 8000
+python3 -m venv .venv-workflow
+source .venv-workflow/bin/activate
+python -m pip install -r requirements-workflow.txt
+python -m pip check
+docker pull postgres:16-alpine
+python -m workflows.demo init --directory .review-demo
+python -m workflows.demo start --directory .review-demo
+python -m workflows.demo resume --directory .review-demo --decision approved
+python -m workflows.demo status --directory .review-demo
+python -m workflows.demo cleanup --directory .review-demo
 ```
 
-Main endpoints: `POST /run` starts a pipeline job; `GET /jobs/{id}/stream` streams
-progress; `GET /jobs/{id}/result` returns the artifacts. `api/routes/` also exposes
-`auth`, `brands`, `analysis`, `generate`, `influencer` and `scrape`.
+`start` exits with `NEEDS_REVIEW` and a persisted interrupt. Fresh-process `resume` returns `READY_FOR_CREATIVE`, a contract and its digest. Repeat the same decision without adding an approval. A separate new demo can use `--decision rejected`. To test stale review, run `python -m workflows.demo stale --directory .review-demo` between start and resume: it returns `BLOCKED / STALE_SUBJECT`.
 
-## Tests
+## Full application install
+
+Use the **application lock**, which includes the existing acquisition/provider/image dependencies plus the review stack. Do not overlay the two separate locks:
 
 ```bash
-pytest -q
+python3 -m venv .venv-app
+source .venv-app/bin/activate
+python -m pip install -r requirements-app.txt
+python -m pip check
+python -m playwright install chromium
 ```
 
-3,702 tests, roughly 57k lines of test code against 77k lines of source. They are
-hermetic by design: a `conftest` guard fails any test that opens a network connection, so
-the suite can't quietly depend on a paid API or a third-party site being reachable. Live
-runs are opt-in behind an environment flag.
+`requirements-app.in` records the combined inputs; `requirements-app.txt` records the resolved Python 3.12/Linux versions and is the file the tested install command consumes. The older `requirements.txt` and `requirements-lock.txt` are retained as historical application inputs; they do not reproduce this integration. The original OpenCV pin is not published, and the standalone workflow Tenacity version conflicts with the existing Google SDK. The application lock resolves both. This is a version lock, not a package hash or cross-platform guarantee. The [dependency inventory](docs/architecture/app_publication.md) includes optional subsystems and external prerequisites.
 
-The count is high because the failure mode this project cares about is a wrong claim
-reaching a customer, and most of those bugs are only catchable at the seams — a gate that
-passes when it should abstain, a threshold that drifts, an extractor that returns
-something plausible and wrong. Those get a regression test each.
+### Try the actual application with fictional evidence
 
-## Layout
+With the application environment activated and the PostgreSQL image available:
 
-| Path | Lines | |
-|---|---:|---|
-| `reel/` | 15.5k | video: brief, storyboard, compositing, critic chain |
-| `poster/` | 11.5k | static creative and its QA gates |
-| `scraper/` | 9.8k | crawl, extraction, robots, readiness scoring |
-| `competitor/` | 8.1k | discovery, comparison matrix, SWOT/TOWS |
-| `business_profile/` | 7.1k | profile synthesis and validation |
-| `api/` | 6.6k | FastAPI service |
-| `benchmark/` | 2.3k | measurement harnesses |
-| `instagram_intelligence/` | 2.2k | collection and engagement analytics |
-| `grounding/` | 2.1k | evidence ledger |
+```bash
+python -m workflows.app_demo init --directory .review-app-demo
+python -m workflows.app_demo serve --directory .review-app-demo --port 8000 --capture-sdk
+```
 
-`process.md` carries the working history: architecture decisions, what is built, what
-isn't, and the lessons behind specific thresholds. `info/` holds runbooks and state.
+`init` prints a fictional email and the demo password `SyntheticDemo42`. Open [Adzy](http://127.0.0.1:8000/app), sign in, open **Think → Review strategy**, inspect the directions and choose **Lock this strategy** or **Reject this version**. Refresh preserves the workflow. Stop the server and rerun the same `serve` command while paused to test restart. After approval, **Prepare the poster** displays the graph's authoritative WHO/SAY/PROVE/DO contract. Paid generation is disabled in this demo; the review journey does not require a click on Make the ad.
 
-## Status
+`--capture-sdk` uses the real SDK with an in-memory exporter, writes only local redacted synthetic observations to `.review-app-demo/sdk-capture.json`, and connects no external account. Omit it for the default no-export operation. Cleanup after stopping the server:
 
-Actively being built, with the gaps tracked in `process.md §6` rather than smoothed over.
-The media-buying layer — objective deduction, live competitor ad intelligence, kill-switch
-governance — is partially built. Several extraction thresholds are calibrated against a
-measured corpus and carry documented watch-items rather than being solved in general.
+```bash
+python -m workflows.demo cleanup --directory .review-app-demo
+```
 
-The system remediates ungrounded claims; it does not prevent them at the model level.
-That distinction is the reason the audit trail exists.
+Cleanup stops the guarded labeled container and removes the CLI-owned files. Application checkpoint/auth/capture subdirectories remain for inspection; delete this disposable demo directory yourself when no longer needed.
 
-## Built with
+### Configure your own local application
 
-Python 3.11, Playwright, FastAPI, Google Vertex AI (Gemini, Imagen, Veo), ElevenLabs,
-Pillow, OpenCV, FFmpeg, pytest.
+Provision a new local PostgreSQL database. Privately set `PERSISTENCE_BACKEND=postgres`, `BASEERA_DATABASE_URL` to its `postgresql+psycopg://...` DSN, `BASEERA_WEBAPP_DIR` to an absolute private application directory, and `ADZY_REVIEW_STATE_DIR` to an absolute persistent application-owned checkpoint directory. Keep the signing secret stable across restarts. Apply schema explicitly, then start one application instance:
 
----
+```bash
+python -m alembic upgrade head
+python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+```
 
-© Asmaa Hagag
+Open [Adzy](http://127.0.0.1:8000/app) or [API docs](http://127.0.0.1:8000/docs). This SPA is served from `frontend/index.html` and `frontend/assets/`; no frontend build is needed. Existing legacy storage remains available, but canonical graph review requires PostgreSQL.
+
+Configure live providers privately using the [provider caller](business_profile/llm/caller.py), [database settings](db/config.py) and [runtime configuration](config/runtime.production.toml). Review startup and a synthetic approval are verified separately from live crawling/model/creative functionality. Paid creative execution remains in the existing pipeline, outside the review graph, with its own configuration and authorization.
+
+## Validation and current scope
+
+```bash
+python -m workflows.verify -q tests/test_review_workflow.py tests/test_app_review_graph.py
+```
+
+This guarded targeted suite uses fresh disposable PostgreSQL, real application authentication/routes/services, persistent SQLite and fictional evidence. It covers exact subjects, owner isolation, stale conflicts, insufficient/rejected cases, concurrent starts/resumes, first-start failure, approval-commit recovery, process resume, local SDK redaction and exporter failures. The [integration result](APP_GRAPH_INTEGRATION_RESULT.md) records the separate actual-shell browser journey and clean-candidate checks. No full-suite success is claimed.
+
+Limits: one application instance with local disk; demo-grade existing authentication; no distributed workers, paid-operation reservations or complete semantic-grounding certification. Failed starts/ambiguous writes require authoritative inspection rather than automatic write retries. Langfuse hosted ingestion, production operation and live provider quality remain unverified. The existing quarantined Facebook collector requires a separately supplied external source; private data and showcase campaign imagery are excluded from the publication candidate.
+
+## Publication files
+
+The [publication checklist](docs/architecture/app_publication.md) defines the application, test, documentation and asset selection. `python tools/prepare_app_publication.py /tmp/adzy-publication-candidate` prepares a source-only export with a SHA-256 inventory and credential-pattern checks. Private records, runtime stores and customer campaign imagery are excluded.
+
+| Path | Responsibility |
+|---|---|
+| `scraper/`, `business_profile/` | Acquisition and profile extraction |
+| `grounding/`, `competitor/`, `strategy/positioning/` | Evidence, research and positioning |
+| `db/`, `api/persistence.py` | Authoritative records and canonical services |
+| `workflows/`, `api/routes/review.py` | Graph runtime, tools, telemetry and authenticated integration |
+| `poster/` | CreativeContract, generation and acceptance |
+| `api/`, `frontend/` | HTTP application and existing Adzy shell |

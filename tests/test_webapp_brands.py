@@ -173,7 +173,9 @@ def test_scrape_and_store_persists_a_brand(monkeypatch):
     """Drive the real async scrape flow with a fake scraper; the brand must land in the store, keyed
     by the deterministic domain_key, and the job must carry status->done + that domain_key."""
     import asyncio
-    from api.jobs.store import JobStore
+    from api.jobs.recorder import JobRecorder
+    from api.jobs.store import JobStore, serving_store
+    from api.persistence import get_persistence
     from api.routes.scrape import _run_scrape_job
     from api.brand_translate import domain_key_from_url as dk
     from tests.test_api_run import _fake_scraper_fn
@@ -183,11 +185,20 @@ def test_scrape_and_store_persists_a_brand(monkeypatch):
 
     async def run_it():
         store = JobStore(ttl_seconds=60)
-        job = store.create()
-        job.domain_key = dk("https://example.com/")
-        store.attach_loop(job.job_id, asyncio.get_running_loop())
-        await _run_scrape_job(job_id=job.job_id, url="https://example.com/", store=store)
-        return store, job.job_id
+        with serving_store(store):
+            job = store.create()
+            job.domain_key = dk("https://example.com/")
+            store.attach_loop(job.job_id, asyncio.get_running_loop())
+            await _run_scrape_job(
+                job_id=job.job_id,
+                url="https://example.com/",
+                recorder=JobRecorder(job_id=job.job_id, provider=get_persistence()),
+                domain_key=dk("https://example.com/"),
+                max_pages=20,
+                max_depth=3,
+                delay=1.0,
+            )
+            return store, job.job_id
 
     store, job_id = asyncio.run(run_it())
     from api.schemas import JobStatus
