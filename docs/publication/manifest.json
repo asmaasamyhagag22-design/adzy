@@ -1,21 +1,13 @@
 {
-  "scope": "application source and focused review validation; no live provider certification",
+  "scope": "application source, curated archived results and focused review validation; no live provider certification",
   "files": [
     {
       "path": ".gitignore",
       "sha256": "2b6301b937ab52a47381442457a5df27925e7c4ff2f0fdf5d77d58ca5c25a920"
     },
     {
-      "path": "APP_GRAPH_INTEGRATION_RESULT.md",
-      "sha256": "8d1e5715911a11d6180e816a154a8ad785897fc15e936281caeade4edeafeada"
-    },
-    {
-      "path": "FOUNDATION_RESULT.md",
-      "sha256": "4ce9e4861eac00c47c92e38a468c07dcf647b478b21f92aee3a394c78591ca12"
-    },
-    {
       "path": "README.md",
-      "sha256": "9f582fa944eb81d81b4c3855c4ca75c17eadfacc20ceb469e949648b9fcad014"
+      "sha256": "71996dc5ea446b40402aeff6924bec3196c6b92a107deaab5013c7534aaef16e"
     },
     {
       "path": "ads_intel/__init__.py",
@@ -707,11 +699,11 @@
     },
     {
       "path": "docs/architecture/app_publication.md",
-      "sha256": "e59e319fd04ac08ebf807e450cb2ba56f6cc30498816c2dfd77d5cd7af1f5cd5"
+      "sha256": "edeef3d00e6601ba60f823a5d3beeafdf7434d0f34d1b17c963fe80c8f9d081e"
     },
     {
       "path": "docs/architecture/app_review.md",
-      "sha256": "13b8661c60a9bfa38ed6652400d1d3a0f66b14c0e508257721c7bcd5c0cdf204"
+      "sha256": "1be1852d0e18dbd7b07819b6e712e4d45327d41b3ec70872b423109aa06e34c3"
     },
     {
       "path": "docs/architecture/app_validation.txt",
@@ -734,6 +726,10 @@
       "sha256": "c4d73328d19e9866ea02c9cad53fecce29d9ecf7ae14f1c4cda14615bb902e36"
     },
     {
+      "path": "docs/getting-started.md",
+      "sha256": "8d46dcf4faddf48c0704bafa4558251067e9181ee14d9c9d20c8d9d3ae045f7d"
+    },
+    {
       "path": "docs/images/app-review-contract.jpg",
       "sha256": "8408c41f067fba636fd94c18ae564b1e96f7b8c0b2588846c57a419381c1ab49"
     },
@@ -754,8 +750,52 @@
       "sha256": "69f1af1a9758cf998f95be98d67d5a18158e294956fa1c1222a2bd0b80dfd46a"
     },
     {
+      "path": "docs/legacy/README.md",
+      "sha256": "049b8ab376222b008a01cf0fc85062cd116fe99806f4f0b2e474e62e68b33426"
+    },
+    {
+      "path": "docs/results/README.md",
+      "sha256": "fba930081801a68d3f00c9efd5450455d119757ee3f1895c5a1c05a954736258"
+    },
+    {
+      "path": "docs/results/nahdi-app-concept.png",
+      "sha256": "49544e6691aec19296cd46e0ed00eadc6d7d0d6effa851af8adf0eaf696cfd71"
+    },
+    {
+      "path": "docs/results/provenance.json",
+      "sha256": "7acde8014f4341da4ebf77eea79ffc9374d9f7cccbccd521ab499354f85c8581"
+    },
+    {
+      "path": "docs/results/studio-fixture-poster.png",
+      "sha256": "ddf915de5bab02faaf3a58e3b21a58ca6c905770ef15aac4ea481c5935f4d522"
+    },
+    {
+      "path": "docs/results/studio-fixture-result.json",
+      "sha256": "e81e28f6a52cc533ba5e899faa9d264e09669e63cfa559076511342eaca760e2"
+    },
+    {
+      "path": "docs/results/volume-cafe-concept.png",
+      "sha256": "043071b6b645e4f36c5eedcf3172752427c7817c854b065446ff856193e721d7"
+    },
+    {
       "path": "docs/upgrade_audit/PROGRESS.md",
-      "sha256": "bb58b23f8dfe06c82629520b43e9db30dd69d70533a35437b88f1685de2f2eeb"
+      "sha256": "7ed8a72097d2463e855d9b5a879f3e4562b772351a38f3f85ba97f7e68d464c9"
+    },
+    {
+      "path": "docs/validation/app-review-integration.md",
+      "sha256": "f61899ab3e224468a9dfbce95f2d42c09f23325e0f60d5643cc28e15fe4b232b"
+    },
+    {
+      "path": "docs/validation/review-foundation.md",
+      "sha256": "c42b770676052d6281e9b42a258661e3dc2da4dc3d37a2aa69bfe51dee9f9d8f"
+    },
+    {
+      "path": "examples/volume-cafe/README.md",
+      "sha256": "16600cc2e48d309bb02fff88619509f84f89693a306cd9fd897f00b6a6782e81"
+    },
+    {
+      "path": "examples/volume-cafe/profile-excerpt.json",
+      "sha256": "1f3a83e1c3f2527aab95d77ae6b4983986462ca89f1bea9c568d3aa011075aba"
     },
     {
       "path": "frontend/assets/adzy-app.js",
@@ -4027,7 +4067,7 @@
     },
     {
       "path": "tools/prepare_app_publication.py",
-      "sha256": "2f8c3eb757fc566cbaf862875e314334f450f8060841e5dbae6c161828ae829a"
+      "sha256": "1f051a7c229a1701741ee49026d40835655e5eb6627f1dfceba7c34e49cd2d49"
     },
     {
       "path": "trends/__init__.py",
@@ -4124,14 +4164,5 @@
     "venvs",
     "checkpoints",
     "Git metadata"
-  ],
-  "release": {
-    "base_commit": "4bc3915a593571d0474f8532819f4f63926203dc",
-    "branch": "adzy/review-integration",
-    "application_source_equivalence": "467 executable/source assets match prior verified integration after CRLF normalization",
-    "focused_tests": "23 passed; not repeated because application behavior was unchanged",
-    "export_demo_and_application_startup": "verified",
-    "hosted_telemetry": "unverified",
-    "paid_calls": 0
-  }
+  ]
 }

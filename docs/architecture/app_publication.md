@@ -1,6 +1,6 @@
 # Application publication checklist
 
-The release combines the current application and review integration with the default branch. PUBLICATION_MANIFEST.json inventories the selected files and their SHA-256 digests. Internal handoffs, private datasets and runtime state stay outside this selection.
+The release combines the current application and review integration with the default branch. docs/publication/manifest.json inventories the selected files and their SHA-256 digests. Internal handoffs, private datasets and runtime state stay outside this selection.
 
 ## Required application
 
@@ -14,9 +14,9 @@ The release combines the current application and review integration with the def
 - [ ] `workflows/*.py`, `api/routes/review.py`, integration edits to `api/main.py` and `frontend/assets/adzy-app.js`.
 - [ ] `requirements-workflow.in` / `requirements-workflow.txt`: standalone demo environment, not an overlay on the application lock.
 - [ ] All current Python/Node test sources, including `tests/test_review_workflow.py`, `tests/test_app_review_graph.py`, `tests/conftest.py` and the earlier approval/application regressions. Private fixture datasets are excluded.
-- [ ] README, integration result, current architecture/graph/checklist, a concise foundation record and integration progress.
+- [ ] README, `docs/getting-started.md`, reports under `docs/validation/`, current architecture/checklist and integration progress.
 - [ ] Actual synthetic application screenshots under `docs/images/`, including `app-review-paused.jpg`, `app-review-ready.jpg` and `app-review-contract.jpg`; never describe them as customer campaign results.
-- [ ] Generated candidate `PUBLICATION_MANIFEST.json`: path and SHA-256 inventory, exclusion policy and credential-pattern scan findings. Review source diffs separately before publication.
+- [ ] Generated candidate `docs/publication/manifest.json`: path and SHA-256 inventory, exclusion policy and credential-pattern scan findings. Review source diffs separately before publication.
 
 ## Dependency inventory
 
@@ -34,3 +34,7 @@ External prerequisites remain separate: Docker plus PostgreSQL for disposable de
 - [ ] Existing `frontend/assets/showcase/` campaign imagery: absent from the source candidate because rights/customer disclosure are not established by this task. The showcase endpoint and empty-gallery behavior remain in the application.
 
 The scanner rejects common private-key/provider-token literals and never prints their values. It is a limited automated check, not proof that all secrets or publication rights have been assessed. The candidate is intentionally source-only; missing customer assets are not filled with private data.
+
+## Curated visible results
+
+`docs/results/` contains selected historical generated concepts and one separately labeled fictional integration render. `examples/volume-cafe/` contains a narrow public-source excerpt, not the full stored profile. These explicit demonstration assets are included at the project owner's request; raw galleries and customer/account stores remain excluded. Provenance hashes and copy limitations accompany the results.

@@ -1,0 +1,13 @@
+{
+  "example_kind": "historical public-website extraction excerpt",
+  "input_url": "https://volumeqatar.com/",
+  "brand_name": "Volume Cafe",
+  "extracted_fact": {
+    "value": "A two-floor café, library and event space in Qanat Quartier, Pearl Qatar.",
+    "evidence": {
+      "quote": "Volume Café is a two-floor café, library and event space located in Qanat Quartier in Pearl Qatar.",
+      "page_url": "https://volumeqatar.com/history/"
+    }
+  },
+  "scope": "Historical captured source text, not a fresh crawl or a current location confirmation. The Mall of Qatar mention in the archived poster is not verified by this excerpt."
+}

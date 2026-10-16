@@ -14,7 +14,7 @@ A failed start with no usable checkpoint is FAILED/START_FAILED and is not autom
 - Real application shell: login → Think/Strategy → human-review pause → refresh → application-process restart → same workflow → UI approval → one exact PostgreSQL approval → READY_FOR_CREATIVE → Creative Direction. No generation button was clicked. Screenshots show fictional Studio Fixture evidence.
 - Fresh Python3.12/Linux installation using `python -m pip install -r requirements-app.txt` passed `pip check`.
 - A source-only export reproduced workflow init/start/fresh-process resume/status/cleanup and full application startup, `/app` HTTP200, real login and exact-contract approval through application routes. README links and images were checked in the export.
-- [Synthetic browser evidence](docs/architecture/app_browser_evidence.json) records matching workflow/subject before and after restart. [Candidate evidence](docs/architecture/app_candidate_evidence.json) records the executed commands.
+- [Synthetic browser evidence](../architecture/app_browser_evidence.json) records matching workflow/subject before and after restart. [Candidate evidence](../architecture/app_candidate_evidence.json) records the executed commands.
 
 ## Observability
 

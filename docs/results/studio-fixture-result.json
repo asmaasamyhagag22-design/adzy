@@ -1,0 +1,13 @@
+{
+  "domain_key": "studio_example_test",
+  "strategy_version_id": "1e6ad573-d027-429d-8fb8-d47c442732b3",
+  "creative_contract_id": "cc_8d433d03c829575eb4ba485ee34c3dee",
+  "generation_attempt_id": "697887da-780d-4f07-9ea0-84ec95e9998b",
+  "qa_status": "pass",
+  "accepted": true,
+  "evidence_kind": "fictional integration test; provider and vision responses synthetic",
+  "poster_sha256": "ddf915de5bab02faaf3a58e3b21a58ca6c905770ef15aac4ea481c5935f4d522",
+  "recorded_attempt_sha256": "ddf915de5bab02faaf3a58e3b21a58ca6c905770ef15aac4ea481c5935f4d522",
+  "qa_disclosure": "SYNTHETIC_TEST: injected vision response; no live validation",
+  "current_live_verification": false
+}

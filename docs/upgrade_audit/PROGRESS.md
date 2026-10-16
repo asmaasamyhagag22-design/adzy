@@ -11,4 +11,4 @@
 
 Current limitations: single-instance local checkpoints, demo-grade authentication, unverified hosted telemetry/live providers/production and pending semantic-grounding/paid-operation reservation work.
 
-See [integration evidence](../../APP_GRAPH_INTEGRATION_RESULT.md) and [publication checklist](../architecture/app_publication.md).
+See [integration evidence](../validation/app-review-integration.md) and [publication checklist](../architecture/app_publication.md).

@@ -11,7 +11,7 @@ PACKAGES = ('ads_intel','advisor','api','brand','business_profile','campaign','c
     'launch_bundle','marketing_intel','media_plan','media_plan_v2','ops','policy_linter',
     'poster','reel','reviews','scraper','scripts','social_intel','strategy','telemetry','trends','workflows')
 EXTENSIONS = {'.py','.yaml','.yml','.toml','.sql','.mako'}
-DOCS = ('.gitignore','README.md','FOUNDATION_RESULT.md','APP_GRAPH_INTEGRATION_RESULT.md',
+DOCS = ('.gitignore','README.md','docs/validation/review-foundation.md','docs/validation/app-review-integration.md','docs/getting-started.md',
     'alembic.ini','requirements.txt','requirements-lock.txt','requirements-workflow.in',
     'requirements-workflow.txt','requirements-app.in','requirements-app.txt',
     'tests/conftest.py','tests/test_review_workflow.py','tests/test_app_review_graph.py',
@@ -38,6 +38,9 @@ def prepare(destination):
     paths.update(root/'docs/architecture'/name for name in public_architecture if (root/'docs/architecture'/name).is_file())
     paths.update(p for p in (root/'docs/images').glob('*') if p.suffix in {'.png','.jpg'})
     paths.add(root/'config/runtime.production.toml')
+    paths.add(root/'docs/legacy/README.md')
+    for folder in ('docs/results','examples/volume-cafe'):
+        paths.update(p for p in (root/folder).glob('*') if p.is_file() and p.suffix in {'.md','.json','.png'})
     findings = []
     patterns = {'private_key':r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----',
         'google_key':r'AIza[0-9A-Za-z_-]{30,}',
@@ -54,12 +57,14 @@ def prepare(destination):
                     findings.append({'path':str(rel),'line':text.count('\n',0,m.start())+1,'rule':rule})
         out = target/rel; out.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(source,out)
         rows.append({'path':str(rel),'sha256':hashlib.sha256(raw).hexdigest()})
-    manifest = {'scope':'application source and focused review validation; no live provider certification',
+    manifest = {'scope':'application source, curated archived results and focused review validation; no live provider certification',
         'files':rows,'secret_scan':{'patterns':list(patterns),'findings':findings},
         'exclusions':['.env*','database_export','outputs','scrapes','runs','registry','private root JSON/media',
                       'frontend/assets/showcase (customer-derived imagery; rights not assessed)',
                       'historical audit artifacts','venvs','checkpoints','Git metadata']}
-    (target/'PUBLICATION_MANIFEST.json').write_text(json.dumps(manifest,indent=2)+'\n')
+    manifest_path = target/'docs/publication/manifest.json'
+    manifest_path.parent.mkdir(parents=True,exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest,indent=2)+'\n')
     print(json.dumps({'candidate':str(target),'files':len(rows),'secret_findings':findings}))
     if findings: raise SystemExit('Candidate contains credential findings; do not publish')
 
