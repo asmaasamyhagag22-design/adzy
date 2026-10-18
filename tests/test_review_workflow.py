@@ -344,3 +344,56 @@ def test_compiler_recovery_cannot_refresh_changed_material_hashes(review, monkey
     assert recovered['status'] == 'BLOCKED' and recovered['reasons'] == ['STALE_SUBJECT']
     assert recovered['subject_hash'] == state['subject_hash']
     assert len(approvals(service, data)) == 1
+
+
+@pytest.mark.parametrize('final_server_available', [True, False])
+def test_demo_never_migrates_against_temporary_unix_only_postgres(tmp_path, monkeypatch, final_server_available):
+    """Docker's init server accepts Unix probes before the published TCP server starts."""
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    import workflows.demo as demo
+    import workflows.runtime as runtime
+    import sqlalchemy
+    from alembic import command as migrations
+    state = {'tcp_probes': 0, 'tcp_ready': False, 'migrations': 0, 'stopped': False}
+
+    def docker_command(args):
+        if args[:2] == ['docker', 'port']:
+            return '127.0.0.1:23765'
+        if args[:2] == ['docker', 'stop']:
+            state['stopped'] = True
+        return 'SYNTHETIC_CONTAINER'
+
+    def readiness(args, **kwargs):
+        # The temporary bootstrap server already accepts Unix-socket connections.
+        if '-h' not in args:
+            return SimpleNamespace(returncode=0)
+        state['tcp_probes'] += 1
+        state['tcp_ready'] = final_server_available and state['tcp_probes'] >= 3
+        return SimpleNamespace(returncode=0 if state['tcp_ready'] else 1)
+
+    class Engine:
+        def begin(self):
+            assert state['tcp_ready'], 'migrations started while only the temporary server was ready'
+            return nullcontext(object())
+
+    def migrate(*args):
+        assert state['tcp_ready']
+        state['migrations'] += 1
+
+    monkeypatch.setenv('BASEERA_DATABASE_URL', '')
+    monkeypatch.setattr(demo, 'command', docker_command)
+    monkeypatch.setattr(demo.subprocess, 'run', readiness)
+    monkeypatch.setattr(demo.time, 'sleep', lambda seconds: None)
+    monkeypatch.setattr(sqlalchemy, 'create_engine', lambda *args, **kwargs: Engine())
+    monkeypatch.setattr(migrations, 'upgrade', migrate)
+    monkeypatch.setattr(demo, 'connect', lambda manifest: (object(), object()))
+    monkeypatch.setattr(demo, 'seed', lambda *args: {})
+    monkeypatch.setattr(runtime, 'setup', lambda directory: None)
+    if final_server_available:
+        assert demo.init(tmp_path/'demo')['initialized'] is True
+        assert state['tcp_probes'] == 3 and state['migrations'] == 1
+    else:
+        with pytest.raises(RuntimeError, match='PostgreSQL startup failed'):
+            demo.init(tmp_path/'demo')
+        assert state['migrations'] == 0 and state['stopped']

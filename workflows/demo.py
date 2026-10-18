@@ -85,8 +85,9 @@ def init(directory):
              '--label','adzy.review-demo=true','--publish','127.0.0.1::5432',
              '--env','POSTGRES_HOST_AUTH_METHOD=trust','--env','POSTGRES_DB=baseera_pytest_foundation','postgres:16-alpine'])
     try:
+        # Docker's bootstrap server is Unix-only; migrations need the final TCP server.
         for _ in range(60):
-            p = subprocess.run(['docker','exec',name,'pg_isready','-U','postgres'],capture_output=True)
+            p = subprocess.run(['docker','exec',name,'pg_isready','-h','127.0.0.1','-U','postgres','-d','baseera_pytest_foundation'],capture_output=True)
             if p.returncode == 0: break
             time.sleep(.25)
         else: raise RuntimeError('PostgreSQL startup failed')
