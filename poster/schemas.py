@@ -95,6 +95,14 @@ class PosterDesignSpec(BaseModel):
     # the stable per-brand pairing (backward-compatible).
     variation_seed: Optional[int] = None
 
+    # Optional case art direction, in the compositor's 1080px CSS coordinate space.
+    # None preserves the established treatment's default typography.
+    copy_surface: Literal["auto", "light", "dark"] = "auto"
+    visual_medium: Literal["photography", "illustration", "typography"] = "photography"
+    headline_font_size: Optional[float] = Field(default=None, ge=24, le=160)
+    support_font_size: Optional[float] = Field(default=None, ge=18, le=64)
+    cta_font_size: Optional[float] = Field(default=None, ge=20, le=56)
+
     # FREE-FORM layout (Phase 2): the LLM places the text cluster + logo at CONTINUOUS
     # normalized coordinates instead of one of the 6 fixed `layout` archetypes — so the
     # composition is unbounded (kills the "same template" feel), driven by the brand's

@@ -1139,13 +1139,24 @@ def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
             except Exception as e:  # noqa: BLE001
                 log(f"[oneshot] attempt {attempt} generation failed: {type(e).__name__}: {e}")
                 continue
+            from poster.paid_boundary import checkpoint_candidate
+            def save_oneshot(qa=None,decision=None,reason='One-shot rendered; checks not completed'):
+                policy=required_poster_qa_policy(arabic=arabic,logo_composited=bool(logo_bytes),
+                    expect_real_products=bool(product_imgs),product_named=bool(product_image))
+                ident=poster_attempt_identity(out_path,attempt_id=generation_attempt_id or out_path.stem,candidate_id=out_path.stem)
+                qa=qa or PosterQAVerdict(checked=False,reason=reason,attempt_identity=ident,
+                    policy_id=policy.policy_id,policy_version=policy.version,policy_context=policy.context)
+                checkpoint_candidate(out_path,identity=ident,policy=policy,qa=qa,acceptance=decision,
+                    brief=brief,spec=None,local_checks={'source':'ONESHOT','defects':[]},background_path=out_path)
             # FIX-C1: reject a render whose reserved corner carries a painted placeholder
             # slot (the white box the owner has fought for 2 months) BEFORE compositing.
             if logo_bytes and _corner_placeholder_detected(out_path, rtl=arabic):
+                save_oneshot(reason="Local corner-placeholder check rejected this candidate")
                 log(f"[oneshot] attempt {attempt}: corner placeholder slot detected -> retry")
                 continue
             if logo_bytes and _overlay_real_logo(out_path, logo_bytes, rtl=arabic):
                 log("[oneshot] real logo composited (deterministic, crisp)")
+            save_oneshot()
             seen = oneshot.read_rendered_text(out_path, caller)
             verdict = oneshot.text_fidelity(expected, seen)
             # VISUAL brand fabrication gate (owner caught it: the model painted the
@@ -1170,6 +1181,7 @@ def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
             # back. Failed and could-not-be-checked both continue to the next attempt, and after
             # the attempts run out the classic overlay renders the same copy correctly.
             if not verdict.get("verified") or brand_lines > 2 or len(junk_extras) >= 3:
+                save_oneshot(reason="Verbatim copy / painted branding / label fidelity not established")
                 continue    # hard gates: verbatim copy / no painted branding / no label junk
 
             # ART-CRITIC pass (was classic-path only): clutter, weak contrast,
@@ -1250,6 +1262,7 @@ def _try_oneshot(profile, brief, concept, brand_dna, caller, *, arabic, audit,
                     attempt_id=identity.attempt_id,
                     candidate_id=identity.candidate_id),
             )
+            save_oneshot(qa,decision)
             result = PosterGenResult(
                 poster_path=str(out_path), filename=Path(out_path).name,
                 image_base64=base64.b64encode(Path(out_path).read_bytes()).decode("ascii"),
@@ -1422,16 +1435,27 @@ def _attempt_rank(r: "PosterGenResult") -> tuple[int, int, int]:
             int(r.qa.score or 0))
 
 
-def _qa_image_fixable(v: PosterQAVerdict) -> bool:
-    """True when a QA failure is something REGENERATING THE IMAGE can fix (off-brand colour,
-    candid look, baked Latin, a cluttered/competing-focal composition). A pure layout clip or
-    a low-res logo is handled deterministically elsewhere — re-rolling the image won't change
-    those, so we don't loop on them."""
-    return (v.candid_violation or (not v.on_brand_color) or v.has_latin_text
-            or (not v.single_focal) or v.invented_product or v.third_party_mark
-            # an illogically placed product (floating / mis-scaled / no contact shadow) is a
-            # generation failure, so re-rolling the image is exactly the right remedy.
-            or (not v.placement_logical))
+def _qa_image_fixable(v: PosterQAVerdict, approved_copy=None) -> bool:
+    """Only background defects buy a new background. Ambiguous Latin never buys a retry."""
+    latin = bool(v.has_latin_text)
+    if approved_copy is not None:
+        import re
+        latin = bool(v.has_latin_text and any(re.search('[A-Za-z]', line)
+            and line not in approved_copy for line in (v.text_lines or [])))
+    return bool(v.candid_violation or not v.on_brand_color or latin
+                or v.invented_product or v.third_party_mark or not v.placement_logical)
+
+
+def _repair_local_spec(spec, measurements):
+    """One conservative compositor repair; no copy, evidence or background rewrite."""
+    boxes=measurements.get('boxes',[])
+    overflow=max([0]+[b['bottom']-1280 for b in boxes if b['kind']!='.brand-logo'])
+    box=list(spec.text_box or [.075,.50,.85])
+    box[1]=max(.12,min(box[1],.50)-max(0,overflow)/1350)
+    return spec.model_copy(update={'text_box':box,'headline_treatment':'block',
+        'headline_font_size':min(spec.headline_font_size or 67,90),
+        'support_font_size':max(spec.support_font_size or 0,46),
+        'cta_font_size':max(spec.cta_font_size or 0,38),'copy_surface':'light'})
 
 
 def _verified_external_headline(headline_override, concept_headline, ledger):
@@ -1546,7 +1570,8 @@ def generate_poster(
     #     the concept prompt AND the grounding ledger (so a research-sourced number in
     #     the copy resolves instead of being blanked). None -> behavior unchanged.
     research = None
-    if caller is not None:
+    from poster.paid_boundary import external_research_allowed
+    if caller is not None and external_research_allowed():
         try:
             from competitor.search_providers import get_default_search_provider
             from poster.art_director import _persona_lines
@@ -1708,6 +1733,17 @@ def generate_poster(
             raise CreativeContractError(
                 "POSTER_STRATEGY_VERIFICATION_FAILED",
                 f"Poster strategy verification failed after targeted repair: {codes}")
+
+    if creative_contract is not None:
+        from poster.claim_assessment import repair_copy_once
+        concept, brief, copy_repair = repair_copy_once(concept=concept, brief=brief, contract=creative_contract)
+        if copy_repair:
+            strategy_verification = verifier.verify(
+                contract=creative_contract, concept=concept, brief=brief,
+                product_context=(product_name or ''), language=('ar' if arabic else 'en'))
+            if not strategy_verification.overall_pass:
+                raise CreativeContractError('POSTER_STRATEGY_VERIFICATION_FAILED', 'Copy repair failed strategy checks.')
+            repair_history.append(copy_repair)
 
     # 3b) Brand-safety audit trail (Step 3c): the (claim->source) proof of the generated copy +
     #     the gate's remediation log + explicit scoping. Built once (independent of the
@@ -2029,194 +2065,215 @@ def generate_poster(
             if upscale:
                 bg_path = _maybe_upscale(bg_path, log=log)
 
-        filename = f"poster_{uuid.uuid4().hex[:8]}.png"
-        # INK FIRST (reviewer, measured): the cleanest band on a bright poster is also the
-        # BRIGHTEST — moving white copy there took contrast from 4.16 to 1.24, and no band on
-        # that poster cleared 4.5:1 in white at all. The remedy order is colour, then position,
-        # then scrim. This measures the ink against the very background about to be rendered.
-        _ink = "#f5f3ef"
-        try:
-            from poster.contrast_gate import ink_for_background
-            _ink = ink_for_background(bg_path, zones=_copy_zones(spec))
-        except Exception:  # noqa: BLE001
-            pass
-        poster_path = str(render_html_to_png(
-            render_poster_html(brief, bg_path, spec=spec, copy_ink=_ink,
-                               product_zone=(_paste_zone if _mode_composited else None),
-                               product_width=_paste_width), out / filename))
-        # A CONTRAST RATIO, MEASURED (reviewer 2026-07-26: «أقل من 4.5:1 = reject»). Every
-        # legibility fix before this was an argument about gradient stops; this is the number
-        # the standard is written in, computed on the exact generated pixels under assessment.
-        _contrast = None
-        try:
-            from poster.contrast_gate import check_copy_contrast
-            _contrast = check_copy_contrast(
-                poster_path, zones=_copy_zones(spec), ink=_ink)
-            if _contrast.checked:
-                log(f"[contrast] worst {_contrast.worst_ratio}:1 "
-                    f"({'pass' if _contrast.passed else 'FAIL'})")
-        except Exception:  # noqa: BLE001 — a measurement failure must not kill a render
-            _contrast = None
-
-        if _contrast is not None and _contrast.passed is False:
-            # THE RETRY MOVES, IT DOES NOT HOPE (reviewer: «الهيدلاين مكانه الطبيعي فوق في
-            # الفراغ… بتحل الكونتراست والتوزيع بضربة واحدة»). The next attempt hosts the copy
-            # in the measured clearest band instead of retrying the same busy spot.
+        for local_revision in range(2):
+            filename = f"poster_{uuid.uuid4().hex[:8]}.png"
+            # INK FIRST (reviewer, measured): the cleanest band on a bright poster is also the
+            # BRIGHTEST — moving white copy there took contrast from 4.16 to 1.24, and no band on
+            # that poster cleared 4.5:1 in white at all. The remedy order is colour, then position,
+            # then scrim. This measures the ink against the very background about to be rendered.
+            _ink = "#f5f3ef"
             try:
-                from poster.placement import clearest_copy_zone
-                # THE COPY FLEES THE PRODUCT'S ACTUAL PLACE, not a constant's. Passing the old
-                # module-level zone here told the copy to avoid a rectangle the product was no
-                # longer in — a true statement about the wrong picture.
-                from poster.product_composite import UNMEASURED_ZONE as _PZ
-                _avoid = (_paste_zone or _PZ) if _composite_after else None
-                _zone = clearest_copy_zone(bg_path, product_zone=_avoid)
-                if _zone:
-                    spec = spec.model_copy(update={"text_box": list(_zone)})
+                from poster.contrast_gate import ink_for_background
+                _ink = ink_for_background(bg_path, zones=_copy_zones(spec))
             except Exception:  # noqa: BLE001
                 pass
+            if spec.copy_surface == 'light': _ink = '#11151b'
+            elif spec.copy_surface == 'dark': _ink = '#f5f3ef'
+            html = render_poster_html(brief, bg_path, spec=spec, copy_ink=_ink,
+                product_zone=(_paste_zone if _mode_composited else None), product_width=_paste_width)
+            poster_path = str(render_html_to_png(html, out / filename))
+            from poster.render_playwright import inspect_layout
+            local_measurements = inspect_layout(html)
+            # A CONTRAST RATIO, MEASURED (reviewer 2026-07-26: «أقل من 4.5:1 = reject»). Every
+            # legibility fix before this was an argument about gradient stops; this is the number
+            # the standard is written in, computed on the exact generated pixels under assessment.
+            _contrast = None
+            try:
+                from poster.contrast_gate import check_copy_contrast
+                _contrast = check_copy_contrast(
+                    poster_path, zones=_copy_zones(spec), ink=_ink)
+                if _contrast.checked:
+                    log(f"[contrast] worst {_contrast.worst_ratio}:1 "
+                        f"({'pass' if _contrast.passed else 'FAIL'})")
+            except Exception:  # noqa: BLE001 — a measurement failure must not kill a render
+                _contrast = None
 
-        # TELL THE CRITIC WHAT THIS PIPELINE ALREADY KNOWS (measured, Nano Care 2026-07-28). The
-        # ONESHOT path has passed both of these since the topshoes fix (see the call ~700 lines
-        # up); the CLASSIC path — the one that actually renders most posters — passed neither, so
-        # on every classic render the critic was asked two questions whose answers were sitting in
-        # local variables:
-        #   * "is this a fabricated product?" — asked about a photograph of the real product,
-        #     composited pixel-exact. It answered "the poster features a fabricated product", and
-        #     that is a HARD GATE, so a correct poster failed.
-        #   * "are the logo's letterforms clean?" — asked about the brand's OWN logo file, inlined
-        #     by the template. A model cannot garble what it never drew; a stylised wordmark
-        #     answering "distorted" is the brand's design, and it was another hard gate.
-        # Both are the session's recurring class: produced, then never delivered one step later.
-        _real_product_in_frame = _mode_composited or (_composite_after and _mode == "full_bleed")
-        qa_policy = required_poster_qa_policy(
-            arabic=arabic,
-            logo_composited=bool(getattr(brief, "logo_url", "")),
-            expect_real_products=(True if _real_product_in_frame else
-                                  (False if not _composite_after else None)),
-            product_named=bool(product_name),
-        )
-        identity = poster_attempt_identity(
-            poster_path,
-            attempt_id=(generation_attempt_id or Path(poster_path).stem),
-            candidate_id=Path(poster_path).stem,
-        )
-        verdict = poster_vision_qa(
-            poster_path, caller=qa_caller, brand_dna=brand_dna, arabic=arabic,
-            expect_real_products=(True if _real_product_in_frame else
-                                  (False if not _composite_after else None)),
-            logo_composited=bool(getattr(brief, "logo_url", "")),
-            product_named=bool(product_name),
-            expected_attempt_identity=identity,
-            required_policy=qa_policy)
-        verdict = _excuse_expected_brand(
-            verdict, product_name or "", arabic=arabic,
-            logo_composited=bool(getattr(brief, "logo_url", "")))
-        # MALFORMED TEXT AND EXTRA PRODUCTS, judged on the pixels. Both were shipped repeatedly
-        # today under a `overall_pass` the critic itself had granted, because neither question
-        # was ever asked.
-        if getattr(verdict, "garbled_text", False):
-            verdict = verdict.model_copy(update={
-                "overall_pass": False,
-                "reason": (verdict.reason + " | " if verdict.reason else "")
-                          + "malformed text is rendered in the frame"})
-            # LOCATED AND STILL WRONG IS ALSO NOT A PASS.
-            #
-            # The hybrid lane degrades to the paste when the drawn label cannot be CORNERED —
-            # "a drawn label nobody corrected is a garbled label", as the comment there says. It
-            # had no answer for the other half: a label that WAS cornered, WAS reprojected, and
-            # came out garbled anyway. Located was treated as correct.
-            #
-            # MEASURED 2026-08-02 on an Al Fouad poster for the Uriage Hyséac paste: the
-            # homography covered URIAGE, Hyséac and PÂTE SOS, and the line beneath the brand name
-            # shipped as «SAV TAERMALE» instead of «EAU THERMALE». On a registered pharmaceutical
-            # label that is not a typo, it is a different product. Same response as an
-            # unlocatable label: every later attempt uses the measured cut-and-paste, whose
-            # lettering is pixel-identical because it is the brand's own photograph.
-            if _use_hybrid and not _hybrid_degraded:
-                _hybrid_degraded = True
-                log("[hybrid] the reprojected label is still malformed -> falling back to the "
-                    "paste from the next attempt")
-        from poster.vision_qa import product_count_ok
-        _pc = product_count_ok(getattr(verdict, "product_count", 0),
-                               product_named=bool(product_name))
-        if _pc is False:
-            verdict = verdict.model_copy(update={
-                "overall_pass": False,
-                "reason": (verdict.reason + " | " if verdict.reason else "")
-                          + f"{verdict.product_count} products in an ad for one named product"})
-        # EVERY STRING ON THE POSTER IS ONE WE ASKED FOR (reviewer: «لو فيه نص مش موجود في الـ
-        # approved copy list -> reject»). The vision verdict already lists what it read; the
-        # judgement is code comparing strings, so nothing hallucinates a pass.
-        try:
-            from poster.ocr_gate import product_label_lines, stray_text_verdict
-            _seen = list(getattr(verdict, "text_lines", None) or [])
-            # Read the label ONCE per render, whenever a real asset is IN PLAY — pasted or drawn.
-            #
-            # This used to require `_composite_after`, i.e. the paste lane only, so on the HYBRID
-            # lane the gate was handed an empty list and could not know what the box actually
-            # says. That is the lane where the lettering is at risk: the model draws the pack and
-            # the real artwork is reprojected onto it. MEASURED: «SAV TAERMALE» for «EAU
-            # THERMALE» reached the client with the string gate unable to see anything wrong,
-            # because it had never been told the true line.
-            _label_lines = (product_label_lines(asset=_primary_product_img, caller=qa_caller)
-                            if _primary_product_img else [])
-            _stray = stray_text_verdict(
-                seen_lines=_seen,
-                approved=[brief.headline or "", brief.subheadline or "", brief.cta_text or ""]
-                         + list(brief.offerings or []),
-                brand_name=brief.business_name or "",
-                product_name=product_name or "",
-                assets_composited=bool(_composite_after),
-                # THE LOGO IS A PASTED ASSET TOO, and most wordmarks contain words. MEASURED on
-                # NTI: its own logo's sub-line, "National Telecommunication Institute", came back
-                # as "text nobody authorized was rendered" — the pipeline composited it and then
-                # failed the poster for it. `_composite_after` is `bool(product_image)`, so a
-                # brand with no product (an institute, a clinic, a service) could never earn the
-                # exemption and failed forever on its own name.
+            # TELL THE CRITIC WHAT THIS PIPELINE ALREADY KNOWS (measured, Nano Care 2026-07-28). The
+            # ONESHOT path has passed both of these since the topshoes fix (see the call ~700 lines
+            # up); the CLASSIC path — the one that actually renders most posters — passed neither, so
+            # on every classic render the critic was asked two questions whose answers were sitting in
+            # local variables:
+            #   * "is this a fabricated product?" — asked about a photograph of the real product,
+            #     composited pixel-exact. It answered "the poster features a fabricated product", and
+            #     that is a HARD GATE, so a correct poster failed.
+            #   * "are the logo's letterforms clean?" — asked about the brand's OWN logo file, inlined
+            #     by the template. A model cannot garble what it never drew; a stylised wordmark
+            #     answering "distorted" is the brand's design, and it was another hard gate.
+            # Both are the session's recurring class: produced, then never delivered one step later.
+            _real_product_in_frame = _mode_composited or (_composite_after and _mode == "full_bleed")
+            qa_policy = required_poster_qa_policy(
+                arabic=arabic,
                 logo_composited=bool(getattr(brief, "logo_url", "")),
-                # WHAT THE REAL BOX SAYS, read off the asset we pasted. Without this the gate
-                # rejected a correct poster three times for rendering the product's own Arabic
-                # label — the Latin exemption above could not cover it, and every failure cost
-                # another paid image.
-                product_label_lines=_label_lines)
-            if _stray.checked and _stray.passed is False:
-                log(f"[ocr] {_stray.reason}")
+                expect_real_products=(True if _real_product_in_frame else
+                                      (False if not _composite_after else None)),
+                product_named=bool(product_name),
+                visual_medium=spec.visual_medium,
+                authorized_brand_names=[v['value'] for v in (getattr(creative_contract,'copy_metadata_evidence',{}).get('business_name',[]) if creative_contract else []) if v.get('value')],
+            )
+            identity = poster_attempt_identity(
+                poster_path,
+                attempt_id=(generation_attempt_id or Path(poster_path).stem),
+                candidate_id=Path(poster_path).stem,
+            )
+            from poster.paid_boundary import checkpoint_candidate
+            def checkpoint(qa, acceptance=None):
+                checkpoint_candidate(poster_path, identity=identity, policy=qa_policy,
+                    qa=qa, acceptance=acceptance, brief=brief, spec=spec,
+                    local_checks=local_measurements, background_path=bg_path)
+            pending = PosterQAVerdict(checked=False,reason='Candidate rendered; vision QA not completed',
+                attempt_identity=identity,policy_id=qa_policy.policy_id,policy_version=qa_policy.version,
+                policy_context=qa_policy.context)
+            checkpoint(pending)
+            if _contrast is not None and _contrast.passed is False:
+                local_measurements['defects'].append('LOCAL_CONTRAST')
+            if local_measurements['defects'] and local_revision == 0:
+                checkpoint(pending)
+                revised = _repair_local_spec(spec,local_measurements)
+                if revised != spec:
+                    spec = revised
+                    log('[local-repair] recomposing the same background before vision QA')
+                    continue
+            verdict = poster_vision_qa(
+                poster_path, caller=qa_caller, brand_dna=brand_dna, arabic=arabic,
+                expect_real_products=(True if _real_product_in_frame else
+                                      (False if not _composite_after else None)),
+                logo_composited=bool(getattr(brief, "logo_url", "")),
+                product_named=bool(product_name),
+                expected_attempt_identity=identity,
+                required_policy=qa_policy)
+            if qa_policy.version == 1:
+                verdict = _excuse_expected_brand(
+                    verdict, product_name or "", arabic=arabic,
+                    logo_composited=bool(getattr(brief, "logo_url", "")))
+            # MALFORMED TEXT AND EXTRA PRODUCTS, judged on the pixels. Both were shipped repeatedly
+            # today under a `overall_pass` the critic itself had granted, because neither question
+            # was ever asked.
+            if getattr(verdict, "garbled_text", False):
                 verdict = verdict.model_copy(update={
                     "overall_pass": False,
-                    "reason": (verdict.reason + " | " if verdict.reason else "") + _stray.reason})
-        except Exception:  # noqa: BLE001 — a gate that cannot run must not fail the render
-            pass
-        if _contrast is not None and _contrast.passed is False and verdict.overall_pass:
-            # The art critic reads a poster the way a person does and still misses this: it
-            # judged "readable" on copy measured at 1.7:1. A number outranks an impression.
-            verdict = verdict.model_copy(update={
-                "overall_pass": False,
-                "reason": (verdict.reason + " | " if verdict.reason else "") + _contrast.reason})
-        decision = decide_poster_acceptance(
-            verdict,
-            attempt_identity=identity,
-            required_policy=qa_policy,
-            current_attempt_identity=poster_attempt_identity(
-                poster_path,
-                attempt_id=identity.attempt_id,
-                candidate_id=identity.candidate_id),
-        )
-        log(f"[qa] attempt={attempt} pass={verdict.overall_pass} checked={verdict.checked} "
-            f"latin={verdict.has_latin_text} clip={verdict.cta_clipped} "
-            f"color={verdict.on_brand_color} candid={verdict.candid_violation} :: {verdict.reason}")
-        result = PosterGenResult(
-            poster_path=poster_path, filename=filename,
-            image_base64=base64.b64encode(Path(poster_path).read_bytes()).decode("ascii"),
-            brief=brief, spec=spec, concept=concept, brand_dna=brand_dna,
-            background_path=str(bg_path), model_used=model_used, prompt=prompt, qa=verdict,
-            acceptance=decision, audit=audit,
-        )
+                    "reason": (verdict.reason + " | " if verdict.reason else "")
+                              + "malformed text is rendered in the frame"})
+                # LOCATED AND STILL WRONG IS ALSO NOT A PASS.
+                #
+                # The hybrid lane degrades to the paste when the drawn label cannot be CORNERED —
+                # "a drawn label nobody corrected is a garbled label", as the comment there says. It
+                # had no answer for the other half: a label that WAS cornered, WAS reprojected, and
+                # came out garbled anyway. Located was treated as correct.
+                #
+                # MEASURED 2026-08-02 on an Al Fouad poster for the Uriage Hyséac paste: the
+                # homography covered URIAGE, Hyséac and PÂTE SOS, and the line beneath the brand name
+                # shipped as «SAV TAERMALE» instead of «EAU THERMALE». On a registered pharmaceutical
+                # label that is not a typo, it is a different product. Same response as an
+                # unlocatable label: every later attempt uses the measured cut-and-paste, whose
+                # lettering is pixel-identical because it is the brand's own photograph.
+                if _use_hybrid and not _hybrid_degraded:
+                    _hybrid_degraded = True
+                    log("[hybrid] the reprojected label is still malformed -> falling back to the "
+                        "paste from the next attempt")
+            from poster.vision_qa import product_count_ok
+            _pc = product_count_ok(getattr(verdict, "product_count", 0),
+                                   product_named=bool(product_name))
+            if _pc is False:
+                verdict = verdict.model_copy(update={
+                    "overall_pass": False,
+                    "reason": (verdict.reason + " | " if verdict.reason else "")
+                              + f"{verdict.product_count} products in an ad for one named product"})
+            # EVERY STRING ON THE POSTER IS ONE WE ASKED FOR (reviewer: «لو فيه نص مش موجود في الـ
+            # approved copy list -> reject»). The vision verdict already lists what it read; the
+            # judgement is code comparing strings, so nothing hallucinates a pass.
+            try:
+                from poster.ocr_gate import product_label_lines, stray_text_verdict
+                _seen = list(getattr(verdict, "text_lines", None) or [])
+                # Read the label ONCE per render, whenever a real asset is IN PLAY — pasted or drawn.
+                #
+                # This used to require `_composite_after`, i.e. the paste lane only, so on the HYBRID
+                # lane the gate was handed an empty list and could not know what the box actually
+                # says. That is the lane where the lettering is at risk: the model draws the pack and
+                # the real artwork is reprojected onto it. MEASURED: «SAV TAERMALE» for «EAU
+                # THERMALE» reached the client with the string gate unable to see anything wrong,
+                # because it had never been told the true line.
+                _label_lines = (product_label_lines(asset=_primary_product_img, caller=qa_caller)
+                                if _primary_product_img else [])
+                _stray = stray_text_verdict(
+                    seen_lines=_seen,
+                    approved=[brief.headline or "", brief.subheadline or "", brief.cta_text or ""]
+                             + list(brief.offerings or []),
+                    brand_name=brief.business_name or "",
+                    product_name=product_name or "",
+                    assets_composited=bool(_composite_after),
+                    # THE LOGO IS A PASTED ASSET TOO, and most wordmarks contain words. MEASURED on
+                    # NTI: its own logo's sub-line, "National Telecommunication Institute", came back
+                    # as "text nobody authorized was rendered" — the pipeline composited it and then
+                    # failed the poster for it. `_composite_after` is `bool(product_image)`, so a
+                    # brand with no product (an institute, a clinic, a service) could never earn the
+                    # exemption and failed forever on its own name.
+                    logo_composited=bool(getattr(brief, "logo_url", "")),
+                    # WHAT THE REAL BOX SAYS, read off the asset we pasted. Without this the gate
+                    # rejected a correct poster three times for rendering the product's own Arabic
+                    # label — the Latin exemption above could not cover it, and every failure cost
+                    # another paid image.
+                    product_label_lines=_label_lines)
+                if _stray.checked and _stray.passed is False:
+                    log(f"[ocr] {_stray.reason}")
+                    verdict = verdict.model_copy(update={
+                        "overall_pass": False,
+                        "reason": (verdict.reason + " | " if verdict.reason else "") + _stray.reason})
+            except Exception:  # noqa: BLE001 — a gate that cannot run must not fail the render
+                pass
+            if _contrast is not None and _contrast.passed is False and verdict.overall_pass:
+                # The art critic reads a poster the way a person does and still misses this: it
+                # judged "readable" on copy measured at 1.7:1. A number outranks an impression.
+                verdict = verdict.model_copy(update={
+                    "overall_pass": False,
+                    "reason": (verdict.reason + " | " if verdict.reason else "") + _contrast.reason})
+            if local_measurements['defects']:
+                verdict = verdict.model_copy(update={'overall_pass':False,
+                    'reason':verdict.reason+' | '+','.join(local_measurements['defects'])})
+            decision = decide_poster_acceptance(
+                verdict,
+                attempt_identity=identity,
+                required_policy=qa_policy,
+                current_attempt_identity=poster_attempt_identity(
+                    poster_path,
+                    attempt_id=identity.attempt_id,
+                    candidate_id=identity.candidate_id),
+            )
+            log(f"[qa] attempt={attempt} pass={verdict.overall_pass} checked={verdict.checked} "
+                f"latin={verdict.has_latin_text} clip={verdict.cta_clipped} "
+                f"color={verdict.on_brand_color} candid={verdict.candid_violation} :: {verdict.reason}")
+            result = PosterGenResult(
+                poster_path=poster_path, filename=filename,
+                image_base64=base64.b64encode(Path(poster_path).read_bytes()).decode("ascii"),
+                brief=brief, spec=spec, concept=concept, brand_dna=brand_dna,
+                background_path=str(bg_path), model_used=model_used, prompt=prompt, qa=verdict,
+                acceptance=decision, audit=audit,
+            )
+            checkpoint(verdict,decision)
+            local_defect = (bool(local_measurements['defects']) or verdict.cta_clipped
+                            or not verdict.strong_typography or not verdict.cta_prominent)
+            if not decision.accepted and local_defect and local_revision == 0:
+                revised = _repair_local_spec(spec,local_measurements)
+                if revised != spec:
+                    spec = revised
+                    log('[local-repair] rejected overlay; reusing the same background once')
+                    continue
+            break
         if best is None or _attempt_rank(result) > _attempt_rank(best):
             best = result           # honesty outranks score — see _attempt_rank
         if decision.accepted:
             _refresh_canonical(poster_path, decision=decision)
             return _emit(result)
-        if attempt < max_qa_retries and _qa_image_fixable(verdict):
+        if attempt < max_qa_retries and not local_defect and _qa_image_fixable(verdict, approved_copy=[brief.headline or "",brief.subheadline or "",brief.cta_text or "",brief.business_name or ""]+list(brief.offerings or [])):
             # Answer what was CRITICISED, not just re-roll the background. Until now `spec` was
             # fixed before this loop, so a "weak typography" verdict was followed by an identical
             # typographic treatment on the next attempt (measured across all three Al Fouad

@@ -90,10 +90,20 @@ class CreativeRequest(BaseModel):
     expected_response: Optional[HypothesisField] = None
 
 
+class MessageSourceSupport(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    policy_version: Literal["verbatim-profile-source@1"] = "verbatim-profile-source@1"
+    support_kind: Literal["SOURCE_ASSERTION"] = "SOURCE_ASSERTION"
+    claim_evidence_ids: dict[str, list[str]]
+    proof_entailment: Literal["NOT_ASSESSED"] = "NOT_ASSESSED"
+
+
 class CreativeContract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
+    message_source_support: Optional[MessageSourceSupport] = None
     creative_contract_id: str
     strategy_version_id: str
     brand_id: str
@@ -124,6 +134,9 @@ class CreativeContract(BaseModel):
     allowed_claims: list[AllowedClaim]
     prohibited_or_unverified_claims: list[str]
     message_boundaries: list[str]
+
+    copy_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    copy_metadata_evidence: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
 
     asset_type: Literal["POSTER"] = "POSTER"
     channel_context: str = ""
@@ -235,17 +248,47 @@ def _consumer_value_problem(value: str) -> str:
 
 
 def _semantic_supports(message: str, proof: str) -> bool:
-    """Conservative deterministic proof/message relation; exact identity always qualifies."""
-    left, right = _norm(message), _norm(proof)
-    if not left or not right:
-        return False
-    if left in right or right in left:
-        return True
-    stop = {"with", "from", "that", "this", "your", "their", "within", "experience",
-            "brand", "food", "the", "and", "for", "our"}
-    lt = {v for v in left.split() if len(v) >= 4 and v not in stop}
-    rt = {v for v in right.split() if len(v) >= 4 and v not in stop}
-    return bool(lt and rt and len(lt & rt) / max(1, min(len(lt), len(rt))) >= 0.5)
+    """Only identity is decidable here. Lexical similarity is not entailment."""
+    return bool(_plain(message) and _plain(message) == _plain(proof))
+
+
+def _source_support(claim: AllowedClaim, canonical: Mapping[str, Any],
+                    profile: Mapping[str, Any], domain: str) -> list[str]:
+    """Resolve a verbatim source assertion through its frozen profile evidence path.
+
+    This proves SOURCE_ASSERTION support only, never the truth of the source or an
+    entailment between the selected value and its strategic reason to believe.
+    """
+    raw = next((v for v in canonical.get("claims", [])
+                if v.get("claim_id") == claim.claim_id), {})
+    if (claim.epistemic_type != "SOURCE_ASSERTION"
+            or claim.verification_status not in {"SUPPORTED", "CORROBORATED"}
+            or raw.get("contradicting_evidence_ids")):
+        return []
+    found = []
+    for e in canonical.get("evidence", []):
+        if (e.get("evidence_id") not in claim.supporting_evidence_ids
+                or e.get("availability") != "AVAILABLE"
+                or e.get("source_class") != "BRAND_OWNED"
+                or e.get("subject_ref") != domain
+                or e.get("excerpt") != claim.statement
+                or e.get("raw_value") != claim.statement
+                or not str(e.get("source_url", "")).startswith(("https://", "http://"))):
+            continue
+        # Follow an existing serialized path; neither a citation nor mutable status
+        # metadata alone can manufacture support for a different statement.
+        path = re.fullmatch(r"profile\.([a-zA-Z_]+)\[(\d+)\]\.evidence\[(\d+)\]", e.get("source_ref", ""))
+        if not path:
+            continue
+        try:
+            item = profile[path[1]][int(path[2])]
+            ref = item["evidence"][int(path[3])]
+            if (item.get("value") == claim.statement and ref.get("quote") == claim.statement
+                    and ref.get("page_url") == e["source_url"]):
+                found.append(e["evidence_id"])
+        except (KeyError, IndexError, TypeError):
+            continue
+    return found
 
 
 def _stable_id(payload: Mapping[str, Any]) -> str:
@@ -254,17 +297,8 @@ def _stable_id(payload: Mapping[str, Any]) -> str:
 
 
 def _claim_matches(text: str, claim: AllowedClaim) -> bool:
-    left, right = _norm(text), _norm(claim.statement)
-    if not left or not right:
-        return False
-    if left in right or right in left:
-        return True
-    left_numbers = _numbers(left)
-    right_numbers = _numbers(right)
-    if left_numbers and not left_numbers.issubset(right_numbers):
-        return False
-    lt, rt = set(left.split()), set(right.split())
-    return bool(lt and rt and len(lt & rt) / max(1, min(len(lt), len(rt))) >= 0.6)
+    # Preserve quantifiers, entity, negation and conditions; no subset/overlap support.
+    return bool(_plain(text) and _plain(text) == claim.statement)
 
 
 def claim_ids_for_text(text: str, contract: CreativeContract) -> list[str]:
@@ -354,6 +388,30 @@ def _visual_constraints(profile: Mapping[str, Any]) -> list[str]:
     if visual.get("logo_url") or visual.get("primary_logo") or profile.get("logo_url"):
         out.append("Use the real brand mark; never redraw or mutate it.")
     return out
+
+
+def _copy_metadata(profile):
+    """Copy identity/contact only with exact source quotation; never manufacture provenance."""
+    result = {}
+    name = profile.get('name') or {}
+    if isinstance(name, Mapping) and isinstance(name.get('value'), str):
+        refs = [dict(ref) for ref in name.get('evidence', []) if isinstance(ref, Mapping)
+                and ref.get('quote') == name['value'] and str(ref.get('page_url', '')).startswith(('https://', 'http://'))]
+        if refs:
+            for field in ('business_name', 'logo_text'):
+                result[field] = [{'value': name['value'], **ref, 'profile_field': 'name'} for ref in refs]
+    contact = profile.get('contact_channels') or {}
+    if isinstance(contact, Mapping):
+        values = list(contact.get('emails') or []) + list(contact.get('whatsapp_numbers') or [])
+        for phone in contact.get('phones') or []:
+            if isinstance(phone, Mapping): values.extend(v for v in (phone.get('e164'), phone.get('raw')) if v)
+        for value in values:
+            if not isinstance(value, str): continue
+            for ref in contact.get('evidence') or []:
+                if (isinstance(ref, Mapping) and ref.get('quote') == value
+                        and str(ref.get('page_url', '')).startswith(('https://', 'http://'))):
+                    result.setdefault('contact_line', []).append({'value': value, **dict(ref), 'profile_field': 'contact_channels'})
+    return result
 
 
 class CreativeContractCompiler:
@@ -466,14 +524,23 @@ class CreativeContractCompiler:
         reason = _plain(selected.get("reason_to_believe"))
         reason_ids = semantic_id_fields["reason_to_believe_claim_ids"]
         reason_claims = [claim for claim in allowed if claim.claim_id in reason_ids]
-        mismatched_proof = [claim for claim in reason_claims
-                            if not _semantic_supports(consumer_value, claim.statement)]
-        if reason and (not reason_claims or mismatched_proof):
-            bad = ", ".join(v.claim_id for v in mismatched_proof) or "unmapped reason_to_believe"
+        # A strategic reason is not automatically an entailment proof of the value.
+        # Both may instead have independent verbatim source-assertion support. Keep
+        # that limited epistemic meaning explicit, without rewriting approved copy.
+        consumer_claims = [c for c in allowed if c.claim_id in consumer_ids]
+        source_bindings = {c.claim_id: _source_support(
+            c, canonical, profile, _plain(context.get("domain_reference")))
+            for c in consumer_claims + reason_claims}
+        if (len(consumer_claims) != len(consumer_ids)
+                or not all(source_bindings.get(cid) for cid in consumer_ids)
+                or (reason and (not reason_claims
+                    or not any(_claim_matches(reason, c) for c in reason_claims)
+                    or not all(source_bindings.get(cid) for cid in reason_ids)))):
             raise CreativeContractError(
                 "PROOF_MESSAGE_MISMATCH",
-                f"Approved proof does not support the declared consumer_value: {bad}.",
-                safe_alternative="Repair and re-approve the StrategyVersion with matching proof.",
+                "Value and reason require exact, independently anchored source assertions; "
+                "lexical overlap and approval do not establish support.",
+                safe_alternative="Repair and re-approve unsupported assertions or qualify an entailment policy.",
                 preflight_status="NEEDS_REPAIR")
         if req.requested_target and _norm(req.requested_target) != _norm(target):
             raise CreativeRequestStrategyConflict(
@@ -551,8 +618,10 @@ class CreativeContractCompiler:
             "decision_id": _plain(decision.get("decision_id")),
             "selected_option_id": selected_id,
             "request": request_payload,
+            "compiler_policy": "verbatim-profile-source@1",
         }
         return CreativeContract(
+            message_source_support=MessageSourceSupport(claim_evidence_ids=source_bindings),
             creative_contract_id=_stable_id(identity),
             strategy_version_id=run_id,
             brand_id=brand_id,
@@ -579,6 +648,8 @@ class CreativeContractCompiler:
             internal_supporting_evidence=internal_evidence,
             allowed_claim_ids=supporting_ids,
             allowed_claims=allowed,
+            copy_metadata_evidence=_copy_metadata(profile),
+            copy_evidence=[dict(v) for v in (canonical.get("evidence") or []) if isinstance(v, Mapping)],
             prohibited_or_unverified_claims=list(dict.fromkeys(prohibited)),
             message_boundaries=[
                 "The target, positioning, differentiated value, and proof are frozen.",
@@ -657,7 +728,9 @@ class PosterStrategyVerifier:
         for proof in proof_texts:
             ids = claim_ids_for_text(proof, contract)
             proof_ids = [cid for cid in ids if cid in contract.reason_to_believe_claim_ids]
-            if not proof_ids or not _semantic_supports(contract.consumer_value, proof):
+            if (not proof_ids or not contract.message_source_support
+                    or not all(contract.message_source_support.claim_evidence_ids.get(cid)
+                               for cid in proof_ids)):
                 add("PROOF_MESSAGE_MISMATCH", "brief.offerings",
                     f"Visible proof is not approved support for the consumer message: {proof}")
             used.extend(proof_ids)

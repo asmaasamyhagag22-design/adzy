@@ -2,7 +2,7 @@
 
 # ADZY campaign review foundation
 
-Implemented scope: an existing owner-visible canonical strategy and its immutable evidence → local durable review progress → exact human strategy decision → existing CreativeContract compiler. Entry points are `workflows.runtime.ReviewWorkflow` and `python -m workflows.demo`. The existing Adzy dashboard now invokes this runtime through authenticated application routes; see [application integration](app_review.md). There is no paid execution, provider retry, collection, worker, scheduler, or deployment in this graph.
+Implemented scope: an existing owner-visible canonical strategy and its immutable evidence → local durable review progress → exact human strategy decision → existing CreativeContract compiler. Entry points are `workflows.runtime.ReviewWorkflow` and `python -m workflows.demo`. The dashboard remains on its existing services. There is no paid execution, provider retry, collection, worker, scheduler, or deployment in this graph.
 
 ## Executable boundaries
 
@@ -33,7 +33,7 @@ Routing:
 - `assess`: insufficient/unverified research or unmet prerequisites → `BLOCKED` plus reasons/actions; rejected decision → `REJECTED`; existing approval → `compile_contract`; otherwise → `human_review`.
 - `human_review`: durable interrupt carrying subject ID/hash, validated `Decision` resume schema, no approval writes.
 - `apply_decision`: exact subject revalidation then canonical decision write. Rejection terminates; approval routes to compiler.
-- `compile_contract`: rechecks research, eligibility, current SWOT approval, exact current subject and authoritative strategy approval, then compiles. Returns the authoritative contract, reference and hash.
+- `compile_contract`: rechecks research, eligibility, current SWOT approval, exact current subject and authoritative strategy approval, then compiles. Returns reference/hash only.
 
 `READY_FOR_CREATIVE` describes a successfully compiled contract at that inspection time. It is not a reservation, generation authorization, permanent approval of future work, or guarantee that the brand cannot change immediately afterward. The existing creative pipeline must perform its normal checks when execution starts.
 
@@ -41,11 +41,11 @@ Routing:
 
 Application PostgreSQL stays authoritative for users, brands, profile snapshots, immutable Runs, approvals, and artifacts. There are **no application schema changes**.
 
-Local storage setup is explicit: `setup(directory)` creates `bindings.sqlite` and calls `SqliteSaver.setup()` for `checkpoints.sqlite`. The binding table stores only workflow UUID, actor UUID, domain reference, exact subject UUID, and implementation version. Checkpoints contain version, opaque IDs, SHA-256 digests, reason/action projections, decision tokens and the compiled CreativeContract, including its approved strategy text. Treat these files as private application state. Full profiles, media, DSNs, secrets and sessions are not checkpoint inputs. SQLite WAL sidecars are runtime files.
+Local storage setup is explicit: `setup(directory)` creates `bindings.sqlite` and calls `SqliteSaver.setup()` for `checkpoints.sqlite`. The binding table stores only workflow UUID, actor UUID, domain reference, exact subject UUID, and implementation version. Checkpoints contain version, opaque IDs, SHA-256 digests, small reason/action projections, explicit decision tokens, and contract references. No raw evidence excerpts, full profiles, media, DSNs, secrets, provider outputs, or sessions enter graph state. SQLite WAL sidecars are runtime files.
 
-The caller constructs `ReviewWorkflow(..., actor_id=authenticated_actor)`. This is a **trusted service argument**, not an unauthenticated public API field. Each start/status/resume validates both the server-side workflow binding and current application visibility. Knowledge of `thread_id` confers no access. The CLI uses the synthetic actor created in its isolated database; it is a local operator tool, not an authentication implementation for public clients. The authenticated HTTP wrapper derives the actor from existing authentication; synchronous FastAPI handlers run in the worker pool.
+The caller constructs `ReviewWorkflow(..., actor_id=authenticated_actor)`. This is a **trusted service argument**, not an unauthenticated public API field. Each start/status/resume validates both the server-side workflow binding and current application visibility. Knowledge of `thread_id` confers no access. The CLI uses the synthetic actor created in its isolated database; it is a local operator tool, not an authentication implementation for public clients. A future HTTP wrapper must derive the actor from existing authentication and call the synchronous service off the event loop.
 
-A separate SQLite execution gate serializes local entry points across the binding commit and first checkpoint while the saver writes to its own file. This is a deliberately coarse local lock with a 30-second acquisition timeout; it does not claim distributed scheduling or durable workers. Protect all three SQLite files as application-private storage. Direct checkpoint access is trusted administrative access and is not exposed through the service.
+A separate SQLite registry transaction serializes local service entry points while the saver writes to its own file. This is a deliberately coarse local lock with a 30-second acquisition timeout; it does not claim distributed scheduling or durable workers. Protect both database files as application-private storage. Direct checkpoint access is trusted administrative access and is not exposed through the service.
 
 Every workflow pins `adzy.review.v1` in registry and state. Unknown versions are refused; no automatic checkpoint migration is implemented. The application record remains readable through existing APIs regardless of workflow compatibility.
 
@@ -58,7 +58,7 @@ Every workflow pins `adzy.review.v1` in registry and state. Unknown versions are
 5. A conflicting authoritative decision causes `DECISION_CHANGED`, rather than overwriting it during recovery. Repeated completed resumes perform no approval write and recompile readiness from authority. `status` also rechecks a previously ready result.
 6. No transaction spans PostgreSQL and SQLite; no exactly-once guarantee is claimed. Abrupt-failure recovery is tested with a subprocess calling `os._exit(73)` immediately after the real approval commit. Separate subprocess validation proves durable pause/resume. There are no external paid effects in replayable nodes.
 
-Terminal service failures return a blocked result; there is no automatic retry loop. A user can inspect authoritative state and start a new review after repairing prerequisites. Initial creation is registered before graph execution. A binding without a usable checkpoint is reported as FAILED/START_FAILED, with authoritative inspection required; it is never presented as resumable or replayed automatically.
+Terminal service failures return a blocked result; there is no automatic retry loop. A user can inspect authoritative state and start a new review after repairing prerequisites. Initial creation is registered before graph execution, so a failure before the first graph checkpoint may leave a binding without a resumable checkpoint; restarting from that condition is not implemented.
 
 ## Langfuse: real SDK, bounded export
 
@@ -91,6 +91,6 @@ Cleanup validates the demo container name and label, stops that container, and d
 
 ## Explicit remaining work
 
-Complete semantic claims grounding and paid-operation reservation/journaling remain pending. This foundation does not relocate paid image/video/model execution, implement paid retries, guarantee provider exactly-once behavior, schedule distributed workers or certify live provider quality/production readiness. The existing pipeline remains the creative execution path.
+Complete semantic claims grounding and paid-operation reservation/journaling remain pending. This foundation does not relocate paid image/video/model execution, implement paid retries, guarantee provider exactly-once behavior, schedule distributed workers, integrate dashboard controls with the new graph, or certify live provider quality/production readiness. The existing pipeline remains the creative execution path.
 
 Official references consulted for version-sensitive APIs: [LangGraph interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts), [persistence](https://docs.langchain.com/oss/python/langgraph/persistence), [Langfuse Python API](https://python.reference.langfuse.com/langfuse), and [masking/advanced usage](https://langfuse.com/docs/observability/sdk/python/advanced-usage).

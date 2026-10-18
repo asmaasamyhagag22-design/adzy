@@ -49,17 +49,17 @@ def connect(manifest):
     return service,PostgresPersistence(service)
 
 
-def seed(service,provider, *, insufficient=False):
+def seed(service,provider, *, insufficient=False, brand_source=None, owner=None):
     from db.services import ProfileData, ScrapeSuccess, LiveRunData
     from strategy.positioning.objective import objective_from_mapping
     from strategy.positioning.service import build_positioning_strategy
     from .synthetic import brand, objective
-    source = brand()
+    domain = f'synthetic-{uuid4().hex}.test'
+    source = (brand_source or brand)(domain)
     if insufficient:
         source['_profile']['trust_signals'] = []
         source['_profile']['audience_signals'] = []
-    user = service.create_user(email=f'{uuid4().hex}@synthetic.invalid',hashed_password='SYNTHETIC_DISABLED_LOGIN')
-    domain = f'synthetic-{uuid4().hex}.test'
+    user = owner or service.create_user(email=f'{uuid4().hex}@synthetic.invalid',hashed_password='SYNTHETIC_DISABLED_LOGIN')
     job = service.create_user_job(owner_user_id=user.id,requested_domain_key=domain)
     service.claim_job(job_id=job.id,worker_id=str(job.id),lease_seconds=600)
     committed = service.commit_scrape_success(ScrapeSuccess(domain_key=domain,user_id=user.id,job_id=job.id,

@@ -22,6 +22,8 @@ Discipline (matches VertexImagenProvider):
 """
 from __future__ import annotations
 
+from poster.paid_boundary import paid_call
+
 import io
 import os
 from pathlib import Path
@@ -115,7 +117,7 @@ def upscale_to_file(src_path: str, *, project=None, location=None, model=None, f
         from google.genai import types as t
         client = genai.Client(vertexai=True, project=proj,
                               location=location or os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"))
-        resp = client.models.upscale_image(
+        resp = paid_call(client.models.upscale_image,
             model=model or os.getenv("IMAGEN_UPSCALE_MODEL") or "imagen-3.0-generate-002",
             image=t.Image(image_bytes=data, mime_type=_detect_mime(data)),
             upscale_factor=factor,
@@ -222,7 +224,7 @@ class ImagenEditProvider:
         full += "\n\n" + _COMPOSITION_CONTRACT
 
         client = self._client()
-        resp = client.models.edit_image(
+        resp = paid_call(client.models.edit_image,
             model=self.model, prompt=full, reference_images=refs,
             config=t.EditImageConfig(
                 edit_mode=t.EditMode.EDIT_MODE_STYLE,
@@ -261,7 +263,7 @@ class ImagenEditProvider:
         )
         full = ((prompt or "").strip() + "\n\n" + _OUTPAINT_GUARD).strip()
         client = self._client()
-        resp = client.models.edit_image(
+        resp = paid_call(client.models.edit_image,
             model=self.model, prompt=full, reference_images=[raw, mref],
             config=t.EditImageConfig(
                 edit_mode=t.EditMode.EDIT_MODE_OUTPAINT,

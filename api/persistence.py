@@ -890,6 +890,9 @@ def _truthful_poster_entry(
         "deliverable": decision.deliverable,
         "acceptance_decision": decision.model_dump(mode="json"),
     })
+    if normalized.get("canonical"):
+        from poster.claim_assessment import project_factual_acceptance
+        normalized = project_factual_acceptance(normalized, payload=payload)
     return normalized, decision
 
 
@@ -1178,6 +1181,21 @@ class PostgresPersistence:
         """
         return True
 
+    def poster_operations(self):
+        """Keep PostgreSQL operation services behind the existing persistence seam."""
+        from db.poster_operations import PosterOperations, PosterOperationError
+        service=PosterOperations(self)
+        class Boundary:
+            def __getattr__(self, name):
+                method=getattr(service,name)
+                def invoke(*args,**kwargs):
+                    try: return method(*args,**kwargs)
+                    except PosterOperationError as exc:
+                        from fastapi import HTTPException
+                        raise HTTPException(exc.status_code,detail=exc.detail) from None
+                return invoke
+        return Boundary()
+
     def begin_canonical_poster_run(self, *, domain_key: str, user_id: str,
                                    contract: Mapping[str, Any]) -> dict:
         """Create the real poster Run and its first Attempt before any provider call."""
@@ -1252,6 +1270,15 @@ class PostgresPersistence:
         except (ValueError, binascii.Error) as exc:
             raise ValueError("gallery image bytes are not valid base64") from exc
 
+        if entry.get('canonical'):
+            # The admitted immutable Run owns evidence authority, never caller-supplied JSON.
+            admitted = self._service.run_for_user(
+                run_id=self._uuid(entry.get('generation_run_id')), user_id=self._uuid(user_id))
+            authoritative = (admitted.effective_config or {}).get('creative_contract') if admitted else None
+            entry = dict(entry)
+            if entry.get('creative_contract') != authoritative:
+                entry['factual_assessment'] = None
+            entry['creative_contract'] = authoritative
         entry, acceptance = _truthful_poster_entry(entry, payload=payload)
         stored = gallery_store.store(payload)          # <- durable BEFORE the transaction
 
@@ -1305,7 +1332,7 @@ class PostgresPersistence:
                 qa_passed=acceptance.qa_passed,
                 output=metadata,
                 output_schema_version=1,
-                select_attempt=acceptance.accepted,
+                select_attempt=entry.get("accepted") is True,
             ))
             execution = {
                 "generation_run_id": str(committed.run.id),
@@ -1323,7 +1350,11 @@ class PostgresPersistence:
             content_type=str(entry.get("content_type") or "") or None,
             style=str(entry.get("style") or "") or None,
             metadata=metadata, origin="live")
-        return execution or None
+        if execution:
+            return {**execution, **{key: entry.get(key) for key in (
+                'accepted', 'publishable', 'deliverable', 'factual_eligible', 'draft',
+                'factual_assessment')}}
+        return None
 
     def gallery_history(self, *, user_id: str, limit: int = 100) -> list[dict]:
         """The same list shape the legacy index returns, rebuilt from rows plus the managed bytes.
@@ -1336,12 +1367,23 @@ class PostgresPersistence:
         a real publication whose file is gone; hiding it would quietly shrink someone's history to
         make a storage fault invisible.
         """
-        import base64
+        rows = self._service.gallery_history(user_id=self._uuid(user_id), limit=limit)
+        return self._project_gallery_rows(rows)
 
+    def poster_delivery(self, *, user_id: str, run_id: str):
+        from db.poster_delivery import inspect
         from . import gallery_store
+        return inspect(self._service, actor=user_id, run_id=run_id, load=gallery_store.load)
 
-        actor = self._uuid(user_id)
-        rows = self._service.gallery_history(user_id=actor, limit=limit)
+    def poster_gallery_result(self, *, user_id: str, run_id: str = "", domain_key: str = ""):
+        row = self._service.poster_gallery_result(
+            user_id=self._uuid(user_id), run_id=self._uuid(run_id), domain_key=domain_key or None)
+        return self._project_gallery_rows([row])[0] if row else None
+
+    @staticmethod
+    def _project_gallery_rows(rows):
+        import base64
+        from . import gallery_store
         out: list[dict] = []
         for row in rows:
             item: dict[str, Any] = dict(row.metadata or {})

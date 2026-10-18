@@ -260,6 +260,16 @@ class Run(Base):
     calendar_post_id: Mapped[str | None] = mapped_column(UUID(as_uuid=True))
     selected_attempt_id: Mapped[str | None] = mapped_column(UUID(as_uuid=True))
 
+    # Poster operation identity/accounting extends the existing Run authority.
+    operation_key: Mapped[str | None] = mapped_column(Text)
+    request_hash: Mapped[str | None] = mapped_column(Text)
+    operation_state: Mapped[str | None] = mapped_column(Text)
+    operation_reason: Mapped[str | None] = mapped_column(Text)
+    reserved_usd: Mapped[object | None] = mapped_column(Numeric(20, 9))
+    estimated_usd: Mapped[object | None] = mapped_column(Numeric(20, 9))
+    known_usage_usd: Mapped[object | None] = mapped_column(Numeric(20, 9))
+    settled_usd: Mapped[object | None] = mapped_column(Numeric(20, 9))
+
     # What the caller asked for vs what the runtime actually applied. Both versioned, both
     # immutable once the run is terminal. This is what lets a control that turns out to be inert be
     # PROVEN inert later, from data, without a schema change and without one column per UI knob.
@@ -300,6 +310,8 @@ class Run(Base):
     finished_at: Mapped[str | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
+        UniqueConstraint("created_by_user_id", "operation_key", name="uq_runs_owner_operation"),
+        CheckConstraint("reserved_usd IS NULL OR reserved_usd >= 0", name="reservation_nonnegative"),
         UniqueConstraint("id", "brand_id", name="uq_runs_id_brand_id"),
         # Carries `kind` so a child can require BOTH the right brand and the right kind of parent.
         UniqueConstraint("id", "brand_id", "kind", name="uq_runs_id_brand_id_kind"),
@@ -633,6 +645,25 @@ class Job(Base):
 # cost + approval
 # =====================================================================
 
+class ReservationAdjustment(Base):
+    """Unused planned capacity released; never a provider settlement or usage receipt."""
+    __tablename__ = "reservation_adjustments"
+    id: Mapped[str] = _uuid_pk()
+    run_id: Mapped[str] = mapped_column(UUID(as_uuid=True), ForeignKey("runs.id", ondelete="RESTRICT"), nullable=False)
+    owner_id: Mapped[str] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    version: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    before_usd: Mapped[object] = mapped_column(Numeric(20, 9), nullable=False)
+    after_usd: Mapped[object] = mapped_column(Numeric(20, 9), nullable=False)
+    released_usd: Mapped[object] = mapped_column(Numeric(20, 9), nullable=False)
+    exposure: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[str] = mapped_column(DateTime(timezone=True), nullable=False, server_default=_NOW)
+    __table_args__ = (
+        UniqueConstraint("run_id", "version", name="uq_reservation_adjustment_version"),
+        CheckConstraint("before_usd >= after_usd AND after_usd >= 0 AND released_usd = before_usd - after_usd", name="valid_reservation_release"),
+    )
+
+
 class UsageRecord(Base):
     """One PROVIDER CALL. Not one per run.
 
@@ -649,14 +680,19 @@ class UsageRecord(Base):
     attempt_id: Mapped[str | None] = mapped_column(UUID(as_uuid=True))
     provider: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
-    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
-    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True, server_default=text("0"))
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True, server_default=text("0"))
     # Kept separate on purpose: thinking tokens bill at the OUTPUT rate but are excluded from
     # candidates_token_count, so folding them into output_tokens would understate the real cost.
-    thoughts_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
-    cost_usd: Mapped[float] = mapped_column(Numeric(12, 6), nullable=False, server_default=text("0"))
+    thoughts_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True, server_default=text("0"))
+    cost_usd: Mapped[object | None] = mapped_column(Numeric(20, 9), nullable=True, server_default=text("0"))
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     stage: Mapped[str | None] = mapped_column(Text)
+    # Nullable dispatch fields are used by reliable poster operations; historical rows stay sparse.
+    state: Mapped[str | None] = mapped_column(Text)
+    estimate_usd: Mapped[object | None] = mapped_column(Numeric(20, 9))
+    provider_reference: Mapped[str | None] = mapped_column(Text)
+    usage: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[str] = mapped_column(DateTime(timezone=True), nullable=False,
                                             server_default=_NOW)
 

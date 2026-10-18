@@ -916,6 +916,23 @@ class GalleryEntryRepository:
         ).all()
         return [_gallery_entry(entry, blob) for entry, blob in rows]
 
+    def poster_result(self, *, user_id: UUID, run_id: UUID | None = None,
+                      domain_key: str | None = None) -> GalleryEntryRecord | None:
+        query = select(GalleryEntry, GalleryBlob).join(
+            GalleryBlob, GalleryBlob.checksum == GalleryEntry.checksum).where(
+                GalleryEntry.owner_user_id == user_id,
+                GalleryEntry.metadata_json["canonical"].as_boolean().is_(True))
+        if run_id is None:
+            query = query.where(GalleryEntry.metadata_json["accepted"].as_boolean().is_(True))
+        if run_id is not None:
+            query = query.where(GalleryEntry.metadata_json["generation_run_id"].astext == str(run_id))
+        elif domain_key:
+            query = query.where(GalleryEntry.domain_key == domain_key)
+        else:
+            return None
+        row = self.session.execute(query.order_by(GalleryEntry.created_at.desc()).limit(1)).first()
+        return _gallery_entry(*row) if row else None
+
     def count(self) -> int:
         return int(self.session.scalar(select(func.count()).select_from(GalleryEntry)) or 0)
 

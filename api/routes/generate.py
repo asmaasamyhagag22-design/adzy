@@ -27,6 +27,7 @@ from ..upload_limits import read_bounded
 from .. import webapp_images as images
 
 router = APIRouter()
+read_router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +56,7 @@ _IGNORED_UPLOAD_DEFAULT = ("Your uploaded image does not feed the generation yet
 def _emit(brand: dict, *, headline: str, subtext: str, cta: str, style: str,
           content_type: str, owner_id: str = "", ignored_upload: str = "",
           product_url: str = "", language: str = "auto", trend: bool = False,
-          creative_contract=None) -> dict:
+          creative_contract=None, existing_execution=None) -> dict:
     # `product_url` is the owner's «بحط اللينك بتاعه»: an ad for ONE named item rather than for the
     # brand in general. `generate_poster` has accepted `product_image`/`product_name` all along —
     # this function was simply the wall they never got past, which is also why the
@@ -64,8 +65,8 @@ def _emit(brand: dict, *, headline: str, subtext: str, cta: str, style: str,
     # after `generate_image` would bill the render and still return an error.
     _require_gallery_writes()
     persistence = get_persistence()
-    execution = None
-    if creative_contract is not None:
+    execution = existing_execution
+    if creative_contract is not None and execution is None:
         execution = persistence.begin_canonical_poster_run(
             domain_key=str(brand.get("domain_key") or ""), user_id=owner_id,
             contract=creative_contract.model_dump(mode="json"))
@@ -151,6 +152,11 @@ def _emit(brand: dict, *, headline: str, subtext: str, cta: str, style: str,
             "generation_run_id": out.get("generation_run_id", ""),
             "generation_attempt_id": out.get("generation_attempt_id", ""),
             "claim_ids_used": out.get("claim_ids_used", []),
+            "authored_copy": out.get("authored_copy"),
+            "factual_assessment": out.get("factual_assessment"),
+            "headline": out.get("headline", ""),
+            "subtext": out.get("subtext", ""),
+            "cta": out.get("cta", ""),
             "creative_contract": out.get("creative_contract") or None,
             "poster_brief": out.get("poster_brief") or None,
             "strategy_verification": out.get("strategy_verification") or None,
@@ -200,6 +206,7 @@ class GenerateRequest(BaseModel):
     product_description: str = ""
     # Exact immutable subject. Blank deliberately means LEGACY, never "use whatever strategy".
     strategy_version_id: str = ""
+    operation_key: str = ""
 
 
 class PosterContractRequest(BaseModel):
@@ -260,6 +267,10 @@ def poster_contract(req: PosterContractRequest,
 @router.post("/generate")
 def generate(req: GenerateRequest, user: dict = Depends(require_user)) -> dict:
     brand = _brand_or_404(req.domain_key, user["id"])
+    if not req.content_only and (req.operation_key or images.paid_images_enabled()):
+        if not req.strategy_version_id:
+            raise HTTPException(409,detail={'code':'CANONICAL_STRATEGY_REQUIRED'})
+        return _reliable_generate(req, user, brand)
     if req.content_only:
         # «الكونتنت بس من غير ريل ولا صورة» — the caption alone. No renderer in the call path,
         # so zero image spend by construction; the trend toggle still shapes the words.
@@ -543,3 +554,118 @@ def reel(req: ReelRequest, user: dict = Depends(require_user)) -> dict:
         max_seconds=req.max_seconds, n_scenes=req.n_scenes,
         hero_product_url=req.product_url))
     return out.model_dump() if hasattr(out, "model_dump") else out
+
+
+def _operations():
+    persistence=get_persistence()
+    if not persistence.supports_canonical_strategy():
+        raise HTTPException(503,detail={'code':'CANONICAL_BACKEND_REQUIRED'})
+    return persistence.poster_operations()
+
+
+def _reliable_generate(req, user, brand):
+    import re
+    from poster.paid_boundary import paid_scope, StopPaidOperation
+    key=req.operation_key
+    if not re.fullmatch(r'[a-zA-Z0-9_-]{16,100}',key):
+        raise HTTPException(422,detail={'code':'OPERATION_KEY_REQUIRED'})
+    request=req.model_dump(exclude={'operation_key'})
+    operations=_operations(); actor=user['id']
+    digest=operations.fingerprint(request)
+    existing=operations.existing(actor,key,digest)
+    if existing: return operations.status(actor,key)
+    with operations.executor(actor+':'+key,blocking=True) as acquired:
+        if not acquired:
+            existing=operations.existing(actor,key,digest)
+            if existing: return operations.status(actor,key,recover=False)
+            raise HTTPException(409,detail={'code':'OPERATION_ADMISSION_IN_PROGRESS'})
+        def compile_current():
+            return _compile_contract(domain_key=req.domain_key,strategy_version_id=req.strategy_version_id,user_id=actor,
+                request={'product_focus':req.product_name,'style_preference':req.style,'cta_preference':req.cta,
+                         'creative_angle':req.user_context or req.headline,'requested_factual_claims':([req.subtext] if req.subtext else []),
+                         'language':req.language})[0]
+        run_id,created,contract=operations.admit(actor,key,request,compile_current)
+        if not created: return operations.status(actor,key,recover=False)
+        execution=operations.execution(run_id)
+        try:
+            with paid_scope(operations,run_id):
+                output = _emit(brand,headline='',subtext='',cta=contract.cta_direction,style=req.style,
+                      content_type=req.content_type,owner_id=actor,product_url=req.product_url,
+                      language=contract.language,trend=False,creative_contract=contract,existing_execution=execution)
+        except StopPaidOperation as exc:
+            operations.finish(run_id,'unknown' if exc.unknown else 'failed',reason=exc.code)
+            if not exc.unknown:
+                get_persistence().fail_canonical_poster_run(**execution,user_id=actor,error='Paid stage admission refused.')
+        except Exception:
+            operations.finish(run_id,'failed',reason='POSTER_EXECUTION_OR_ACCEPTANCE_FAILED')
+        else:
+            operations.finish(run_id,'accepted' if output.get('accepted') is True else 'draft')
+        return operations.status(actor,key,recover=False)
+
+
+@read_router.get('/poster/operations/latest')
+def latest_poster_operation(domain_key: str, user: dict=Depends(require_user)):
+    operation=_operations().latest(user['id'],domain_key)
+    return {'operation':operation,'last_accepted':get_persistence().poster_gallery_result(user_id=user['id'],domain_key=domain_key)}
+
+
+@read_router.get('/poster/operations/{operation_key}')
+def poster_operation_status(operation_key: str, user: dict=Depends(require_user)):
+    return _operations().status(user['id'],operation_key)
+
+
+def _poster_delivery(run_id, user):
+    from db.poster_delivery import DeliveryError
+    persistence = get_persistence()
+    if not persistence.supports_canonical_strategy():
+        raise HTTPException(503, detail={'code':'CANONICAL_BACKEND_REQUIRED'})
+    try:
+        return persistence.poster_delivery(user_id=user['id'], run_id=run_id)
+    except DeliveryError as exc:
+        raise HTTPException(exc.status, detail={'code':exc.code}) from None
+
+
+@read_router.get('/poster/runs/{run_id}/delivery')
+def poster_delivery_status(run_id: str, user: dict=Depends(require_user)):
+    status, _ = _poster_delivery(run_id, user)
+    return status
+
+
+@read_router.get('/poster/runs/{run_id}/download')
+def download_poster_revision(run_id: str, attempt_id: str, checksum: str,
+                             mode: str='final', user: dict=Depends(require_user)):
+    from fastapi.responses import Response
+    if mode not in ('final','draft'):
+        raise HTTPException(422, detail={'code':'INVALID_DELIVERY_MODE'})
+    status, payload = _poster_delivery(run_id, user)
+    if attempt_id != status['generation_attempt_id'] or checksum != status['checksum']:
+        raise HTTPException(409, detail={'code':'POSTER_REVISION_MISMATCH'})
+    if mode == 'final' and not status['final_eligible']:
+        raise HTTPException(409, detail={'code':'FINAL_DELIVERY_BLOCKED','reasons':status['reasons']})
+    extension = 'png' if status['mime']=='image/png' else 'jpg' if status['mime']=='image/jpeg' else 'webp'
+    filename = f"{mode}-{status['asset_id']}-{checksum[:12]}.{extension}"
+    return Response(payload, media_type=status['mime'], headers={
+        'Content-Disposition':f'attachment; filename="{filename}"',
+        'Cache-Control':'no-store', 'ETag':f'"{checksum}"',
+        'X-Content-Type-Options':'nosniff','X-Adzy-Delivery':mode,
+        'X-Adzy-Asset-Checksum':checksum})
+
+
+@read_router.get('/poster/operations/{operation_key}/candidates/{candidate_id}/preview')
+def poster_candidate_preview(operation_key: str, candidate_id: str, as_json: bool=False, user: dict=Depends(require_user)):
+    from fastapi.responses import Response
+    from db.poster_operations import PosterOperationError
+    try:
+        payload,mime=_operations().candidate_preview(user['id'],operation_key,candidate_id)
+        if as_json:
+            status=_operations().status(user['id'],operation_key,recover=False)
+            candidate=next(c for c in status['candidates'] if c['identity']['candidate_id']==candidate_id)
+            qa=candidate['visual_qa']
+            return {'image_b64':base64.b64encode(payload).decode(),'canonical':False,'diagnostic':True,
+                'accepted':False,'qa_status':('pass' if qa.get('overall_pass') is True else 'fail') if qa.get('checked') else 'unverified',
+                'visual_qa':qa,'qa_note':qa.get('reason',''),'generation_run_id':status['generation_run_id'],
+                'candidate_identity':candidate['identity'],'candidate_history':status['candidates']}
+        return Response(payload,media_type=mime,headers={'Cache-Control':'private, no-store',
+            'Content-Disposition':'inline; filename="diagnostic-preview.png"','X-Poster-Status':'diagnostic-not-final'})
+    except PosterOperationError as exc:
+        raise HTTPException(exc.status_code,detail=exc.detail) from None

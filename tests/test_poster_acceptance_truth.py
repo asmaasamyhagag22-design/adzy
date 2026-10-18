@@ -109,7 +109,7 @@ def test_evaluator_exception_or_unavailability_is_fail_closed():
 
 @pytest.mark.parametrize("policy_id,version", [
     ("unknown-poster-policy", POSTER_QA_POLICY_VERSION),
-    (POSTER_QA_POLICY_ID, POSTER_QA_POLICY_VERSION + 1),
+    (POSTER_QA_POLICY_ID, 999),
 ])
 def test_unknown_policy_or_version_fails_closed(policy_id, version):
     qa = _verdict(policy_id=policy_id, policy_version=version)

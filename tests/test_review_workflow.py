@@ -280,3 +280,67 @@ def test_sdk_exception_redacted_before_export_and_segment_correlation():
     assert len(spans)==2 and len({s.context.trace_id for s in spans})==1
     assert 'PRIVATE_' not in str([dict(s.attributes) for s in spans])
     assert 'ERROR' in str(dict(spans[0].attributes))
+
+
+def test_explicit_start_recovers_same_undecided_subject_after_swot_review(review,tmp_path):
+    from sqlalchemy import select,delete
+    from db.models import Approval,Run
+    service,p,data,_,_=review
+    brand=p._brand_row(domain_key=data['domain'],user_id=data['actor'])
+    swot=service.current_successful_run(brand_id=brand.id,kind='swot',user_id=UUID(data['actor']))
+    # Remove only this disposable fixture's simulated SWOT approval to reproduce initial preparation.
+    with service._uow_factory() as uow:
+        uow.session.execute(delete(Approval).where(Approval.subject_run_id==swot.id));uow.commit()
+    directory=tmp_path/'pending-swot';setup(directory)
+    workflow=ReviewWorkflow(directory,p,actor_id=data['actor'])
+    first=workflow.start(domain_key=data['domain'],subject_id=data['subject'],reuse=True)
+    assert first['status']=='BLOCKED' and first['reasons']==['SWOT_NOT_APPROVED']
+    assert workflow.start(domain_key=data['domain'],subject_id=data['subject'],reuse=True)['status']=='BLOCKED'
+    assert not approvals(service,data)
+    service.approve_current_swot(brand_id=brand.id,user_id=UUID(data['actor']),expected_run_id=swot.id)
+    second=workflow.start(domain_key=data['domain'],subject_id=data['subject'],reuse=True)
+    assert second['workflow_id']==first['workflow_id']
+    assert second['status']=='NEEDS_REVIEW' and second['pending_nodes']==['human_review']
+    assert not approvals(service,data)  # no automatic strategy decision during repair
+    assert workflow.start(domain_key=data['domain'],subject_id=data['subject'],reuse=True)['workflow_id']==first['workflow_id']
+
+
+def test_compiler_recovery_keeps_checkpoint_exact_decision_and_never_reapproves(review, monkeypatch):
+    from workflows.services import CampaignReviewServices
+    from poster.strategy_contract import CreativeContractError
+    service, provider, data, w, state = review
+    original = CampaignReviewServices.compile
+    def blocked(self, state):
+        raise CreativeContractError('PROOF_MESSAGE_MISMATCH', 'SYNTHETIC compiler block')
+    monkeypatch.setattr(CampaignReviewServices, 'compile', blocked)
+    failed = w.resume(state['workflow_id'], decision(state))
+    assert failed['status'] == 'BLOCKED' and failed['reasons'] == ['PROOF_MESSAGE_MISMATCH']
+    before = [(r.id, r.decided_at) for r in approvals(service, data)]
+    monkeypatch.setattr(CampaignReviewServices, 'compile', original)
+    monkeypatch.setattr(CampaignReviewServices, 'decide', lambda *a: pytest.fail('approval replay'))
+    recovered = w.start(domain_key=data['domain'], subject_id=data['subject'], reuse=True)
+    assert recovered['status'] == 'READY_FOR_CREATIVE'
+    assert recovered['workflow_id'] == state['workflow_id']
+    assert recovered['subject_hash'] == state['subject_hash']
+    assert recovered['decision'] == failed['decision']
+    assert [(r.id, r.decided_at) for r in approvals(service, data)] == before
+
+
+def test_compiler_recovery_cannot_refresh_changed_material_hashes(review, monkeypatch):
+    from workflows.services import CampaignReviewServices
+    from poster.strategy_contract import CreativeContractError
+    from db.models import Run
+    service, provider, data, w, state = review
+    original = CampaignReviewServices.compile
+    monkeypatch.setattr(CampaignReviewServices, 'compile', lambda *a: (_ for _ in ()).throw(
+        CreativeContractError('PROOF_MESSAGE_MISMATCH', 'SYNTHETIC compiler block')))
+    w.resume(state['workflow_id'], decision(state))
+    monkeypatch.setattr(CampaignReviewServices, 'compile', original)
+    with service._uow_factory() as uow:
+        run = uow.session.get(Run, UUID(data['subject']))
+        run.output = {**run.output, 'modified_metadata': 'cannot become fresh approval'}
+        uow.commit()
+    recovered = w.start(domain_key=data['domain'], subject_id=data['subject'], reuse=True)
+    assert recovered['status'] == 'BLOCKED' and recovered['reasons'] == ['STALE_SUBJECT']
+    assert recovered['subject_hash'] == state['subject_hash']
+    assert len(approvals(service, data)) == 1

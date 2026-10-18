@@ -281,7 +281,11 @@ def _mix(a, b, t):
 
 def _readable_on(rgb) -> str:
     """Near-black or white text — whichever contrasts better with the given bg."""
-    return "#0b0f16" if _luminance(rgb) > 0.45 else "#ffffff"
+    bg_lum = _luminance(rgb)
+    dark_lum = _luminance((11, 15, 22))
+    dark_contrast = (bg_lum + 0.05) / (dark_lum + 0.05)
+    white_contrast = 1.05 / (bg_lum + 0.05)
+    return "#0b0f16" if dark_contrast >= white_contrast else "#ffffff"
 
 
 def _legible_on_dark(rgb) -> str:
@@ -905,7 +909,13 @@ def render_poster_html(
         # verb ("Shop now" / "احجز الآن"); the link lives in the post caption / bio,
         # not baked into the image. (brief.cta_url is still available to the caller
         # for a clickable button beside the PNG.)
-        cta_html = f'<div class="cta"><span class="cta-text">{_esc(brief.cta_text)}</span></div>'
+        # Preserve authored casing and isolate Latin runs inside RTL instructions.
+        latin_run = r"([A-Za-z][A-Za-z0-9]*(?:[.+/-][A-Za-z0-9]+)*)"
+        cta_copy = ''.join(
+            '<bdi dir="ltr">' + _esc(part) + '</bdi>'
+            if re.fullmatch(latin_run, part) else _esc(part)
+            for part in re.split(latin_run, brief.cta_text))
+        cta_html = f'<div class="cta"><span class="cta-text" dir="auto">{cta_copy}</span></div>' 
 
     contact_html = f'<p class="contact" dir="ltr">{_esc(brief.contact_line)}</p>' if brief.contact_line else ""
 
@@ -934,6 +944,7 @@ def render_poster_html(
     # overlay and move the logo to the top-right.
     rtl = _is_rtl(brief.headline) or _is_rtl(brief.business_name)
     dir_attr = "rtl" if rtl else "ltr"
+    lang_attr = "ar" if re.search(r"[\u0600-\u06ff]", brief.headline) else "und"
     # Horizontal alignment: centered layouts always center; otherwise RTL copy
     # right-aligns, else the spec's choice.
     if spec.layout == "center_editorial":
@@ -958,7 +969,7 @@ def render_poster_html(
         cta_css = (f".cta{{display:inline-flex;align-items:center;gap:12px;background:{cta_bg};"
                    f"color:{cta_text};padding:24px 56px;border-radius:6px;{_cta_shadow}}}"
                    f".cta-text{{font-family:{font_body};font-weight:800;font-size:30px;"
-                   "letter-spacing:.04em;text-transform:uppercase;}")
+                   "letter-spacing:.04em;text-transform:none;}")
     elif _cta_style == "outline":
         cta_css = (f".cta{{display:inline-flex;align-items:center;gap:12px;background:transparent;"
                    f"color:{cta_bg};padding:20px 48px;border-radius:999px;"
@@ -985,7 +996,17 @@ def render_poster_html(
                    f"color:{cta_text};padding:22px 52px;border-radius:999px;"
                    f"border:1.5px solid rgba(255,255,255,.28);{_cta_shadow}}}"
                    f".cta-text{{font-family:{font_body};font-weight:800;font-size:28px;"
-                   "text-transform:capitalize;letter-spacing:.01em;}")
+                   "text-transform:none;letter-spacing:.01em;}")
+
+    surface_css = ""
+    if spec.copy_surface != "auto":
+        surface = "#fbfaf8" if spec.copy_surface == "light" else "#171820"
+        surface_css = f".lower{{background:{surface}!important;border-radius:20px;}}"
+    typography_css = ".cta-text{unicode-bidi:isolate;} [dir=rtl] .cta-text{letter-spacing:normal;}"
+    for selector, size in ((".headline,.hero-headline,.lockup-headline", spec.headline_font_size),
+                           (".sub", spec.support_font_size), (".cta-text", spec.cta_font_size)):
+        if size is not None:
+            typography_css += f"{selector}{{font-size:{size}px!important;}}"
 
     # Layout-driven CSS. FREE-FORM (spec.text_box set) places the cluster + logo at
     # continuous coords (unbounded compositions); else one of the 6 fixed archetypes.
@@ -1083,7 +1104,7 @@ def render_poster_html(
     lower_inner = "\n      ".join(b for b in ordered if b)
 
     return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">{font_links}<style>
+<html lang="{lang_attr}"><head><meta charset="utf-8">{font_links}<style>
   * {{ margin:0; padding:0; box-sizing:border-box; }}
   html, body {{ width:1080px; height:1350px; }}
   .canvas {{
@@ -1191,6 +1212,9 @@ def render_poster_html(
   .socials {{ font-family:{font_body}; font-size:18px; color:#aeb8c4; margin-top:12px; letter-spacing:.02em; }}
   /* layout-driven: text-block placement/scrim + brand-mark corner (per design spec) */
   {lower_layout_css}
+  {typography_css}
+  {surface_css}
+  .lower.align-right[dir="rtl"] {{ align-items:flex-start; }}
   .brand, .brand-logo {{ {logo_pos_css} }}
 </style></head>
 <body>

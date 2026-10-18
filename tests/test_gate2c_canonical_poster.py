@@ -50,6 +50,15 @@ def _context():
                strength="STRONG",
                limitations=["Aggregate comparison; peer identities are not serialized."]),
     ]
+    evidence = []
+    for cid, field in [("cl_value", "value_propositions"), ("cl_rtb", "trust_signals")]:
+        claim = next(c for c in claims if c["claim_id"] == cid)
+        claim["epistemic_type"] = "SOURCE_ASSERTION"
+        evidence.append({"evidence_id": claim["supporting_evidence_ids"][0],
+            "availability": "AVAILABLE", "source_class": "BRAND_OWNED",
+            "subject_ref": "buffaloburger_com", "source_ref": f"profile.{field}[0].evidence[0]",
+            "source_url": "https://brand.example.test/", "raw_value": claim["statement"],
+            "excerpt": claim["statement"]})
     return {
         "strategy_version_id": STRATEGY_ID,
         "run_kind": "strategy",
@@ -63,6 +72,9 @@ def _context():
         "run_input_profile_id": PROFILE_ID,
         "profile": {
             "languages": ["en", "ar"],
+            **{field: [{"value": e["excerpt"], "evidence": [{"quote": e["excerpt"],
+                "page_url": e["source_url"]}]}] for field, e in zip(
+                    ["value_propositions", "trust_signals"], evidence)},
             "existing_ctas": [{"value": "Order Now"}, {"value": "View Menu"}],
             "offerings": [{"name": "OLD SCHOOL"}, {"name": "THE SECRET BURGER"}],
             "tone_of_voice": {"value": "friendly"},
@@ -99,6 +111,7 @@ def _context():
                 }],
             },
             "claims": claims,
+            "evidence": evidence,
             "verification": {
                 "status": "PASS_WITH_DISCLOSURE",
                 "eligible_for_approval": True,

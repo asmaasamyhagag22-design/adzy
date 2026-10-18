@@ -313,7 +313,9 @@ def _render_real(brand: dict, *, headline: str, language: str, product=None,
     # NO ENGINE OVERRIDE. This said engine="oneshot", which forced the model-draws-the-copy
     # path on every render — including Arabic, where it is measured to fail 100% of the time and
     # burn three image calls first. The pipeline picks the engine from the script.
+    from poster.paid_boundary import validation_render_options
     res = generate_poster(profile, caller=caller, language=language,
+                          **validation_render_options(),
                           # The STORED brand's own key is the authority for which
                           # brandbook this render may read (never the display name).
                           domain_key=str(brand.get("domain_key") or ""),
@@ -530,7 +532,7 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
             "generation_run_id": generation_run_id,
             "generation_attempt_id": generation_attempt_id,
             "claim_ids_used": list(getattr(pipeline_result, "claim_ids_used", None) or []),
-            "creative_contract": dict(getattr(pipeline_result, "creative_contract", None) or {}),
+            "creative_contract": creative_contract.model_dump(mode="json"),
             "poster_brief": dict(getattr(pipeline_result, "poster_strategy_brief", None) or {}),
             "strategy_verification": strategy_verification,
             "repair_history": list(getattr(pipeline_result, "repair_history", None) or []),
@@ -541,6 +543,22 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
                 "proof": [v.statement for v in creative_contract.proof_points],
             },
         })
+        from poster.claim_assessment import assess_copy, inventory, project_factual_acceptance
+        result['authored_copy'] = inventory(getattr(pipeline_result, 'brief', None) or {})
+        result['factual_assessment'] = assess_copy(
+            brief=result['authored_copy'], contract=creative_contract,
+            attempt_id=generation_attempt_id, payload=png).model_dump(mode='json')
+        result = project_factual_acceptance(result, payload=png)
+        from workflows.telemetry import Telemetry
+        telemetry = Telemetry.from_env()
+        telemetry.correlate(generation_attempt_id)
+        assessment = result['factual_assessment']
+        with telemetry.observation('poster_copy_assessment', metadata={
+                'policy_version': assessment['policy_version'], 'method': assessment['method'],
+                'copy_hash': assessment['copy_hash'], 'evidence_hash': assessment['evidence_hash'],
+                'repair_count': len(result['repair_history'])}):
+            telemetry.outcome('OK' if result['factual_eligible'] else 'BLOCKED')
+        telemetry.flush()
     else:
         result.update({"canonical": False, "strategy_grounded": False})
     return result

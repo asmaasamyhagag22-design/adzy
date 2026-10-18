@@ -16,9 +16,12 @@
     poll: null,
     introDone: false,
     selectionEpoch: 0, loadingBrand: false, reviewedSwot: null, reviewedStrategy: null,
-    contractError: '', busy: false,
+    contractError: '', busy: false, latestAttempt: null,
     initialLocation: new URLSearchParams(window.location.hash.slice(1)),
   };
+
+  let bootstrapFlight = null;
+  let initialStageRestored = false;
 
   const $ = (id) => document.getElementById(id);
   const all = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -141,6 +144,7 @@
   }
 
   window.adzyNavigate = async function (stage) {
+    initialStageRestored = true;
     if (['think', 'strategy', 'create'].includes(stage) && !A.brand) {
       notify('Choose a brand first.', 'error');
       setActiveStage('discover');
@@ -227,6 +231,15 @@
     renderHeroPoster();
     renderBrandStrips();
     renderWork();
+    if (A.brand) {
+      const saved = bestCreativeFor(A.brand);
+      if (saved) renderPoster(saved);
+      let selected;
+      try { selected = window.localStorage.getItem(revisionStorageKey()); } catch (_) {}
+      if (A.latestAttempt) projectAttempt(A.latestAttempt);
+      const inspected = A.history.find(item => item.generation_run_id === selected);
+      if (inspected) { renderPoster(inspected); rememberRevision(inspected); }
+    }
   }
 
   window.adzyRefresh = async function () {
@@ -252,7 +265,7 @@
     if (!domainKey) return;
     const epoch = ++A.selectionEpoch;
     try {
-      A.loadingBrand = true;
+      A.loadingBrand = true; A.latestAttempt = null;
       A.reviewedSwot = null; A.reviewedStrategy = null; A.contract = null; A.contractError = ''; A.review = null; A.reviewError = '';
       $('adzy-research').innerHTML = '<p role="status">Loading brand evidence...</p>';
       $('adzy-directions').innerHTML = '';
@@ -290,6 +303,9 @@
       if (epoch !== A.selectionEpoch) return;
       renderStrategy();
       renderWork();
+      try { await restorePosterAttempt(epoch); } catch (error) {
+        if (epoch === A.selectionEpoch) { $('adzy-generation-error').hidden = false; $('adzy-generation-error').textContent = 'Attempt status unavailable. Check status before generating.'; }
+      }
       if (navigate) await window.adzyNavigate('think');
     } catch (error) { if (epoch !== A.selectionEpoch) return; A.brand = null; A.loadingBrand = false; A.reviewedSwot = null; A.reviewedStrategy = null; A.contract = null; notify(`Could not open the brand: ${error.message}`, 'error'); }
   }
@@ -299,6 +315,12 @@
   function updateBrandSurfaces() {
     if (!A.brand) return;
     const name = brandName();
+    const provenance = profileOf().demo_provenance;
+    const disclosure = $('adzy-demo-disclosure');
+    if (disclosure) {
+      disclosure.hidden = !provenance;
+      disclosure.textContent = provenance ? 'Public-source portfolio demonstration · AI-curated evidence · Human approvals are recorded separately. Not affiliated with the featured brand.' : '';
+    }
     const tagline = text(A.brand.tagline || A.brand.meta_description || A.brand.description, 'We found the signals that shape this brand.');
     $('adzy-think-brand').textContent = name;
     $('adzy-think-tagline').textContent = tagline;
@@ -336,18 +358,27 @@
 
   function bestCreativeFor(brand = A.brand) {
     if (!brand) return null;
-    return A.history.find((item) => item.domain_key === brand.domain_key && item.canonical)
+    let selected;
+    try {
+      const owner = (window.adzyLegacyState.currentUser || {}).id;
+      selected = window.localStorage.getItem(`adzy.poster.operation:${owner}:${brand.domain_key}:selected-revision`);
+    } catch (_) {}
+    return A.history.find(item => item.domain_key === brand.domain_key && item.generation_run_id === selected)
+      || A.history.find((item) => item.domain_key === brand.domain_key && item.canonical)
       || A.history.find((item) => item.domain_key === brand.domain_key)
       || null;
   }
 
   function renderHeroPoster() {
-    const creative = bestCreativeFor() || creatives()[0];
+    const creative = A.brand ? bestCreativeFor() : creatives()[0];
     const wrap = $('adzy-hero-poster');
     if (creative && creativeImage(creative)) {
       wrap.innerHTML = `<img src="${creativeImage(creative)}" alt="${esc(brandName(A.brand) || creative.brand_name || 'Adzy')} campaign poster">`;
       const contract = creative.creative_contract || {};
-      $('adzy-hero-evidence').textContent = text(contract.primary_message || (creative.why_this_poster || {}).message, 'Every creative keeps its strategy close.');
+      $('adzy-hero-evidence').textContent = text(contract.primary_message || (creative.why_this_poster || {}).message, 'Saved creative · inspect its checks before delivery.');
+    } else {
+      wrap.innerHTML = `<div class="adzy-hero-awaiting"><span>YOUR NEXT CREATIVE</span><strong>${esc(A.brand ? brandName() : 'Find the angle.')}</strong><p>Review the strategy, then create this brand’s first poster.</p></div>`;
+      $('adzy-hero-evidence').textContent = 'No poster has been generated for this brand yet.';
     }
   }
 
@@ -557,7 +588,7 @@
     const quadrants = ['strengths', 'weaknesses', 'opportunities', 'threats', 'site_readiness'].map(key => {
       const items = list(swot[key]);
       return `<section><h3>${esc(key.replace(/_/g, ' '))}</h3>${items.length ? '<ul>' + items.map(item => {
-        const citations = list(item.citations || item.citation || item.sources);
+        const citations = list(item.citations || item.citation || item.sources || (item.source_url ? [item.source_url] : []));
         return `<li><strong>${esc(item.title || item.text || item.statement)}</strong><p>${esc(item.reason || item.reasoning || item.evidence || '')}</p>${citations.map(c => {
           const url = safeUrl(typeof c === 'string' ? c : c.page_url || c.url);
           return url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>` : `<span>${esc(text(c))}</span>`;
@@ -701,7 +732,7 @@
     const directionTarget = friendlyTarget(selected.target).lead;
     const directionProof = selected.reason_to_believe || selected.differentiated_value || selected.consumer_value;
     const fullPositioning = text(selected.positioning_statement);
-    panel.innerHTML = `<h3>${esc(directionLead)}</h3><p><strong>For:</strong> ${esc(directionTarget)}${text(directionProof) !== text(directionLead) ? ` · ${esc(directionProof)}` : ''}</p><p><strong>Decision rationale:</strong> ${esc(sentence(decision.rationale, 'No rationale text was returned.'))}</p>${fullPositioning && fullPositioning !== directionLead ? `<details class="adzy-raw-detail"><summary>Full approved positioning</summary><p>${esc(fullPositioning)}</p></details>` : ''}`;
+    panel.innerHTML = `<h3>${esc(directionLead)}</h3><p><strong>For:</strong> ${esc(directionTarget)}${text(directionProof) !== text(directionLead) ? ` · ${esc(directionProof)}` : ''}</p><p><strong>Decision rationale:</strong> ${esc(sentence(decision.rationale, 'No rationale text was returned.'))}</p>${fullPositioning && fullPositioning !== directionLead ? `<details class="adzy-raw-detail"><summary>${A.review && A.review.status === 'READY_FOR_CREATIVE' ? 'Full approved positioning' : 'Full positioning proposal'}</summary><p>${esc(fullPositioning)}</p></details>` : ''}`;
   }
 
   function renderApproval() {
@@ -713,20 +744,21 @@
     const defects = list(verification.defects);
     const limitations = [...list((candidate.decision || {}).unresolved_unknowns), ...list((candidate.research_question || {}).unknowns)];
     const rejected = candidate.approval_state === 'rejected';
+    const awaitingSwot = !A.brand.swot_approved && !!candidate.run_id && verification.eligible_for_approval === true && !defects.length;
     const canApprove = !!A.review && A.review.status === 'NEEDS_REVIEW' && !A.busy;
     const duplicateAuditCount = truth.duplicateAlternativeIndexes((candidate.decision || {}).options).size;
     const cta = (approved
       ? '<span class="adzy-locked-pill">Strategy locked <b>✓</b></span><button class="adzy-btn grape" type="button" onclick="adzyNavigate(\'create\')">Prepare the poster</button>'
       : canApprove
         ? '<button class="adzy-btn coral" id="adzy-lock-btn" type="button" onclick="adzyLockStrategy()">Lock this strategy</button>'
-        : '<p>Not ready to lock. Review the persisted research gaps below.</p>')
+        : awaitingSwot ? '<p>The evidence checks passed with disclosed limitations. Review the current SWOT before deciding on this strategy.</p><button class="adzy-btn coral" type="button" onclick="adzyNavigate(\'think\')">Review research &amp; SWOT</button>' : '<p>Not ready to lock. Review the persisted research gaps below.</p>')
       + `<button class="adzy-btn flat" id="adzy-find-angle-btn" type="button" onclick="adzyGenerateStrategy()" ${!A.brand.swot_approved || A.busy ? 'disabled' : ''}>${candidate.run_id ? 'Regenerate directions' : 'Find the directions'}</button>`
       + (canApprove ? '<button class="adzy-btn flat" type="button" onclick="adzyRejectStrategy()">Reject this version</button>' : '')
       + (candidate.approval_state === 'rejected' ? '<p>This strategy version was rejected. Review the objective and evidence, then generate a new version.</p>' : '')
       + (defects.length ? '<details open><summary>Research gaps &amp; recovery</summary><ul>' + defects.map(d => `<li><strong>${esc(d.code)}</strong>: ${esc(d.detail || d.message)} ${esc(d.safe_alternative || '')}</li>`).join('') + '</ul><p>Review sources in Think. Add the missing evidence through the supported brand ingestion, then regenerate; Adzy will recheck sufficiency.</p></details>' : '');
     root.classList.toggle('is-approved', approved);
     root.classList.toggle('is-ready', canApprove);
-    root.innerHTML = `<p role="status" id="adzy-workflow-status">${esc(A.review ? A.review.status : 'Review unavailable')} ${esc(A.reviewError)} ${esc(A.review ? [...A.review.reasons, ...A.review.required_actions].join(' · ') : '')}</p><div><div class="adzy-approval-check" aria-label="${approved ? 'Approved strategy' : canApprove ? 'Ready for owner decision' : 'Strategy needs support'}">${approved ? '✓' : canApprove ? '→' : '!'}</div><h2>${approved ? 'This direction holds up.' : rejected ? 'This direction was rejected.' : canApprove ? 'This direction is ready for you.' : 'The direction needs more support.'}</h2><div class="adzy-verifier-lines"><span><i class="adzy-dot" style="--dot:${verification.status && !defects.length ? 'var(--adzy-mint)' : 'transparent'}"></i>Research · ${esc(text((candidate.research_question || {}).sufficiency_status, 'not assessed'))}</span><span><i class="adzy-dot" style="--dot:${!defects.length && verification.status ? 'var(--adzy-mint)' : 'var(--adzy-watermelon)'}"></i>${defects.length} persisted verifier issue${defects.length === 1 ? '' : 's'}</span>${duplicateAuditCount ? `<span><i class="adzy-dot" style="--dot:var(--adzy-watermelon)"></i>${duplicateAuditCount} current duplicate audit gap</span>` : ''}<span><i class="adzy-dot" style="--dot:var(--adzy-mango)"></i>${limitations.length} limitation${limitations.length === 1 ? '' : 's'} disclosed</span></div></div><div>${cta}</div>`;
+    root.innerHTML = `<p role="status" id="adzy-workflow-status">${esc(awaitingSwot ? 'Waiting for SWOT review' : A.review ? A.review.status : 'Review unavailable')} ${esc(A.reviewError)} ${esc(A.review ? [...A.review.reasons, ...A.review.required_actions].join(' · ') : '')}</p><div><div class="adzy-approval-check" aria-label="${approved ? 'Approved strategy' : canApprove ? 'Ready for owner decision' : awaitingSwot ? 'SWOT review required' : 'Strategy needs support'}">${approved ? '✓' : canApprove ? '→' : '!'}</div><h2>${approved ? 'This direction holds up.' : rejected ? 'This direction was rejected.' : canApprove ? 'This direction is ready for you.' : awaitingSwot ? 'Review the SWOT first.' : 'The direction needs more support.'}</h2><div class="adzy-verifier-lines"><span><i class="adzy-dot" style="--dot:${verification.status && !defects.length ? 'var(--adzy-mint)' : 'transparent'}"></i>Research · ${esc(text((candidate.research_question || {}).sufficiency_status, 'not assessed'))}</span><span><i class="adzy-dot" style="--dot:${!defects.length && verification.status ? 'var(--adzy-mint)' : 'var(--adzy-watermelon)'}"></i>${defects.length} persisted verifier issue${defects.length === 1 ? '' : 's'}</span>${duplicateAuditCount ? `<span><i class="adzy-dot" style="--dot:var(--adzy-watermelon)"></i>${duplicateAuditCount} current duplicate audit gap</span>` : ''}<span><i class="adzy-dot" style="--dot:var(--adzy-mango)"></i>${limitations.length} limitation${limitations.length === 1 ? '' : 's'} disclosed</span></div></div><div>${cta}</div>`;
   }
 
   window.adzyGenerateStrategy = async function () {
@@ -811,7 +843,11 @@
       }
     }
     renderBrief();
-    if (historical) renderPoster(historical); else resetPoster();
+    let selected;
+    try { selected=window.localStorage.getItem(revisionStorageKey()); } catch (_) {}
+    const diagnostic=A.latestAttempt && A.latestAttempt.diagnosticPreview;
+    if (diagnostic && !selected) renderPoster(diagnostic);
+    else if (historical) renderPoster(historical); else resetPoster();
   }
 
   function lockIcon() {
@@ -874,6 +910,8 @@
     stage.classList.remove('has-result', 'is-assembling');
     $('adzy-result-actions').hidden = true;
     $('adzy-why').hidden = true;
+    $('adzy-copy-evidence').innerHTML = '';
+    $('adzy-candidate-status').hidden = true;
   }
 
   function qaState(item, kind) {
@@ -884,11 +922,13 @@
       return ['Strategy QA unavailable', 'unknown'];
     }
     if (kind === 'claims') {
+      const assessment = item.factual_assessment;
+      if (assessment) return [assessment.status === 'SUPPORTED' && item.factual_eligible === true ? 'Authored facts match source quotations · semantics unqualified' : 'Copy unresolved · draft only', assessment.status === 'SUPPORTED' && item.factual_eligible === true ? 'pass' : 'unknown'];
       if (list(item.claim_ids_used).length || list((item.strategy_verification || {}).claim_ids_used).length) return ['Approved claim references · factual verification unavailable', 'unknown'];
       return ['Claim check unavailable', 'unknown'];
     }
     const status = text(item.qa_status).toLowerCase();
-    if (status === 'pass' && item.accepted === true) return [text((item.visual_qa || {}).reason).startsWith('SYNTHETIC_TEST:') ? 'Synthetic QA passed · test evidence only' : 'Visual QA passed', 'pass'];
+    if (status === 'pass') return [text((item.visual_qa || {}).reason).startsWith('SYNTHETIC_TEST:') ? 'Synthetic QA passed · test evidence only' : 'Visual QA passed', 'pass'];
     if (status === 'fail' || item.qa_failed) return ['Visual QA failed', 'fail'];
     return ['Visual QA not checked', 'unknown'];
   }
@@ -907,52 +947,242 @@
       return `<div class="adzy-qa-item is-${status}"><i class="adzy-dot"></i>${esc(label)}</div>`;
     }).join('');
     $('adzy-result-actions').hidden = false;
+    const diagnostic = item.diagnostic === true;
+    stage.classList.toggle('is-diagnostic', diagnostic);
+    $('adzy-result-left').hidden = diagnostic;
+    if (diagnostic) {
+      const [label, status] = qaState(item, 'visual');
+      $('adzy-qa-list').innerHTML = `<div class="adzy-qa-item is-${status}"><i class="adzy-dot"></i>${esc(label)}</div>`;
+    }
+    $('adzy-candidate-status').hidden = !diagnostic;
+    if (diagnostic) {
+      const rejected = item.qa_status === 'fail' || (item.visual_qa || {}).overall_pass === false;
+      $('adzy-candidate-status').innerHTML = `<h3>${rejected ? 'Candidate rejected' : 'Candidate not verified'}</h3><p>${esc(text((item.visual_qa || {}).reason, 'Required checks did not complete.'))}</p><button type="button" class="adzy-btn ink" onclick="adzyInspectCandidateChecks()">Review saved checks</button>`;
+      $('adzy-generation-error').hidden = true;
+    }
+    $('adzy-retry-poster').hidden = diagnostic;
+    $('adzy-why-action').hidden = diagnostic;
+    $('adzy-trace-action').hidden = diagnostic;
+    $('adzy-last-accepted').hidden = !A.lastAccepted || A.lastAccepted.generation_run_id === item.generation_run_id;
     $('adzy-retry-poster').disabled = !A.contract || A.loadingBrand || !A.brand.swot_approved || A.brand.strategy_approval_state !== 'approved' || A.busy;
     const disclosure = [];
     if (item.strategy_version_id && item.strategy_version_id !== A.brand.strategy_version_id) disclosure.push('Earlier strategy version. Review the current strategy before generating again.');
     if (item.accepted !== true) disclosure.push('Diagnostic creative only. Not accepted or deliverable.');
     if (text((item.visual_qa || {}).reason).startsWith('SYNTHETIC_TEST:')) disclosure.push('Synthetic provider and QA test evidence. Not live model validation.');
+    if (item.diagnostic) disclosure.push('Saved rejected or unverified candidate · inspection only · not an accepted download. ' + text((item.visual_qa || {}).reason));
     if (item.trust_violation) disclosure.push(text(item.trust_note_ar, 'Trust limitation returned by QA.'));
     if (item.qa_status === 'fail' || item.qa_failed) disclosure.push(text(item.qa_note, 'Visual QA did not pass.'));
     if (!item.qa_status) disclosure.push('QA status unavailable for this older creative.');
     if (disclosure.length) $('adzy-result-left').insertAdjacentHTML('beforeend', `<div class="adzy-disclosure">${esc(disclosure.join(' · '))}</div>`);
+    const assessment = item.factual_assessment;
+    $('adzy-copy-evidence').innerHTML = '';
+    if (assessment) {
+      const claims = list(assessment.propositions).map(p => {
+        const j = list(assessment.judgments).find(j => j.proposition_id === p.proposition_id) || {};
+        const sources = list(j.evidence).map(e => `<blockquote>${esc(e.quote)}</blockquote><a href="${esc(/^https?:\/\//i.test(e.page_url || '') ? e.page_url : '#')}" target="_blank" rel="noopener noreferrer">Source page</a>`).join('');
+        const considered = (p.kind === 'NONFACTUAL_INVITATION' ? [] : list(j.considered_evidence)).map(e => `<blockquote>Considered, not support: ${esc(e.quote)}</blockquote><a href="${esc(/^https?:\/\//i.test(e.page_url || '') ? e.page_url : '#')}" target="_blank" rel="noopener noreferrer">Source page</a>`).join('');
+        const actions = {REQUEST_EVIDENCE_OR_REVIEW:'Request evidence or review', REMOVE:'Remove this statement', ABSTAIN:'Leave this wording out'};
+        const verdicts = {SUPPORTED:'Supported by source quotation', CONTRADICTED:'Contradicted by evidence', INSUFFICIENT_EVIDENCE:'Not enough evidence', UNAVAILABLE:'Check unavailable'};
+        return `<li><b>${esc(p.text)}</b> · ${esc(p.location)}<p>${esc(p.kind === 'NONFACTUAL_INVITATION' ? 'Invitation · excluded from factual checks' : verdicts[j.verdict] || 'Check unavailable')}: ${esc(j.reason)}</p>${sources}${considered ? `<details><summary>Evidence considered, without established support</summary>${considered}</details>` : ''}<p>${esc(p.kind === 'NONFACTUAL_INVITATION' ? '' : list(j.actions).map(a => actions[a] || 'Review wording').join(' · '))}</p></li>`;
+      }).join('');
+      $('adzy-copy-evidence').insertAdjacentHTML('beforeend', `<details><summary>Copy evidence · ${esc(assessment.status)}</summary><p>Authored copy only. Text inside image pixels is not assessed. Semantic method unqualified. Source assertions do not establish independent truth.</p><ul>${claims}</ul><p>Unresolved: remove the statement, use the exact supported wording, request evidence or review, or abstain. Any edit requires a new assessment.</p></details>`);
+    }
+    if (item.diagnostic) $('adzy-copy-evidence').innerHTML = '<details><summary>Saved candidate checks · inspection only</summary><ul>'
+      + list(item.candidate_history).map(c => `<li>${esc(c.identity.candidate_id)} · ${esc(c.checksum.slice(0,12))} · ${esc(c.visual_qa.checked ? (c.visual_qa.overall_pass === true ? 'Visual QA passed; final checks unresolved' : 'QA rejected / not accepted') : 'QA not completed')}<p>${esc(c.visual_qa.reason)}</p></li>`).join('') + '</ul></details>';
+    refreshDelivery(item);
     renderLineage();
   }
 
-  window.adzyMakeAd = async function () {
+  function revisionStorageKey() { return operationStorageKey() + ':selected-revision'; }
+
+  window.adzyInspectCandidateChecks = function () {
+    const section = $('adzy-copy-evidence'), detail = section.querySelector('details');
+    if (detail) detail.open = true;
+    section.scrollIntoView({block:'center', behavior:'auto'});
+  };
+
+  function rememberRevision(item) {
+    if (item && item.generation_run_id) {
+      try { window.localStorage.setItem(revisionStorageKey(), item.generation_run_id); } catch (_) { /* server remains authoritative */ }
+    }
+  }
+
+  async function refreshDelivery(item) {
+    const final = $('adzy-download-final'), draft = $('adzy-download-draft');
+    final.disabled = true; draft.disabled = true;
+    final.hidden = true; draft.hidden = true;
+    $('adzy-delivery-note').textContent = 'Checking this saved revision for delivery…';
+    if (!item.canonical || !item.generation_run_id) {
+      $('adzy-delivery-note').textContent = item.diagnostic
+        ? 'Inspection only: this candidate has no accepted Asset. Required final delivery checks have not completed, so no download is available.'
+        : 'Preview only: this image has no canonical run and Asset binding. Exact revision delivery checks cannot be performed.';
+      return;
+    }
+    try {
+      const status = await call('GET', `/api/poster/runs/${encodeURIComponent(item.generation_run_id)}/delivery`);
+      if (A.creative !== item) return;
+      item.delivery = status;
+      final.disabled = !status.final_eligible; draft.disabled = !status.draft_export_available;
+      final.hidden = !status.final_eligible;
+      draft.hidden = status.final_eligible || !status.draft_export_available;
+      $('adzy-delivery-note').textContent = status.final_eligible
+        ? 'This exact revision passes the current delivery checks. Authored copy matches source quotations; image text and general meaning are not certified.'
+        : 'Draft inspection only. Current approval, revision or required checks need review. Exporting a draft does not verify it.';
+    } catch (_) {
+      if (A.creative === item) $('adzy-delivery-note').textContent = 'Delivery unavailable. Check the saved image and revision, then refresh status.';
+    }
+  }
+
+  window.adzyDownloadPoster = async function (mode) {
+    const item = A.creative;
+    if (!item || !item.generation_run_id) return;
+    try {
+      // Obtain fresh authority; download rechecks the same revision again on the server.
+      const status = await call('GET', `/api/poster/runs/${encodeURIComponent(item.generation_run_id)}/delivery`);
+      if (A.creative !== item) return;
+      if (mode === 'final' && !status.final_eligible) throw new Error('This revision is a draft or needs current approval. Inspect the checks or export it as a draft.');
+      const params = new URLSearchParams({mode, attempt_id: status.generation_attempt_id, checksum: status.checksum});
+      const response = await window.fetch(`/api/poster/runs/${encodeURIComponent(item.generation_run_id)}/download?${params}`, {headers: window.authHeaders()});
+      if (!response.ok) throw new Error('The revision is no longer eligible or its bytes changed. Refresh its check status.');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob), anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${mode}-${status.asset_id}-${status.checksum.slice(0,12)}.${status.mime === 'image/png' ? 'png' : status.mime === 'image/jpeg' ? 'jpg' : 'webp'}`;
+      anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      rememberRevision(item);
+    } catch (error) { notify(errorMessage(error), 'error'); }
+  };
+
+  window.adzyShowLastAccepted = function () {
+    if (A.lastAccepted) { renderPoster(A.lastAccepted); rememberRevision(A.lastAccepted); }
+  };
+
+  function operationStorageKey() {
+    const owner = (window.adzyLegacyState.currentUser || {}).id;
+    if (!owner || !A.brand) throw new Error('Reload your authenticated account before generating.');
+    return `adzy.poster.operation:${owner}:${A.brand.domain_key}`;
+  }
+
+  function savedOperation() {
+    const raw = window.localStorage.getItem(operationStorageKey());
+    return raw ? JSON.parse(raw) : null;
+  }
+
+  function projectAttempt(operation) {
+    A.latestAttempt = operation;
+    if (!operation) return;
+    if (['accepted', 'draft'].includes(operation.state) && operation.result) {
+      renderPoster(operation.result);
+      if (!A.history.some(item => item.generation_run_id === operation.generation_run_id)) A.history.unshift(operation.result);
+      renderWork(); renderParade();
+    }
+    if (!['accepted','draft'].includes(operation.state) && list(operation.candidates).length) {
+      const candidate=operation.candidates[operation.candidates.length-1];
+      const epoch=A.selectionEpoch;
+      call('GET', `/api/poster/operations/${encodeURIComponent(operation.operation_key)}/candidates/${encodeURIComponent(candidate.identity.candidate_id)}/preview?as_json=true`)
+        .then(item => { operation.diagnosticPreview=item; if(A.latestAttempt===operation && A.selectionEpoch===epoch) renderPoster(item); })
+        .catch(() => { /* Metadata remains visible if bytes are unavailable. */ });
+    }
+    const messages = {
+      admitted: 'Poster admitted. Check status to recover this attempt.',
+      running: 'Poster in progress. Check status; no additional request will be sent.',
+      failed: 'Latest attempt failed. No accepted result was created by this attempt.',
+      unknown: 'Latest attempt has an unknown outcome. Reconciliation with the provider is required. No automatic resend.',
+      accepted: 'Latest attempt accepted and saved in the gallery.',
+      draft: 'Saved as a draft; not accepted or deliverable. Inspect the copy and visual checks to resolve required checks.',
+    };
+    let note = messages[operation.state] || 'Attempt status unavailable. Check status.';
+    if (operation.reason_code === 'POSTER_CALL_PRICING_UNKNOWN' || operation.reason_code === 'POSTER_BUDGET_CONFIGURATION_REQUIRED') note += ' Pricing configuration needs operator review.';
+    if (operation.reason_code === 'POSTER_STAGE_BUDGET_EXHAUSTED') note += ' The reserved estimate envelope was exhausted.';
+    if (operation.state === 'unknown') {
+      note += ` Attempt reference: ${operation.operation_key}.`;
+      const references = list(operation.calls).map(call => call.provider_reference).filter(Boolean);
+      if (references.length) note += ` Provider references: ${references.join(', ')}.`;
+    }
+    $('adzy-generation-error').hidden = false;
+    if (list(operation.candidates).length) note += ' Saved candidate: ' + text(operation.candidates[operation.candidates.length-1].visual_qa.reason);
+    $('adzy-generation-error').textContent = note + (A.creative && !list(operation.candidates).length && !['accepted', 'draft'].includes(operation.state) ? ' The displayed image is the previous saved result.' : '');
+    if (!['accepted','draft'].includes(operation.state)) $('adzy-generation-error').insertAdjacentHTML('beforeend', '<button type="button" class="adzy-btn flat" onclick="adzyCheckPosterStatus()">Check attempt status</button>');
+  }
+
+  async function restorePosterAttempt(epoch) {
+    const payload = await call('GET', `/api/poster/operations/latest?domain_key=${encodeURIComponent(A.brand.domain_key)}`);
+    if (epoch !== A.selectionEpoch) return;
+    let selected;
+    try { selected = window.localStorage.getItem(revisionStorageKey()); } catch (_) {}
+    A.lastAccepted = payload.last_accepted;
+    $('adzy-last-accepted').hidden = !payload.last_accepted;
+    if (payload.last_accepted) renderPoster(payload.last_accepted);
+    projectAttempt(payload.operation);
+    const pending = savedOperation();
+    if (pending && (!payload.operation || pending.operation_key !== payload.operation.operation_key)) {
+      try {
+        const operation = await call('GET', `/api/poster/operations/${encodeURIComponent(pending.operation_key)}`);
+        if (epoch === A.selectionEpoch) projectAttempt(operation);
+      } catch (_) {
+        if (epoch === A.selectionEpoch) {
+          $('adzy-generation-error').hidden = false;
+          $('adzy-generation-error').textContent = 'A saved request needs recovery. Make the ad again to retry the same operation key.';
+        }
+      }
+    }
+    const selectedItem = A.history.find(item => item.generation_run_id === selected);
+    if (selectedItem) { renderPoster(selectedItem); rememberRevision(selectedItem); }
+  }
+
+  window.adzyCheckPosterStatus = async function () {
+    const epoch = A.selectionEpoch;
+    try { await restorePosterAttempt(epoch); }
+    catch (error) { notify(errorMessage(error), 'error'); }
+  };
+
+  window.adzyMakeAd = async function (newVariation = false) {
     if (!A.brand || !A.contract || !A.review || A.review.status !== 'READY_FOR_CREATIVE' || A.loadingBrand || !A.brand.swot_approved || A.busy) { notify('An approved Creative Direction is required.', 'error'); return; }
     const epoch = A.selectionEpoch;
     A.busy = true;
-    $('adzy-generation-error').hidden = true;
-    $('adzy-retry-poster').disabled = true;
     const stage = $('adzy-poster-stage');
     const button = $('adzy-make-btn');
-    stage.classList.remove('has-result'); stage.classList.add('is-assembling');
-    button.disabled = true;
+    button.disabled = true; $('adzy-retry-poster').disabled = true;
     try {
-      const item = await call('POST', '/api/generate', {
-        domain_key: A.brand.domain_key,
-        content_type: 'brand_poster', style: 'strategy_grounded', headline: '', subtext: '',
-        // The server recompiles the approved direction; a derived default is not a user override.
-        cta: '', user_context: '', mode: 'text_to_image',
-        language: A.contract.language || 'auto', trend: false, content_only: false,
-        product_url: '', product_name: '', product_description: '',
-        strategy_version_id: A.contract.strategy_version_id,
-      });
+      if (A.latestAttempt && ['running', 'admitted', 'unknown'].includes(A.latestAttempt.state)) {
+        await window.adzyCheckPosterStatus(); return;
+      }
+      let request = savedOperation();
+      if (newVariation && request && (!A.latestAttempt || A.latestAttempt.operation_key !== request.operation_key)) {
+        const recovered = await call('GET', `/api/poster/operations/${encodeURIComponent(request.operation_key)}`);
+        if (epoch !== A.selectionEpoch) return;
+        projectAttempt(recovered);
+        if (!['accepted', 'draft', 'failed'].includes(recovered.state)) return;
+      }
+      if (newVariation || !request) {
+        request = {
+          operation_key: window.crypto.randomUUID(), domain_key: A.brand.domain_key,
+          content_type: 'brand_poster', style: 'strategy_grounded', headline: '', subtext: '',
+          cta: '', user_context: '', mode: 'text_to_image', language: A.contract.language || 'auto',
+          trend: false, content_only: false, product_url: '', product_name: '', product_description: '',
+          strategy_version_id: A.contract.strategy_version_id,
+        };
+        // Persist BEFORE dispatch. Failure to persist refuses generation.
+        window.localStorage.setItem(operationStorageKey(), JSON.stringify(request));
+      }
+      stage.classList.add('is-assembling');
+      const operation = await call('POST', '/api/generate', request);
       if (epoch !== A.selectionEpoch) return;
-      A.history.unshift(item);
-      renderPoster(item);
-      renderWork(); renderParade();
-      notify(item.accepted === true ? 'The poster is ready for review.' : 'Diagnostic poster only — review QA before acceptance.', item.accepted === true ? 'success' : 'error');
+      projectAttempt(operation);
+      rememberRevision(operation.result);
     } catch (error) {
       if (epoch !== A.selectionEpoch) return;
-      stage.classList.remove('is-assembling');
-      if (A.creative) renderPoster(A.creative); else resetPoster();
-      $('adzy-poster-empty-note').textContent = errorMessage(error) + ' Review the strategy or retry generation.';
-      $('adzy-generation-error').textContent = errorMessage(error) + (A.creative ? ' The displayed poster is the previous saved result, not this failed attempt.' : '');
       $('adzy-generation-error').hidden = false;
-      notify(`The ad was not generated: ${errorMessage(error)}`, 'error');
-    } finally { A.busy = false; button.disabled = !A.contract || A.loadingBrand; $('adzy-retry-poster').disabled = !A.contract || A.loadingBrand || !A.brand || !A.brand.swot_approved || A.brand.strategy_approval_state !== 'approved'; }
+      $('adzy-generation-error').textContent = errorMessage(error) + ' Response unavailable. Check attempt status or retry the saved operation; its key is retained.';
+      $('adzy-generation-error').insertAdjacentHTML('beforeend', '<button type="button" class="adzy-btn flat" onclick="adzyCheckPosterStatus()">Check attempt status</button>');
+      notify('Poster status needs recovery. The response does not prove failure.', 'error');
+    } finally {
+      stage.classList.remove('is-assembling'); A.busy = false;
+      if (epoch === A.selectionEpoch) {
+        button.disabled = !A.contract || A.loadingBrand;
+        $('adzy-retry-poster').disabled = !A.contract || A.loadingBrand;
+      }
+    }
   };
 
   function resolveLineage() {
@@ -1048,16 +1278,29 @@
     A.contract = item.creative_contract || A.contract;
     await window.adzyNavigate('create');
     renderPoster(item);
+    rememberRevision(item);
   };
 
   async function bootstrapData() {
-    if (!window.adzyLegacyState || !window.adzyLegacyState.authToken) return;
-    try {
-      await Promise.all([refreshBrands(), refreshHistory()]);
-      updateBrandSurfaces();
-      const stage = A.initialLocation.get('stage');
-      if (A.brand && ['think', 'strategy', 'create', 'work'].includes(stage)) await window.adzyNavigate(stage);
-    } catch (_) { /* auth gate remains the authority for an unavailable session */ }
+    const token = window.adzyLegacyState && window.adzyLegacyState.authToken;
+    if (!token) return;
+    if (bootstrapFlight && bootstrapFlight.token === token) return bootstrapFlight.promise;
+    const flight = {token};
+    bootstrapFlight = flight;
+    flight.promise = (async () => {
+      try {
+        await Promise.all([refreshBrands(), refreshHistory()]);
+        if (window.adzyLegacyState.authToken !== token) return;
+        updateBrandSurfaces();
+        const stage = A.initialLocation.get('stage');
+        if (!initialStageRestored && A.brand) {
+          initialStageRestored = true;
+          if (['think', 'strategy', 'create', 'work'].includes(stage)) await window.adzyNavigate(stage);
+        }
+      } catch (_) { /* auth gate remains the authority for an unavailable session */ }
+    })();
+    try { await flight.promise; }
+    finally { if (bootstrapFlight === flight) bootstrapFlight = null; }
   }
 
   function bridgeLegacyAuth() {
@@ -1073,8 +1316,9 @@
     if (typeof legacyLogout === 'function') {
       window.logout = function () {
         ++A.selectionEpoch;
+        initialStageRestored = false;
         A.reviewedSwot = null; A.reviewedStrategy = null; A.loadingBrand = false; A.busy = false; A.contractError = '';
-        A.review = null; A.reviewError = ''; A.brand = null; A.brands = []; A.history = []; A.contract = null; A.creative = null;
+        A.review = null; A.reviewError = ''; A.brand = null; A.brands = []; A.history = []; A.contract = null; A.creative = null; A.latestAttempt = null;
         return legacyLogout.apply(this, arguments);
       };
     }
@@ -1086,7 +1330,7 @@
     setupIntro();
     setupTopbar();
     bridgeLegacyAuth();
-    window.setTimeout(bootstrapData, 350);
+    window.setTimeout(() => { if (!initialStageRestored) bootstrapData(); }, 350);
   }
 
   init();

@@ -15,6 +15,8 @@ VertexImagenProvider.
 """
 from __future__ import annotations
 
+from poster.paid_boundary import paid_call
+
 import os
 import uuid
 from pathlib import Path
@@ -127,7 +129,7 @@ class VertexImagenProvider:
             full_prompt += "\n\n" + _COMPOSITION_CONTRACT
 
         client = genai.Client(vertexai=True, project=self.project, location=self.location)
-        resp = client.models.generate_images(
+        resp = paid_call(client.models.generate_images,
             model=self.model,
             prompt=full_prompt,
             config=types.GenerateImagesConfig(

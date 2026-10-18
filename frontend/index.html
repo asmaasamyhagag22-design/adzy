@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AdArchitect - AI Creative Studio</title>
-<link rel="icon" href="/assets/logo.png?v=3" />
+<title>ADZY — Evidence to poster</title>
+<link rel="icon" href="/assets/logo-mark.svg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
 <script src="https://unpkg.com/@phosphor-icons/web@2.1.1/src/index.js"></script>
-<link rel="stylesheet" href="/assets/adzy.css?v=6" />
+<link rel="stylesheet" href="/assets/adzy.css?v=7" />
 <style>
   :root {
     --bg:         #0A0A0A;
@@ -1542,6 +1542,7 @@
   </header>
 
   <main class="adzy-main">
+    <aside id="adzy-demo-disclosure" class="adzy-demo-disclosure" hidden></aside>
     <section class="adzy-stage is-active" id="adzy-stage-discover" data-adzy-stage="discover">
       <div class="adzy-container">
         <div class="adzy-home-hero">
@@ -1674,6 +1675,7 @@
             <div class="adzy-poster-scrap logo" aria-hidden="true"></div><div class="adzy-poster-scrap copy" aria-hidden="true"></div><div class="adzy-poster-scrap shape" aria-hidden="true"></div>
             <div class="adzy-poster-empty" id="adzy-poster-empty"><p class="adzy-mono">Blank poster stage</p><h2 class="adzy-section-title" id="adzy-poster-stage-title">Ready when<br>the strategy is.</h2><p id="adzy-poster-empty-note">The message, proof and CTA will assemble here.</p><button class="adzy-btn grape" id="adzy-make-btn" type="button" onclick="adzyMakeAd()">Make the ad <span class="adzy-spark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span></button></div>
             <div class="adzy-assembly" aria-label="Assembling the ad"><div class="adzy-wire logo"></div><div class="adzy-wire image"></div><div class="adzy-wire message"></div><div class="adzy-wire cta"></div></div>
+            <section id="adzy-candidate-status" class="adzy-candidate-status" role="status" hidden></section>
             <div class="adzy-poster-result" id="adzy-poster-result">
               <aside class="adzy-result-meta" id="adzy-result-left"></aside>
               <div class="adzy-result-art"><img id="adzy-result-image" alt="Generated campaign poster"></div>
@@ -1682,10 +1684,15 @@
           </section>
         </div>
         <div class="adzy-result-actions" id="adzy-result-actions" hidden>
-          <button class="adzy-btn flat" id="adzy-retry-poster" type="button" onclick="adzyMakeAd()">Make another poster</button>
-          <button class="adzy-btn ink" type="button" onclick="adzyOpenWhy()">Why this ad? <span class="adzy-spark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span></button>
-          <button class="adzy-btn flat" type="button" onclick="adzyOpenTrace()">Trace the message</button>
+          <button class="adzy-btn grape" id="adzy-download-final" type="button" onclick="adzyDownloadPoster('final')" disabled>Download accepted revision</button>
+          <button class="adzy-btn flat" id="adzy-download-draft" type="button" onclick="adzyDownloadPoster('draft')" disabled>Export draft · unverified</button>
+          <button class="adzy-btn flat" id="adzy-last-accepted" type="button" onclick="adzyShowLastAccepted()" hidden>Inspect last accepted result</button>
+          <p id="adzy-delivery-note" role="status"></p>
+          <button class="adzy-btn flat" id="adzy-retry-poster" type="button" onclick="adzyMakeAd(true)">Make another poster</button>
+          <button class="adzy-btn ink" id="adzy-why-action" type="button" onclick="adzyOpenWhy()">Why this ad? <span class="adzy-spark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span></button>
+          <button class="adzy-btn flat" id="adzy-trace-action" type="button" onclick="adzyOpenTrace()">Trace the message</button>
         </div>
+        <section id="adzy-copy-evidence" aria-label="Poster copy evidence"></section>
         <section class="adzy-why" id="adzy-why" hidden>
           <div class="adzy-why-head"><p class="adzy-kicker adzy-mono">Why this ad?</p><h2 class="adzy-page-title">A visible chain<br>of decisions.</h2></div>
           <div class="adzy-lineage" id="adzy-lineage"></div>
@@ -1727,8 +1734,8 @@ function adzyCloseDrawer() { return false; }
 
 <!-- ── Persistent icon rail - the app's only navigation, always visible ── -->
 <div class="studio-rail">
-  <button class="rail-btn" id="rail-logo-btn" onclick="window.location.href='/'" title="AdArchitect - Home" style="margin-bottom:8px;">
-    <img src="/assets/logo.png?v=3" alt="AdArchitect" style="width:44px;height:auto;object-fit:contain;" />
+  <button class="rail-btn" id="rail-logo-btn" onclick="window.location.href='/'" title="ADZY - Home" style="margin-bottom:8px;">
+    <img src="/assets/logo-mark.svg" alt="ADZY" style="width:44px;height:auto;object-fit:contain;" />
   </button>
   <!-- RAIL ORDER = THE WORK ORDER (owner, 2026-07-26): Brands right after Home, the Influencer
        BEFORE Create — the face is chosen first, then content is generated with it. Gallery is a
@@ -1759,7 +1766,7 @@ function adzyCloseDrawer() { return false; }
 <!-- ── Auth gate - blocks the app until signed in ── -->
 <div id="auth-gate" style="display:none; position:fixed; inset:0; background:var(--bg,#0A0A0B); z-index:500; align-items:center; justify-content:center;">
   <div style="width:min(380px,90vw); background:var(--surface); border-radius:var(--radius); padding:32px; box-shadow:var(--shadow-lg);">
-    <div style="font-weight:800; font-size:1.3rem; margin-bottom:4px;">AdArchitect</div>
+    <div style="font-weight:800; font-size:1.3rem; margin-bottom:4px;">ADZY</div>
     <div id="auth-gate-subtitle" style="color:var(--text3); font-size:0.85rem; margin-bottom:20px;">Sign in to your account</div>
 
     <div id="auth-error" style="display:none; color:#e5484d; font-size:0.8rem; margin-bottom:12px; padding:8px 10px; background:rgba(229,72,77,0.1); border-radius:8px;"></div>
@@ -1782,7 +1789,7 @@ function adzyCloseDrawer() { return false; }
 <!-- ── HOME PAGE ── -->
 <div id="page-home" class="page active">
   <div class="home-hero">
-    <div class="hero-brand-name">AdArchitect</div>
+    <div class="hero-brand-name">ADZY</div>
     <div style="color:var(--text3); font-size:0.8rem; letter-spacing:0.04em; margin-top:-8px; margin-bottom:14px;">All in One, One for All</div>
     <h1 class="hero-title">
       Turn any website into<br />
@@ -2108,7 +2115,7 @@ function adzyCloseDrawer() { return false; }
       <!-- Prompt card ( big soft card, Styles chip inside) -->
       <div class="prompt-card">
         <textarea id="studio-user-context"
-          placeholder="You can directly describe the image you want to generate, or leave it blank and AdArchitect will reverse-generate a creative direction from your brand profile. Check your brand's colors, tone and audience to improve outputs."></textarea>
+          placeholder="You can directly describe the image you want to generate, or leave it blank and ADZY will reverse-generate a creative direction from your brand profile. Check your brand's colors, tone and audience to improve outputs."></textarea>
         <div class="prompt-toolbar">
           <button class="styles-chip" onclick="togglePopover('styles-popover')">
             <i class="ph ph-magic-wand"></i> Styles
@@ -2592,21 +2599,21 @@ function adzyCloseDrawer() { return false; }
            real photoshoot.</p>
       </div>
 
-      <!-- Real result showcase - recreates an actual pipeline output (Volt Energy) -->
+      <!-- Public fictional application examples; synthetic external responses -->
       <div class="info-section">
-        <div class="info-label">A real result from this pipeline</div>
+        <div class="info-label">Fictional application examples · synthetic responses</div>
         <div class="inf-showcase">
           <div class="inf-showcase-panel inf-showcase-photo">
-            <div class="inf-showcase-tag">Step 1 · AI portrait</div>
-            <img src="/assets/showcase/volt_portrait.png" alt="Generated influencer portrait - Volt Energy" />
+            <div class="inf-showcase-tag">Review workspace</div>
+            <img src="/assets/showcase/02_synthetic_review.jpg" alt="Fictional review workspace · synthetic demo" />
           </div>
-          <div class="inf-showcase-arrow"><i class="ph ph-arrow-right"></i><span>face-swapped into scene</span></div>
+          <div class="inf-showcase-arrow"><i class="ph ph-arrow-right"></i><span>reviewed direction</span></div>
           <div class="inf-showcase-panel inf-showcase-photo">
-            <div class="inf-showcase-tag inf-showcase-tag-poster">Step 2 · Campaign poster</div>
-            <img src="/assets/showcase/volt_poster.png" alt="Generated campaign poster - Volt Energy" />
+            <div class="inf-showcase-tag inf-showcase-tag-poster">Synthetic poster fixture</div>
+            <img src="/assets/showcase/01_synthetic_poster.png" alt="Fictional Studio Fixture poster · synthetic demo" />
           </div>
         </div>
-        <p class="inf-example-note">Real output, not a mockup - the same generated face from Step 1, dropped into a neon gaming-studio scene holding the product for an energy-drink brand ("Volt"). Your brand's influencer and scenes will look entirely different, shaped by what you configure below.</p>
+        <p class="inf-example-note">Project-created fictional application and compositor examples with synthetic provider responses. These images do not demonstrate live face replacement, a commissioned campaign or provider quality.</p>
       </div>
 
       <div class="divider"></div>
@@ -6122,6 +6129,6 @@ if (new URLSearchParams(location.search).get('studio') === '1') {
   goStudio();
 }
 </script>
-<script src="/assets/adzy-app.js?v=21"></script>
+<script src="/assets/adzy-app.js?v=23"></script>
 </body>
 </html>

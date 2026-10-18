@@ -93,11 +93,11 @@
   <main>
     <section class="adzy-container landing-hero">
       <div><p class="adzy-kicker adzy-mono">Bright creative intelligence</p><h1 class="adzy-title">Find the angle.<br><em>Make the ad.</em></h1><p class="landing-hero-copy">Adzy researches a brand, keeps the evidence honest, chooses a strategic direction and turns that decision into creative work.</p><div class="landing-hero-actions"><a class="adzy-btn blue" href="/app">Explore a brand <span class="adzy-spark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 1.75C17.15 10.11 21.89 14.85 30.25 16C21.89 17.15 17.15 21.89 16 30.25C14.85 21.89 10.11 17.15 1.75 16C10.11 14.85 14.85 10.11 16 1.75Z" fill="currentColor"/></svg></span></a><a class="adzy-btn flat" href="#story">See the story</a></div></div>
-      <div class="landing-mood"><div class="landing-mood-poster"><img src="/assets/showcase/01_nahdi_pharmacy_app.png" alt="Campaign creative made with Adzy"></div><div class="landing-note"><span class="adzy-mono">Evidence 04</span><strong>The strategy stays attached to the pixels.</strong></div><div class="landing-proof">Evidence → direction → poster</div></div>
+      <div class="landing-mood"><div class="landing-mood-poster"><img src="/assets/showcase/01_synthetic_poster.png" alt="Fictional Studio Fixture poster · synthetic provider responses"></div><div class="landing-note"><span class="adzy-mono">Evidence 04</span><strong>The strategy stays attached to the pixels.</strong></div><div class="landing-proof">Evidence → direction → poster</div></div>
     </section>
 
     <section class="landing-parade" id="work">
-      <div class="landing-parade-head"><div><p class="adzy-mono" style="color:var(--adzy-mango);margin:0 0 14px">Creative parade</p><h2 class="adzy-section-title">Real work.<br>Grounded direction.</h2></div><a class="adzy-btn grape" href="/app">See the work</a></div>
+      <div class="landing-parade-head"><div><p class="adzy-mono" style="color:var(--adzy-mango);margin:0 0 14px">Offline application examples</p><h2 class="adzy-section-title">Synthetic demo.<br>Inspectable direction.</h2></div><a class="adzy-btn grape" href="/app">See the work</a></div>
       <div class="landing-lanes" id="landing-lanes" aria-live="polite"></div>
     </section>
 
@@ -135,7 +135,7 @@
       try { images = (await fetch('/api/showcase').then(r => r.json())).images || []; } catch (_) {}
       const lanes = document.getElementById('landing-lanes');
       if (!images.length) { lanes.innerHTML = '<div class="adzy-empty">The showcase has no returned images yet.</div>'; return; }
-      const makeCard = (src, index) => `<figure class="landing-card"><img src="${src}" alt="Adzy campaign creative"><span>ADZY / ${String(index + 1).padStart(3, '0')}</span></figure>`;
+      const makeCard = (src, index) => `<figure class="landing-card"><img src="${src}" alt="ADZY fictional demo · synthetic test evidence"><span>ADZY / ${String(index + 1).padStart(3, '0')}</span></figure>`;
       lanes.innerHTML = [0,1].map(lane => { const shifted = images.map((_,i) => images[(i+lane)%images.length]); const half = [...shifted,...shifted]; return `<div class="landing-lane ${lane ? 'reverse' : ''}">${[...half,...half].map(makeCard).join('')}</div>`; }).join('');
     }());
   </script>

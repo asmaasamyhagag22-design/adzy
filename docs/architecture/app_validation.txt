@@ -2,11 +2,11 @@
 =============================== warnings summary ===============================
 tests/test_review_workflow.py::test_real_tools_pause_and_exact_approval_idempotency
 tests/test_app_review_graph.py::test_application_real_auth_pause_restore_concurrent_resume
-  <environment>/site-packages/alembic/config.py:612: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+  /home/asmaa/project/marketing_project/scraper_v01/.venv-workflow/lib/python3.12/site-packages/alembic/config.py:612: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
     util.warn_deprecated(
 
 tests/test_app_review_graph.py::test_application_real_auth_pause_restore_concurrent_resume
-  <environment>/site-packages/starlette/testclient.py:45: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+  /home/asmaa/project/marketing_project/scraper_v01/.venv-workflow/lib/python3.12/site-packages/starlette/testclient.py:45: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
     _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html

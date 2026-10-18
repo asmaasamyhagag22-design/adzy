@@ -1,0 +1,79 @@
+Validation date: 2026-10-16 Africa/Cairo
+Test interpreter: isolated .venv-workflow-clean/bin/python, Python 3.12.3.
+Current optional lock installed; pip check: No broken requirements found.
+No production/external database used. PostgreSQL 16-alpine, new disposable loopback-only containers.
+
+Final foundation command: python -m workflows.verify -q tests/test_review_workflow.py
+................                                                         [100%]
+=============================== warnings summary ===============================
+tests/test_review_workflow.py::test_real_tools_pause_and_exact_approval_idempotency
+  /home/asmaa/project/marketing_project/scraper_v01/.venv-workflow-clean/lib/python3.12/site-packages/alembic/config.py:612: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+16 passed, 1 warning in 34.73s
+
+Existing canonical regression selection (DSN placeholder must be replaced by NEW guarded test storage, never an old audit DSN):
+ADZY_WORKFLOW_TEST_DSN=<isolated-loopback-PostgreSQL-DSN> BASEERA_DESTRUCTIVE_TEST_DATABASE=baseera_pytest_foundation python -m workflows.verify -q tests/test_gate2b_positioning_contracts.py tests/test_gate2_research_gap_resolution.py tests/test_gate2b_postgres_strategy.py::test_canonical_strategy_crosses_with_config_dependency_approval_and_projection tests/test_gate2b_postgres_strategy.py::test_old_strategy_approval_does_not_migrate_to_repaired_run tests/test_gate2b_postgres_strategy.py::test_new_approved_strategy_compiles_contract_without_creating_a_poster tests/test_gate2b_postgres_strategy.py::test_unrelated_original_process_does_not_prove_fast_onboarding -k 'not offline_benchmark_exposes_gap_resolution_without_quality_claims' 
+......................................                                   [100%]
+38 passed, 1 deselected in 13.79s
+
+Expanded regression prior to explicit missing-fixture deselection:
+..................................F....                                  [100%]
+=================================== FAILURES ===================================
+_____ test_offline_benchmark_exposes_gap_resolution_without_quality_claims _____
+
+    def test_offline_benchmark_exposes_gap_resolution_without_quality_claims():
+        from strategy.positioning.benchmark import run_offline_benchmark
+    
+>       result = run_offline_benchmark()
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_gate2_research_gap_resolution.py:653: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+strategy/positioning/benchmark.py:41: in run_offline_benchmark
+    result = json.loads((base / filename).read_text(encoding="utf-8"))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/pathlib.py:1029: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/home/asmaa/project/marketing_project/scraper_v01/outputs/buffaloburger_com_result.json')
+mode = 'r', buffering = -1, encoding = 'utf-8', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/home/asmaa/project/marketing_project/scraper_v01/outputs/buffaloburger_com_result.json'
+
+/usr/lib/python3.12/pathlib.py:1015: FileNotFoundError
+=========================== short test summary info ============================
+FAILED tests/test_gate2_research_gap_resolution.py::test_offline_benchmark_exposes_gap_resolution_without_quality_claims
+1 failed, 38 passed in 16.93s
+
+SDK-only final adapter rerun (overlapping, do not add to foundation total):
+...                                                                      [100%]
+=============================== warnings summary ===============================
+tests/test_review_workflow.py::test_real_sdk_observations_redaction_and_latency
+  /home/asmaa/project/marketing_project/scraper_v01/.venv-workflow-clean/lib/python3.12/site-packages/alembic/config.py:612: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3 passed, 13 deselected, 1 warning in 13.07s
+
+Source-only export and cross-process CLI outputs: foundation_demo_evidence.json.
+Actual SDK-produced local export artifact: foundation_sdk_observations.json; not server ingestion.
+Earlier implementation checks caught and corrected tracer-context import, detached test-row handling,
+missing FastAPI dependency in the minimal lock, and langchain-core empty-schema extra-input behavior.
+The final tools have a constrained current-view field and forbid caller identity/extra input.
+No source/private fixture was replaced to conceal failures. No full-suite result is claimed.
+
+Cleanup verified: initialized working-tree demos, source-export demo, test fixture containers, the interrupted-init container, and the standalone regression container were stopped/removed. No remaining container with adzy.review-demo label; runtime files for initialized working-tree demos removed by the documented cleanup command.
