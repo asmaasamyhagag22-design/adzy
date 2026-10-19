@@ -1,5 +1,6 @@
 """Explicit offline demo provider responses, never live quality evidence."""
 import io
+import hashlib
 from types import SimpleNamespace
 
 
@@ -16,6 +17,26 @@ def install(mode):
         draw.text((120,600),headline,fill='#352749',font_size=36)
         draw.text((120,1160),'NOT LIVE MODEL QUALITY EVIDENCE',fill='#352749',font_size=32)
         stream=io.BytesIO();image.save(stream,format='PNG');payload=stream.getvalue()
+        # A real local compositor over a managed text-free synthetic background.
+        from pathlib import Path
+        from api.user_auth import webapp_dir
+        from poster.schemas import PosterBrief, PosterDesignSpec
+        from poster.copy_editor import capture_recipe, render as local_render, CopyEdit
+        background=webapp_dir()/'synthetic-background.png'
+        background.parent.mkdir(parents=True,exist_ok=True)
+        if not background.exists():
+            # Distinguish independent synthetic brands; canonical Assets have unique storage keys.
+            tint='#'+hashlib.sha256(str(brand.get('domain_key')).encode()).hexdigest()[:6]
+            bg=Image.new('RGB',(1080,1350),tint);d=ImageDraw.Draw(bg)
+            d.ellipse((320,-260,1450,800),fill='#77589e');d.ellipse((600,-100,1200,500),fill='#ae91cc')
+            bg.save(background)
+        brief=PosterBrief(business_name='Studio Fixture',headline=headline,cta_text='Visit website',
+            primary_color='#d6b8fb',palette_hex=['#30223e','#d6b8fb'])
+        spec=PosterDesignSpec(show=['headline','subheadline','cta'],headline_treatment='block',
+            text_box=[.075,.49,.85],headline_font_size=80,support_font_size=44,cta_font_size=38)
+        recipe=capture_recipe(SimpleNamespace(brief=brief,spec=spec,background_path=str(background)))
+        payload,recipe,local=local_render(recipe,CopyEdit(headline=headline,cta_text='Visit website'))
+        spec=PosterDesignSpec.model_validate(recipe['spec'])
         policy=required_poster_qa_policy(arabic=False,logo_composited=False,expect_real_products=False)
         qa=PosterQAVerdict(checked=True,overall_pass=True,critic_pass=True,score=8,
             text_lines=[headline],reason='SYNTHETIC_TEST: fake provider and visual QA response; no live quality claim.',
@@ -37,7 +58,7 @@ def install(mode):
                 brief=PosterBrief(business_name='SYNTHETIC Studio',headline=headline),spec=PosterDesignSpec(),
                 local_checks={'source':'SYNTHETIC_TEST','defects':['LOCAL_CLIPPING']},background_path=path)
         result=SimpleNamespace(qa=qa,strategy_verification={'overall_pass':True},trust_violation=False,trust_note_ar='',
-            brief=SimpleNamespace(headline=headline,subheadline='',cta_text='Visit website'))
+            brief=brief,spec=spec,background_path=str(background),engine='classic',rendering_inputs=recipe['inputs'])
         return webapp_images.RealRender(png=payload,result=result)
     webapp_images._render_real=render
     webapp_images._caption_for=lambda *a,**k:{}

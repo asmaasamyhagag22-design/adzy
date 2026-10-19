@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import sys
 
-CHECKS = ('test_compiler_source_support.py','test_gate2c_canonical_poster.py','test_poster_oneshot_best_attempt.py','test_poster_economic_repair.py','test_poster_qa_brand_roles.py','test_poster_candidate_persistence.py','test_poster_design_controls.py','test_poster_acceptance_red_boundary.py','test_vision_qa_hard_gate_matrix.py','test_poster_dispatch_policy.py','test_poster_rtl_alignment.py','test_portfolio_authorization.py','test_review_workflow.py','test_app_review_graph.py','test_poster_operation_boundary.py',
+CHECKS = ('test_source_export.py','test_copy_editor.py','test_compiler_source_support.py','test_gate2c_canonical_poster.py','test_poster_oneshot_best_attempt.py','test_poster_economic_repair.py','test_poster_qa_brand_roles.py','test_poster_candidate_persistence.py','test_poster_design_controls.py','test_poster_acceptance_red_boundary.py','test_vision_qa_hard_gate_matrix.py','test_poster_dispatch_policy.py','test_poster_rtl_alignment.py','test_portfolio_authorization.py','test_review_workflow.py','test_app_review_graph.py','test_poster_operation_boundary.py',
           'test_poster_delivery.py','test_poster_acceptance_truth.py','test_poster_claim_assessment.py',
           'test_unused_reservations.py','test_webapp_spend_gate.py',
           'test_route_persistence_classification_2gb.py','test_security_headers.py')

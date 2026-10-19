@@ -544,6 +544,8 @@ def generate_image(brand: dict, *, headline: str = "", subtext: str = "", cta: s
             },
         })
         from poster.claim_assessment import assess_copy, inventory, project_factual_acceptance
+        from poster.copy_editor import capture_recipe
+        result['editor_recipe'] = capture_recipe(pipeline_result)
         result['authored_copy'] = inventory(getattr(pipeline_result, 'brief', None) or {})
         result['factual_assessment'] = assess_copy(
             brief=result['authored_copy'], contract=creative_contract,

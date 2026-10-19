@@ -22,6 +22,9 @@ jobs:
       - run: docker pull postgres:16-alpine
       - run: python tools/check_poster_v1.py --evidence-dir /tmp/poster-v1-checks
       - run: python tools/verify_poster_v1_browser.py --directory /tmp/poster-v1-demo --evidence-dir /tmp/poster-v1-browser
+      - run: python tools/prepare_app_publication.py /tmp/copy-editor-source
+      - working-directory: /tmp/copy-editor-source
+        run: python tools/verify_copy_editor_browser.py --directory /tmp/copy-editor-demo --evidence-dir /tmp/copy-editor-browser
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -29,3 +32,4 @@ jobs:
           path: |
             /tmp/poster-v1-checks
             /tmp/poster-v1-browser
+            /tmp/copy-editor-browser

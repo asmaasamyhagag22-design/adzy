@@ -944,3 +944,31 @@ body.adzy-ready #toast { z-index: 1000; background: var(--adzy-ink); color: var(
 .adzy-hero-awaiting span { font: 12px monospace; letter-spacing: .12em; }
 .adzy-hero-awaiting strong { font-size: clamp(40px, 6vw, 80px); line-height: 1; overflow-wrap: anywhere; }
 .adzy-hero-awaiting p { font-size: 17px; max-width: 30ch; }
+
+/* Evidence-aware copy editor: compact evidence on demand, image beside words. */
+#adzy-copy-editor { margin-top:24px; scroll-margin-top:30px; }
+.adzy-copy-panel { background:var(--adzy-paper,#faf7f0);border:1px solid #d2c9dc;border-radius:24px;padding:clamp(18px,3vw,38px); }
+.adzy-copy-panel h2 { font-size:clamp(30px,4vw,48px);margin:0; }
+.adzy-copy-lead { font-size:22px;color:var(--adzy-grape); }
+.adzy-copy-grid { display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;margin:24px 0; }
+.adzy-copy-grid[hidden] { display:none; }
+.adzy-copy-grid figure { margin:0;min-width:0; }
+.adzy-copy-grid img { width:100%;height:auto;max-height:650px;object-fit:contain;border-radius:14px;background:#e8e1ee; }
+.adzy-copy-grid figcaption { font-weight:700;margin-bottom:12px; }
+.adzy-copy-panel label { display:block;font-weight:650;margin:16px 0 8px; }
+.adzy-copy-panel textarea,.adzy-copy-panel input:not([type=checkbox]),.adzy-copy-panel select { width:100%;box-sizing:border-box;padding:12px;border:1px solid #8a7a99;border-radius:9px;background:#fff;font:inherit; }
+.adzy-copy-panel textarea { min-height:88px;resize:vertical; }
+.adzy-copy-panel details { margin:10px 0 18px; }
+.adzy-copy-panel summary { cursor:pointer;text-decoration:underline;text-underline-offset:4px; }
+.adzy-copy-panel blockquote { margin:14px 0;padding:8px 14px;border-left:3px solid var(--adzy-grape);overflow-wrap:anywhere; }
+.adzy-copy-panel a { display:block;margin:8px 0;color:#593c86; }
+.adzy-copy-actions { display:flex;gap:10px;flex-wrap:wrap;align-items:center; }
+.adzy-copy-actions label { flex-basis:100%; }
+.adzy-copy-panel [role=status] { padding:12px;background:#eee7f4;border-radius:10px;overflow-wrap:anywhere; }
+.adzy-copy-panel :focus-visible { outline:3px solid #8053b3;outline-offset:3px; }
+@media(max-width:700px) { .adzy-copy-grid { grid-template-columns:1fr;gap:18px; }.adzy-copy-actions button { width:100%; }.adzy-copy-grid img { max-height:480px; } }
+
+.adzy-copy-panel label,.adzy-copy-panel small { color:var(--adzy-ink,#25212a); }
+
+.adzy-copy-lead { color:#67418d; }
+.adzy-copy-limit { padding:12px 16px;background:#eee7f4;border-radius:10px;font-weight:600; }

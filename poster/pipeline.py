@@ -89,6 +89,7 @@ class PosterGenResult:
     strategy_verification: Optional[dict] = None
     repair_history: Optional[list] = None
     claim_ids_used: Optional[list] = None
+    rendering_inputs: Optional[dict] = None
 
 
 def _fv(profile: dict, key: str) -> str:
@@ -2079,11 +2080,22 @@ def generate_poster(
                 pass
             if spec.copy_surface == 'light': _ink = '#11151b'
             elif spec.copy_surface == 'dark': _ink = '#f5f3ef'
-            html = render_poster_html(brief, bg_path, spec=spec, copy_ink=_ink,
+            render_inputs = dict(copy_ink=_ink,
                 product_zone=(_paste_zone if _mode_composited else None), product_width=_paste_width)
-            poster_path = str(render_html_to_png(html, out / filename))
+            if creative_contract is not None:
+                # New canonical classic renders and later copy revisions share managed fonts.
+                # Freeze remote logos once during generation; the editor never fetches them.
+                if brief.logo_url and brief.logo_url.startswith(('https://','http://')):
+                    from poster.template import _remote_image_data_uri
+                    frozen_logo = _remote_image_data_uri(brief.logo_url)
+                    if frozen_logo: brief = brief.model_copy(update={'logo_url':frozen_logo})
+                from poster.copy_editor import offline_html
+                html = offline_html(brief, bg_path, spec, render_inputs)
+            else:
+                html = render_poster_html(brief, bg_path, spec=spec, **render_inputs)
+            poster_path = str(render_html_to_png(html, out / filename, **({'offline':True} if creative_contract is not None else {})))
             from poster.render_playwright import inspect_layout
-            local_measurements = inspect_layout(html)
+            local_measurements = inspect_layout(html, **({'offline':True} if creative_contract is not None else {}))
             # A CONTRAST RATIO, MEASURED (reviewer 2026-07-26: «أقل من 4.5:1 = reject»). Every
             # legibility fix before this was an argument about gradient stops; this is the number
             # the standard is written in, computed on the exact generated pixels under assessment.
@@ -2257,6 +2269,7 @@ def generate_poster(
                 brief=brief, spec=spec, concept=concept, brand_dna=brand_dna,
                 background_path=str(bg_path), model_used=model_used, prompt=prompt, qa=verdict,
                 acceptance=decision, audit=audit,
+                rendering_inputs={"copy_ink":_ink,"product_zone":(_paste_zone if _mode_composited else None),"product_width":_paste_width},
             )
             checkpoint(verdict,decision)
             local_defect = (bool(local_measurements['defects']) or verdict.cta_clipped

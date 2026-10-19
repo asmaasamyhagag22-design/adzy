@@ -17,7 +17,8 @@ import logging
 from typing import Optional
 
 from fastapi import Depends, APIRouter, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+from poster.copy_editor import CopyEdit
 
 from .auth import require_user
 from ..http_errors import as_http, reraise_as_http
@@ -152,6 +153,7 @@ def _emit(brand: dict, *, headline: str, subtext: str, cta: str, style: str,
             "generation_run_id": out.get("generation_run_id", ""),
             "generation_attempt_id": out.get("generation_attempt_id", ""),
             "claim_ids_used": out.get("claim_ids_used", []),
+            "editor_recipe": out.get("editor_recipe"),
             "authored_copy": out.get("authored_copy"),
             "factual_assessment": out.get("factual_assessment"),
             "headline": out.get("headline", ""),
@@ -669,3 +671,36 @@ def poster_candidate_preview(operation_key: str, candidate_id: str, as_json: boo
             'Content-Disposition':'inline; filename="diagnostic-preview.png"','X-Poster-Status':'diagnostic-not-final'})
     except PosterOperationError as exc:
         raise HTTPException(exc.status_code,detail=exc.detail) from None
+
+# Local copy edits are authenticated reads/local work, never paid generation quota.
+class SaveCopyRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', populate_by_name=True)
+    edited_copy: CopyEdit = Field(alias='copy')
+    expected_base_hash: str = Field(pattern=r'^[a-f0-9]{64}$')
+    expected_head_run_id: str
+    idempotency_key: str = Field(min_length=8, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
+    branch: bool = False
+
+
+def _editor_call(method, user, run_id, *args):
+    from db.copy_editor import CopyEditor, EditorError
+    p=get_persistence()
+    if not p.supports_canonical_strategy(): raise HTTPException(503,detail={'code':'CANONICAL_BACKEND_REQUIRED'})
+    try: return getattr(CopyEditor(p),method)(user['id'],run_id,*args)
+    except EditorError as exc: raise HTTPException(exc.status,detail={'code':exc.code}) from None
+
+
+@read_router.get('/poster/runs/{run_id}/copy-editor')
+def copy_editor_context(run_id: str, user: dict=Depends(require_user)):
+    return _editor_call('context',user,run_id)
+
+
+@read_router.post('/poster/runs/{run_id}/copy-preview')
+def copy_editor_preview(run_id: str, request: CopyEdit,
+                        user: dict=Depends(require_user)):
+    return _editor_call('preview',user,run_id,request)[0]
+
+
+@read_router.post('/poster/runs/{run_id}/copy-revisions')
+def copy_editor_save(run_id: str, request: SaveCopyRequest, user: dict=Depends(require_user)):
+    return _editor_call('save',user,run_id,request)

@@ -1,5 +1,6 @@
 """Explicit source-only candidate; never reads env files, databases, runtime or customer media."""
 import argparse
+import ast
 import hashlib
 import json
 from pathlib import Path
@@ -10,13 +11,12 @@ PACKAGES = ('benchmark','info','ads_intel','advisor','api','brand','business_pro
     'creative','dashboard','db','decision_engine','grounding','instagram_intelligence',
     'launch_bundle','marketing_intel','media_plan','media_plan_v2','ops','policy_linter',
     'poster','reel','reviews','scraper','scripts','social_intel','strategy','telemetry','trends','workflows')
-EXTENSIONS = {'.py','.yaml','.yml','.toml','.sql','.mako'}
-DOCS = ('.gitignore','README.md','THIRD_PARTY_ASSETS.md','POSTER_V1_PUBLICATION_REVIEW.md','FOUNDATION_RESULT.md','APP_GRAPH_INTEGRATION_RESULT.md',
+EXTENSIONS = {'.ttf','.py','.yaml','.yml','.toml','.sql','.mako'}
+DOCS = ('COPY_EDITOR_RESULT.md','.gitignore','README.md','THIRD_PARTY_ASSETS.md','POSTER_V1_PUBLICATION_REVIEW.md','FOUNDATION_RESULT.md','APP_GRAPH_INTEGRATION_RESULT.md',
     'alembic.ini','requirements.txt','requirements-lock.txt','requirements-workflow.in',
     'requirements-workflow.txt','requirements-app.in','requirements-app.txt',
     'tests/conftest.py','tests/test_review_workflow.py','tests/test_app_review_graph.py',
-    'tools/prepare_app_publication.py','docs/upgrade_audit/PROGRESS.md',
-    'docs/upgrade_audit/PRODUCT_SLICE_RESULT.md','POSTER_V1_RELEASE_RESULT.md',
+    'tools/prepare_app_publication.py','POSTER_V1_RELEASE_RESULT.md',
     'POSTER_BOUNDARY_RESULT.md','CLAIM_ASSESSMENT_RESULT.md','SEMANTIC_QUALIFICATION_RESULT.md',
     'tools/check_poster_v1.py','tools/verify_poster_v1_browser.py','pytest.ini','.github/workflows/poster-v1.yml','tests/test_poster_delivery.py','tests/test_poster_operation_boundary.py',
     'tests/poster_boundary_support.py','tests/test_poster_acceptance_truth.py',
@@ -28,6 +28,42 @@ DOCS = ('.gitignore','README.md','THIRD_PARTY_ASSETS.md','POSTER_V1_PUBLICATION_
     'tests/test_route_persistence_classification_2gb.py','tests/test_security_headers.py')
 
 
+def release_test_paths(root):
+    """Only selected release checks and their local Python helper imports, not every old test."""
+    from check_poster_v1 import CHECKS
+    pending = [root/'tests'/name for name in CHECKS]
+    pending += [root/'tests'/name for name in (
+        'conftest.py','poster_operations_frontend.test.cjs','wp0_swot_frontend.test.cjs',
+        'copy_editor_review_fixture.py')]
+    found = set()
+    while pending:
+        path = pending.pop()
+        if path in found: continue
+        if not path.is_file(): raise ValueError('Missing release test dependency: '+str(path))
+        found.add(path)
+        if path.suffix != '.py': continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            names = []
+            if isinstance(node, ast.Import): names = [v.name for v in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or '']
+                if node.module == 'tests': names += ['tests.'+v.name for v in node.names]
+            for name in names:
+                local = name.removeprefix('tests.').split('.')[0]
+                candidate = root/'tests'/(local+'.py')
+                if candidate.is_file() and candidate not in found: pending.append(candidate)
+    return found
+
+
+def source_candidate(path, root):
+    rel = path.relative_to(root)
+    if any((parent/'PUBLICATION_MANIFEST.json').is_file() for parent in path.parents if parent!=root and root in parent.parents):
+        return False
+    return (path.is_file() and not path.is_symlink() and
+        not any(part.startswith('.') or part in {'node_modules','__pycache__','outputs','runs','scrapes','venv','artifacts','dist','build','scratch','exports'}
+                for part in rel.parts))
+
+
 def prepare(destination):
     root = Path(__file__).resolve().parents[1]
     target = Path(destination).resolve()
@@ -36,14 +72,14 @@ def prepare(destination):
     paths = {root/name for name in ('config_env.py','vertex_spend.py','spend_tripwire.py','reel.py')}
     # Preserve existing subsystem sources, including the unmodified media subsystem.
     for package in PACKAGES:
-        paths.update(p for p in (root/package).rglob('*') if p.is_file() and p.suffix in EXTENSIONS and '__pycache__' not in p.parts)
-    paths.update(p for p in (root/'frontend').rglob('*') if p.is_file() and p.suffix in {'.html','.js','.css','.svg'} and 'node_modules' not in p.parts)
+        paths.update(p for p in (root/package).rglob('*') if source_candidate(p,root) and p.suffix in EXTENSIONS)
+    paths.update(p for p in (root/'frontend').rglob('*') if source_candidate(p,root) and p.suffix in {'.html','.js','.css','.svg'})
     # Public showcase is limited to explicit project-authored synthetic copies.
     paths.update(p for p in (root/'frontend/assets/showcase').glob('*') if p.name.startswith(('01_synthetic_','02_synthetic_','03_synthetic_')) and p.suffix in {'.png','.jpg'})
     paths.add(root/'frontend/assets/showcase/PROVENANCE.json')
-    paths.update(p for p in (root/'tests').rglob('*') if p.is_file() and p.suffix in {'.py','.cjs','.json','.html','.png'} and '__pycache__' not in p.parts)
+    paths.update(release_test_paths(root))
     paths.update(p for p in (root/'tools').glob('*.py'))
-    paths.update(root/n for n in ('.env.example','docs/getting-started.md','docs/results/README.md','docs/results/provenance.json','docs/results/studio-fixture-poster.png','docs/results/studio-fixture-result.json','docs/licenses/Noto-OFL.txt','examples/volume-cafe/README.md','examples/volume-cafe/profile-excerpt.json'))
+    paths.update(root/n for n in ('.env.example','docs/getting-started.md','docs/results/README.md','docs/results/provenance.json','docs/results/studio-fixture-poster.png','docs/results/studio-fixture-result.json','docs/results/copy-editor-draft.png','docs/results/copy-editor-draft.json','docs/licenses/Noto-OFL.txt','examples/volume-cafe/README.md','examples/volume-cafe/profile-excerpt.json'))
     paths.update(root/p for p in DOCS if (root/p).is_file())
     extra=('POSTER_ECONOMIC_REPAIR_RESULT.md','tests/test_poster_economic_repair.py',
         'tests/test_poster_qa_brand_roles.py','tests/test_poster_candidate_persistence.py',
@@ -56,13 +92,13 @@ def prepare(destination):
         'docs/experiments/poster_compiler_source_support_20261018/context.json')
     paths.update(root/p for p in extra if (root/p).is_file())
     # Third-party optional artwork / private portfolio inputs are deliberately absent.
-    paths.update(p for p in (root/'docs/architecture').glob('*') if p.suffix in {'.md','.mmd','.json','.txt'})
+    paths.update(root/'docs/architecture'/name for name in ('app_publication.md','app_review.md','review_workflow.md','review_graph.mmd'))
     paths.update(p for p in (root/'docs/images').glob('*') if p.suffix in {'.png','.jpg'} and not p.name.startswith('portfolio-'))
     # Static public fixtures are dependencies of retained application tests.
     for package in ('reviews','social_intel'):
         paths.update(p for p in (root/package/'fixtures').rglob('*') if p.is_file() and p.suffix in {'.json','.html'})
     paths.update(root/p for p in ('benchmark/ground_truth.json','benchmark/urls.json','benchmark/urls.md','instagram_intelligence/requirements.txt','instagram_intelligence/README.md'))
-    paths.update(p for p in (root/'docs/validation').glob('*.md'))
+    paths.update(root/'docs/validation'/name for name in ('app-review-integration.md','review-foundation.md'))
     paths.add(root/'config/runtime.production.toml')
     paths = {p for p in paths if p.is_file()}
     findings = []
@@ -74,7 +110,7 @@ def prepare(destination):
     for source in sorted(paths):
         rel = source.relative_to(root)
         raw = source.read_bytes()
-        if source.suffix not in {'.png'}:
+        if source.suffix not in {'.png','.ttf'}:
             text = raw.decode('utf-8',errors='replace')
             for rule,pattern in patterns.items():
                 for m in re.finditer(pattern,text):
@@ -83,7 +119,7 @@ def prepare(destination):
         rows.append({'path':str(rel),'sha256':hashlib.sha256(raw).hexdigest()})
     # Verify navigable public docs without importing application or touching private data.
     broken_links = []
-    public_docs = [target/'README.md', target/'POSTER_V1_RELEASE_RESULT.md', target/'POSTER_V1_PUBLICATION_REVIEW.md', target/'POSTER_ECONOMIC_REPAIR_RESULT.md', target/'docs/demo/README.md', target/'docs/getting-started.md', target/'docs/results/README.md', target/'examples/volume-cafe/README.md',
+    public_docs = [target/'README.md', target/'COPY_EDITOR_RESULT.md', target/'POSTER_V1_RELEASE_RESULT.md', target/'POSTER_V1_PUBLICATION_REVIEW.md', target/'POSTER_ECONOMIC_REPAIR_RESULT.md', target/'docs/demo/README.md', target/'docs/getting-started.md', target/'docs/results/README.md', target/'examples/volume-cafe/README.md',
                    *list((target/'docs/architecture').glob('*.md'))]
     for doc in public_docs:
         if not doc.exists(): continue
@@ -98,7 +134,7 @@ def prepare(destination):
         'exclusions':['.env* except placeholder-only .env.example','database_export','outputs','scrapes','runs','registry','private root JSON/media',
                       'third-party/customer showcase imagery (only explicit synthetic replacements included)',
                       'Firefox artwork / branded optional portfolio / opaque logo.png / historical marketing concepts',
-                      'historical audit artifacts','preview original-state.json / usage-records.json / manifest.json',
+                      'historical audit manifests / validation logs / unrelated tests','preview original-state.json / usage-records.json / manifest.json',
                       'venvs','checkpoints','Git metadata']}
     (target/'PUBLICATION_MANIFEST.json').write_text(json.dumps(manifest,indent=2)+'\n')
     print(json.dumps({'candidate':str(target),'files':len(rows),'secret_findings':findings}))

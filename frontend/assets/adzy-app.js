@@ -906,6 +906,7 @@
   }
 
   function resetPoster() {
+    if (window.adzyCopyPosterChanged) window.adzyCopyPosterChanged(null);
     const stage = $('adzy-poster-stage');
     stage.classList.remove('has-result', 'is-assembling');
     $('adzy-result-actions').hidden = true;
@@ -991,7 +992,17 @@
       + list(item.candidate_history).map(c => `<li>${esc(c.identity.candidate_id)} · ${esc(c.checksum.slice(0,12))} · ${esc(c.visual_qa.checked ? (c.visual_qa.overall_pass === true ? 'Visual QA passed; final checks unresolved' : 'QA rejected / not accepted') : 'QA not completed')}<p>${esc(c.visual_qa.reason)}</p></li>`).join('') + '</ul></details>';
     refreshDelivery(item);
     renderLineage();
+    if (item.copy_revision) {
+      $('adzy-generation-error').hidden = false;
+      $('adzy-generation-error').textContent = 'Saved copy revision · ' + (item.accepted ? 'inspect current delivery checks.' : 'draft; this render needs its own visual review.');
+    }
+    if (window.adzyCopyPosterChanged) window.adzyCopyPosterChanged(item);
   }
+
+  window.adzySelectCopyRevision = function(item) {
+    if (!A.history.some(r => r.generation_run_id === item.generation_run_id)) A.history.unshift(item);
+    renderPoster(item); rememberRevision(item); renderWork();
+  };
 
   function revisionStorageKey() { return operationStorageKey() + ':selected-revision'; }
 
@@ -1315,6 +1326,7 @@
     const legacyLogout = window.logout;
     if (typeof legacyLogout === 'function') {
       window.logout = function () {
+        if (window.adzyCopyLogout) window.adzyCopyLogout();
         ++A.selectionEpoch;
         initialStageRestored = false;
         A.reviewedSwot = null; A.reviewedStrategy = null; A.loadingBrand = false; A.busy = false; A.contractError = '';

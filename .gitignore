@@ -106,3 +106,7 @@ registry/
 
 # Required, reviewed offline browser check used by Poster V1 CI
 !tools/verify_poster_v1_browser.py
+!tools/verify_copy_editor_browser.py
+
+# Local copy-editor verification output; public samples are explicitly selected under docs/images/results.
+/docs/validation/copy-editor/
