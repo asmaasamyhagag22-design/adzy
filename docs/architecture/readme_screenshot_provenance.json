@@ -1,0 +1,14 @@
+{
+  "actual_application": true,
+  "data": "fictional Studio Fixture",
+  "image_transport": "Existing project-authored locally composed fixture supplied via synthetic transport",
+  "qa": "Explicit fake QA; fresh byte identity; not live model evidence",
+  "screenshot_method": "Unmodified app viewport / element capture; no DOM/CSS/content retouching",
+  "provider_calls": 0,
+  "fixture_sha256": "ddf915de5bab02faaf3a58e3b21a58ca6c905770ef15aac4ea481c5935f4d522",
+  "page_errors": [],
+  "image_path": "docs/images/adzy-product-demo.png",
+  "image_sha256": "f4160e5da607c3fa4c537bc18477ce76d7bea405f048443b904485f0db286bad",
+  "visual_review": "AI inspected actual PNG: complete app header, URL entry, Studio Fixture poster and evidence note visible; no diagnostic wall or image edits. Intro/loading capture was rejected before selecting this settled application viewport.",
+  "live_model_quality_claim": false
+}

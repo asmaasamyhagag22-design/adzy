@@ -82,7 +82,7 @@ Sourcecandidate536files at /tmp/adzy-poster-v1-portfolio-final; updatedREADME/pu
 - measurement corpus:74cases؛direct28/28؛held-out1/38؛negative FP0/8.
 - آخر suite مجمعة41files:485 passed،56 PostgreSQL skips،1 known fixture deselected،70.58s. DB safety:5 passed. raw initial failures/reruns محفوظة؛لا ادعاء أن original full suite خضراء.
 - official LangGraph/LangChain/Langfuse docs + PyPI metadata؛candidate resolution dry-run فقط؛لم تُثبت أي Lang* package. الخطة تحفظ existing services/approvals/acceptance.
-- الملفات التسعة المطلوبة موجودة؛README للتنقل،CURRENT_STATE،UI_FLOW_AUDIT،FINDINGS،TARGET_ARCHITECTURE،IMPLEMENTATION_PLAN،VALIDATION_REPORT،NEXT_CODEX_PROMPT وهذا الملف.
+- الملفات التسعة المطلوبة موجودة؛README للتنقل،CURRENT_STATE،UI_FLOW_AUDIT،FINDINGS،TARGET_ARCHITECTURE،IMPLEMENTATION_PLAN،VALIDATION_REPORT،وثيقة خطة التنفيذ المؤرشفة وهذا الملف.
 - preservation check:631 pre-existing fingerprints/status entries كما هي؛new status فقط `?? docs/upgrade_audit/`؛صفر application/test/config/schema behavior edits،صفر git index changes/commit/push.
 - الصرف `$0`؛لا provider/media/Reel execution،لا authenticated external action،لا DB connection/migration/restore. الخوادم التشخيصية أوقفت.
 
@@ -98,13 +98,13 @@ Sourcecandidate536files at /tmp/adzy-poster-v1-portfolio-final; updatedREADME/pu
 
 ## الاستئناف
 
-المهمة الحالية discovery فقط؛لا تبدأ implementation تلقائيًا. الخطوة الموصى بها WP0 في NEXT_CODEX_PROMPT.md: expected SWOT Run تحت transaction lock،بلا migration ولا rewrite. عند تكليف التنفيذ اقرأ أحدث AGENTS/HANDOFF والـworking tree أولًا؛لا تعِد بناء PostgreSQL أوcanonical research/Strategy approval/Poster visual acceptance المكتملة محليًا.
+المهمة الحالية discovery فقط؛لا تبدأ implementation تلقائيًا. الخطوة الموصى بها WP0 في وثيقة خطة التنفيذ المؤرشفة: expected SWOT Run تحت transaction lock،بلا migration ولا rewrite. عند تكليف التنفيذ اقرأ أحدث AGENTS/HANDOFF والـworking tree أولًا؛لا تعِد بناء PostgreSQL أوcanonical research/Strategy approval/Poster visual acceptance المكتملة محليًا.
 
 أدلة الاستئناف: evidence/{initial_git_status,initial_fingerprints,preservation_check,FINAL_GIT_STATUS,COMMANDS,test_summary,final_command,runtime_after,probes,claim_recall,document_index,ROUTE_CENSUS,UI_CONTROL_CENSUS}. راجع VALIDATION_REPORT لتفسير skips/diagnostic adaptations قبل اقتباس أي رقم.
 
 ## WP0 — مكتمل ضمن نطاقه (2026-10-16)
 
-هذا تحديث بعد discovery أعلاه: المالكة صرّحت بالتنفيذ وأضافت التنقيحات إلى NEXT_CODEX_PROMPT. WP1 لم يبدأ. الحالة المرجعية الحالية في WP0_RESULT.md؛ أرقام discovery السابقة لا تصف تشغيل WP0.
+هذا تحديث بعد discovery أعلاه: المالكة صرّحت بالتنفيذ وأضافت التنقيحات إلى وثيقة خطة التنفيذ المؤرشفة. WP1 لم يبدأ. الحالة المرجعية الحالية في WP0_RESULT.md؛ أرقام discovery السابقة لا تصف تشغيل WP0.
 
 - IMPLEMENTATION_STATUS: exact reviewed UUID من frontend snapshot إلى route/provider ثم brand-locked transaction؛ membership قبل stale response، currentness قبل idempotency، persisted accepted run_id في response. جميع SWOT writers مفهرسة؛ importer أضيف له FOR UPDATE الأدنى؛ Legacy أصبحت atomic mutate وتبقى بلا immutable Run guarantee.
 - OFFLINE_TEST_STATUS: RED12failed/1passed قبل application edits؛ final81passed/8SQL-gated skips في21.22s؛ Node4passed. اختبارات ضد actual handlers/renderer، وليست grep على المصدر.
@@ -115,7 +115,7 @@ Sourcecandidate536files at /tmp/adzy-poster-v1-portfolio-final; updatedREADME/pu
 
 ### الاستئناف بعد WP0
 
-لا تعِد WP0 من NEXT_CODEX_PROMPT.md؛ أصبح prompt تنفيذ مؤرشفًا، وتفاصيله باقية للمراجعة. ابدأ WP1 فقط بتكليف المالكة؛ ثم claims correctness وpaid-operation safety ثم LangGraph، بالترتيب المحدد. حافظ على Poster proof mismatch gate؛ الفشل السابق في Strategy→Creative contract يحتاج حزمة مستقلة/تصحيح fixture مبني على evidence، لا fail-open أو حذف assertion. لا owner input مطلوب لإغلاق WP0.
+لا تعِد WP0 من وثيقة خطة التنفيذ المؤرشفة؛ أصبح prompt تنفيذ مؤرشفًا، وتفاصيله باقية للمراجعة. ابدأ WP1 فقط بتكليف المالكة؛ ثم claims correctness وpaid-operation safety ثم LangGraph، بالترتيب المحدد. حافظ على Poster proof mismatch gate؛ الفشل السابق في Strategy→Creative contract يحتاج حزمة مستقلة/تصحيح fixture مبني على evidence، لا fail-open أو حذف assertion. لا owner input مطلوب لإغلاق WP0.
 
 راجع WP0_RESULT.md وscoped.patch قبل أي تنفيذ لاحق. لإعادة SQL/browser tests جهّز disposable PostgreSQL جديدة بـguard/ack؛ الخادم والحاوية المؤقتان لهذه الجولة أوقفا وأزيلت بياناتهما. لا تُعد استخدام DSN قديمة أو demo/production ولا تثبّت runtime التدقيق كشرط للمشروع.
 
@@ -131,7 +131,7 @@ Sourcecandidate536files at /tmp/adzy-poster-v1-portfolio-final; updatedREADME/pu
 - الحدود: synthetic vision ليست live validation؛ لم تُفحص جودة Google/model/crawl/claims ولا crash أثناء provider acceptance؛ failed-run inspector وإعادة ربط job handle بعد refresh غير مكتملين. accepted gallery + approvals survive restart؛ latest failure banner session UI فقط. mobile gap page391/390 (1px غير حاجب)، لا accessibility certification.
 - Runtime cleanup مسجلة في evidence/product_slice/cleanup.json؛ لإعادة الإثبات جهّز fresh disposable PostgreSQL guarded/ack وmetadata محلية جديدة، ثم diagnostics/product_slice/server.py. لا تستخدم DSN قديمة أو demo/prod ولا تشغّل live providers. diagnostic /__test/proof read-only/auth-scoped ولا تدخل app production.
 
-**التالي الواحد:** claims truthfulness عند المخرج، انطلاقًا من F01/held-out escape؛ أثبت actual canonical path وtyped verdict/abstention قبل إصلاحه. بعد claims تأتي paid-operation safety ثم LangGraph. لا owner input مطلوب لإغلاق WP1. NEXT_CODEX_PROMPT.md ما زال WP0 archived؛ لا تنفّذه مجددًا.
+**التالي الواحد:** claims truthfulness عند المخرج، انطلاقًا من F01/held-out escape؛ أثبت actual canonical path وtyped verdict/abstention قبل إصلاحه. بعد claims تأتي paid-operation safety ثم LangGraph. لا owner input مطلوب لإغلاق WP1. وثيقة خطة التنفيذ المؤرشفة ما زال WP0 archived؛ لا تنفّذه مجددًا.
 
 
 ## LangGraph review foundation — COMPLETE_LOCAL_SCOPED (2026-10-16)

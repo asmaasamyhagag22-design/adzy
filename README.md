@@ -1,26 +1,58 @@
-# ADZY — from evidence to a poster you can inspect
+# ADZY
 
-ADZY turns brand evidence into a reviewable strategy, carries the approved direction into a poster, and binds its download to the exact saved image. **Discover → Think → review SWOT → review Strategy → Create → inspect checks → download.**
+**Turn brand evidence into a strategy your team can review—and creative you can trace.**
 
-![ADZY public fictional demo](docs/images/poster-v1-final-rejected-desktop.png)
-*Actual app screenshot with fictional data and fake provider/QA responses; no live model-quality claim.*
+Marketing teams and small agencies often move from scattered website research to creative production without a clear record of why a message was chosen. ADZY brings that workflow into one application: research a brand, inspect the evidence, approve an exact strategy, then create and review a poster tied to that decision.
 
-| Evidence | What happened / public contents |
+**Brand URL → source-linked profile → strategy review → poster → checked download**
+
+![ADZY application with fictional Studio Fixture data and a locally composed poster fixture](docs/images/adzy-product-demo.png)
+*The running application, captured with fictional Studio Fixture data, a project-authored poster fixture and simulated provider/QA responses. This demonstrates the product workflow, not live model output quality.*
+
+## What the product does
+
+- Builds a brand profile with source quotations and page URLs, then presents research and strategic directions for review.
+- Records SWOT and strategy decisions against exact versions; paused reviews can recover without inventing or repeating approval.
+- Carries the approved message, evidence and constraints into poster production. Local overlay defects get one bounded recomposition of the same background before a new background is considered.
+- Keeps image-specific QA and rejection reasons after refresh. Accepted downloads revalidate ownership, current approvals, required checks and the exact saved bytes; drafts and rejected previews remain separate.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    URL[Brand website] --> E[Source-linked profile]
+    E --> R[Strategy review]
+    R --> C[Approved creative contract]
+    C --> P[Poster and per-image checks]
+    P --> D[Protected revision download]
+    R <--> DB[(PostgreSQL)]
+    R <--> CP[(SQLite checkpoints)]
+    R -. optional observations .-> LF[Langfuse SDK]
+```
+
+| Integration | Its role in ADZY |
 |---|---|
-| Complete synthetic app journey | Real app/auth/review/recovery/persistence/download gates, fictional inputs and fake provider/QA responses. Runnable public demo and labeled screenshots included. |
-| Historical live Firefox generation | Two actual generated/composited renders, both rejected;12/12 exhausted, no accepted canonical Asset/download. Images remain local and are excluded from this public package. |
-| Improved local preview | Manually directed offline portfolio composition, not independent system-selected design or canonical acceptance. Original media/inputs remain local and are not redistributed. |
+| **LangGraph** | Persists the review state, pauses for a human decision and resumes the same subject after restart. PostgreSQL services remain the authority for approval. |
+| **LangChain** | Three typed inspection tools check the review subject, research readiness and creative requirements. Tool execution is deterministic; this is not an autonomous model-driven planning loop. |
+| **Langfuse** | Optional SDK observations with local capture, redaction and exporter-failure handling. External telemetry is disabled in the supplied demo. |
 
-The poster path now gives local layout defects one bounded recomposition of the **same background** before considering a new image. New renders receive their own candidate identity, checksum and checks. Clipping, proof size, text contrast and Bidi are compositor concerns; background defects remain separately gated. A persisted rejection or unverified candidate can be inspected after refresh without enabling an accepted download. Exact evidenced brand names are scoped in Arabic QA; unrelated or ambiguous Latin remains blocking, and an explicit model veto is never reopened locally. Photography, illustration and typography are art-direction inputs, not one universal privacy/Firefox template.
+PostgreSQL stores business versions, decisions, operations and assets. SQLite stores review checkpoints. [Architecture and recovery details](docs/architecture/app_review.md).
 
-![Actual app showing a saved synthetic rejection](docs/images/poster-v1-final-rejected-desktop.png)
-*Actual browser capture: fake-provider candidate and rejection restored after refresh; accepted export disabled. [Mobile capture](docs/images/poster-v1-final-rejected-mobile.png). [Implementation and verification](POSTER_ECONOMIC_REPAIR_RESULT.md).*
+## Verified behavior
 
-Prepared separate-checkout status: **READY_TO_COMMIT_AND_PUSH**. [Closeout, CI and proposed commit](POSTER_V1_PUBLICATION_REVIEW.md) · [Asset provenance and rights review](THIRD_PARTY_ASSETS.md). The rejected-candidate UI now exposes only available actions; mobile account/navigation bars stay in the page flow.
+The [offline CI workflow](https://github.com/asmaasamyhagag22-design/adzy/actions/workflows/poster-v1.yml) reports the following results for one run of the selected checks:
 
-## Run it locally
+| Checks | Result |
+|---|---|
+| Python | **320 passed** across 22 focused groups |
+| JavaScript interface behavior | **21 passed** |
+| Actual browser journey | **Desktop and mobile passed**: review, refresh/recovery, rejected previews, cross-owner refusal, draft/final separation and download checksum matching |
 
-Prerequisites: Linux, Python3.12, Docker and Node.js22 for release checks. Install the application lock in an isolated environment:
+These are targeted application checks with fake provider transports and disposable PostgreSQL—not the repository-wide suite or a measurement of live model quality. [Recorded CI run](https://github.com/asmaasamyhagag22-design/adzy/actions/runs/39163997942). Separate push/PR runs and earlier local checks are not added together.
+
+## Run the public demo
+
+Requires Python 3.12, Docker and Playwright Chromium on Linux. Node.js 22 is needed for the interface checks.
 
 ```bash
 python3 -m venv .venv-app
@@ -29,75 +61,33 @@ python -m pip install -r requirements-app.txt
 python -m pip check
 python -m playwright install --with-deps chromium
 docker pull postgres:16-alpine
-```
-
-The public demo uses fictional **Studio Fixture** data and project-authored synthetic assets, not Firefox artwork or private customer material. [Setup, credentials, cleanup and capture options](docs/demo/README.md).
-
-## Reproduce the complete offline download journey
-
-The fictional demo has explicit fake image/QA responses so a reviewer can exercise the whole application without a paid account:
-
-```bash
 python -m workflows.app_demo init --directory .review-app-demo
 python -m workflows.app_demo serve --directory .review-app-demo --port 8000 --synthetic-posters accepted
 ```
 
-Open [the offline demo](http://127.0.0.1:8000/app). Use the email printed by `init` and `SyntheticDemo42`. Choose **Think → Review strategy → Lock this strategy → Prepare the poster → Generate**, inspect the copy evidence and use **Download accepted revision**. Fictional evidence and simulated provider responses are labeled. Automated review decisions in release tests are simulations, not human labels or live quality evidence.
+Open [localhost:8000/app](http://127.0.0.1:8000/app). Sign in with the email printed by `init` and `SyntheticDemo42`, then choose **Think → Review strategy → Lock this strategy → Prepare the poster → Make the ad**. The demo uses fictional data and simulated responses; no provider account or private dataset is required.
 
-Restart with `--synthetic-posters draft` to inspect an unresolved draft beside the last accepted revision. Refresh retains the selected revision. Final download is refused for drafts; **Export draft · unverified** is a separate action. Cleanup after stopping this disposable server:
+After stopping the server, clean up its disposable database:
 
 ```bash
 python -m workflows.demo cleanup --directory .review-app-demo
 ```
 
-## What is implemented
+[Draft/rejected modes and local SDK capture](docs/demo/README.md) · [Application setup and migrations](docs/getting-started.md) · [Asset provenance and notices](THIRD_PARTY_ASSETS.md)
 
-```mermaid
-flowchart LR
-    UI[Discover / Think] --> PG[(PostgreSQL: evidence and exact strategy versions)]
-    UI --> G[LangGraph: inspect → pause for human → apply exact decision → compile]
-    G --> T[Three typed deterministic LangChain inspection tools]
-    T --> PG
-    G --> SQ[(SQLite: durable checkpoint and execution binding)]
-    G --> C[CreativeContract → Create]
-    C --> P[Existing poster pipeline]
-    P --> O[Operation admission: reservation and durable dispatch intent]
-    O --> Q[Authored copy evidence + separate visual QA]
-    Q --> A[Run / Attempt / Asset / SHA-256]
-    A --> D[Server revalidates exact download]
-    G -. opt-in local SDK observations .-> LF[Langfuse]
-```
-
-LangGraph pauses at an actual review interrupt, resumes the same subject after restart, and delegates decisions to canonical PostgreSQL services. The three typed LangChain tools inspect the subject, research readiness and creative requirements; there is no model-driven tool-selection loop. Approving a newer strategy never silently approves an older one. An explicit restart of an undecided review can recover after the missing SWOT approval is supplied; it does not create a strategy approval.
-
-Every creative operation retains its own request key, reservation and dispatch records. The bounded live policy freezes provider/model/stage routes and input/output limits, permits at most12 sends per case, and commits each intent before transport. SDK attempts are1; failed requests consume slots and ambiguous outcomes stop without blind fallback. Recovery reads the existing operation rather than rotating its key. Monetary reservations use estimates, not hard invoice guarantees.
-
-Copy assessment retains source excerpts and page URLs bound to the actual authored copy, Attempt and image bytes. Literal supported quotations can qualify; unresolved factual wording remains a draft. Visual QA and source support are separate. The experimental semantic assessment remains **shadow/unqualified**. The ordinary factual gate does not certify pixel text; AI inspection of the local Arabic proposal is labeled separately.
-
-**Download accepted revision** rechecks current profile/strategy approval, factual eligibility, required visual checks and the exact managed Asset/checksum. Browser release checks compare the downloaded file to the server checksum and verify refresh, cross-owner denial and draft refusal.
-
-Langfuse SDK observations have been tested through local capture, redaction and exporter-failure handling. Hosted/server ingestion is unverified. External telemetry is disabled by default in the supplied demos. PostgreSQL owns business decisions; SQLite owns workflow progress. Use one application instance and persist both stores plus managed blobs.
-
-## Live execution and limits
-
-The accounting below is historical evidence from the owner’s local workspace. That operation, its approvals and private state are not bundled in this public demo.
-
-Live execution requires explicit financial authorization and exact human strategy decisions. These are already recorded for the existing Arabic case; do not reinitialize it, regenerate its plan, or repeat approval. The unchanged Vertex/ADC/global operation used12/12 dispatches (`gemini-3.5-flash-lite` text/vision and `gemini-2.5-flash-image` backgrounds), with a retained$2 reservation and$0.436428800 in call estimates; invoice unknown. Compiler recovery preserved the reviewed assertions and source anchors. Two real renders failed Visual QA; no canonical Asset or final download exists (delivery404). The server is back in no-spend mode. See [historical text-only compiler result](docs/experiments/poster_compiler_source_support_20261018/RESULT.md) and [demo instructions](docs/demo/README.md); the old approval-pending screenshot/packets are historical. No further sends or replacement operation are authorized by this README.
-
-V1 qualifies the Poster journey. Existing Reel/video/Veo code is retained outside this scope. No deployment, production certification, general semantic guarantee or campaign-performance claim is made. Existing authentication is demo-grade; distributed workers are not certified.
-
-## Verify and prepare source
-
-Run the established release checks once after changes stabilize:
+To run the same focused checks locally:
 
 ```bash
 python tools/check_poster_v1.py --evidence-dir /tmp/poster-v1-checks
 python tools/verify_poster_v1_browser.py --directory /tmp/poster-v1-demo --evidence-dir /tmp/poster-v1-browser
-python tools/prepare_app_publication.py /tmp/adzy-poster-v1-source
 ```
 
-Checks use fresh processes, guarded disposable PostgreSQL, real application authentication/services, fake external transports and browser downloads. They include dispatch limits/concurrency, review recovery, Arabic compositor alignment, exact delivery and frontend behavior. These targeted checks are separate from the repository-wide/private-data suite. The source export includes code, application locks, migrations, supported checks, fictional public demo inputs, tests and labeled synthetic screenshots; it excludes private credentials, runtime databases, checkpoints, customer media and Git metadata.
+## Current limits
 
-Schema head is **0007_unused_reservations**. For an independently configured application, privately set `PERSISTENCE_BACKEND=postgres`, `BASEERA_DATABASE_URL`, an absolute `BASEERA_WEBAPP_DIR` and persistent `ADZY_REVIEW_STATE_DIR`; run `python -m alembic upgrade head`, then `python -m uvicorn api.main:app --host 127.0.0.1 --port 8000`. Startup refuses a mismatched schema. The [application architecture](docs/architecture/app_review.md) describes the exact review/recovery boundary; the [publication checklist](docs/architecture/app_publication.md) covers dependencies and source packaging.
+- The synthetic journey verifies application behavior. Two historical live Firefox renders were visually rejected; a later manually directed local preview was not canonical acceptance. Those optional media remain excluded from the public package.
+- Semantic assessment remains experimental, **shadow/unqualified**, with no acceptance authority. Literal copy/source checks do not certify image pixels, general meaning or independent truth.
+- Langfuse SDK behavior has local test coverage; **hosted/server ingestion is not verified**.
+- Live generation requires separate credentials and explicit financial authorization. Estimates are not invoice guarantees; unknown provider outcomes stop without blind retries.
+- The supported setup is one application instance with persistent PostgreSQL, managed blobs and SQLite review state. Demo authentication is not a production security certification.
 
-Existing authorship is retained; no license terms are changed or added.
+Existing authorship and third-party notices are retained. No new repository-wide license grant is implied.

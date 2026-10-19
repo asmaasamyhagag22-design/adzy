@@ -83,7 +83,7 @@
 
 ```bash
 PY=/tmp/adzy-upgrade-audit-venv/bin/python
-NODE=/home/asmaa/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node
+NODE=$(command -v node)
 # Guarded disposable settings أُنشئت محليًا؛ لا تستعمل ملف DSN قديم بعد cleanup.
 WP0_WITH_POSTGRES=1 WP0_DATABASE_CONFIG=/tmp/adzy-product-postgres.json "$PY" docs/upgrade_audit/diagnostics/wp0/run_tests.py /tmp/adzy-product-slice-baseline/tests/test_gate2b_postgres_strategy.py::test_new_approved_strategy_compiles_contract_without_creating_a_poster -q
 # semantic_red.txt: 1 failed in5.77s (expected reproduction).
