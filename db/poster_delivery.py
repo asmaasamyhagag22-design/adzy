@@ -10,7 +10,7 @@ class DeliveryError(ValueError):
         super().__init__(code)
 
 
-def inspect(service, *, actor, run_id, load):
+def inspect(service, *, actor, run_id, load, lock=True):
     from poster.strategy_contract import CreativeContractCompiler, CreativeRequest, CreativeContractError
     from api.persistence import _truthful_poster_entry
     try:
@@ -20,8 +20,9 @@ def inspect(service, *, actor, run_id, load):
     try:
         with service._uow_factory() as uow:
             visible = uow.runs.get_visible(run_id=run_id, user_id=actor)
-            brand = uow.brands.lock_owned(brand_id=visible.brand_id, user_id=actor)
-            run = uow.runs.lock(run_id)
+            brand = (uow.brands.lock_owned(brand_id=visible.brand_id, user_id=actor) if lock
+                     else uow.brands.get_visible(brand_id=visible.brand_id,user_id=actor))
+            run = uow.runs.lock(run_id) if lock else visible
             row = uow.gallery_entries.poster_result(user_id=actor, run_id=run_id)
             if run.kind != 'poster' or row is None:
                 raise DeliveryError(404, 'POSTER_NOT_FOUND')
@@ -48,7 +49,7 @@ def inspect(service, *, actor, run_id, load):
                 reasons.append('REVISION_NOT_SELECTED')
             contract = (run.effective_config or {}).get('creative_contract')
             # Persisted Run and gallery must describe the same content and assessments.
-            for field in ('authored_copy','headline','subtext','cta','factual_assessment','visual_qa','creative_contract','strategy_verification','trust_violation'):
+            for field in ('authored_copy','headline','subtext','cta','factual_assessment','visual_qa','creative_contract','strategy_verification','trust_violation','editor_recipe','copy_revision','editor_checks'):
                 if item.get(field) != (run.output or {}).get(field):
                     reasons.append('REVISION_METADATA_CHANGED')
                     break
@@ -62,6 +63,28 @@ def inspect(service, *, actor, run_id, load):
                     or not visual.deliverable or not checked.get('deliverable')
                     or item.get('accepted') is not True):
                 reasons.append('REQUIRED_CHECKS_UNRESOLVED')
+            if item.get('copy_revision'):
+                from poster.copy_editor import evaluate
+                from poster.schemas import PosterBrief
+                from poster.strategy_contract import CreativeContract
+                from poster.claim_assessment import digest
+                try:
+                    recipe=item['editor_recipe']; checks=item['editor_checks']; lineage=item['copy_revision']
+                    for rid in (lineage['parent_run_id'],lineage['root_run_id']):
+                        parent=uow.runs.get_visible(run_id=UUID(rid),user_id=actor)
+                        if parent.brand_id!=run.brand_id: raise DeliveryError(404,'POSTER_NOT_FOUND')
+                    _, strategy=evaluate(PosterBrief.model_validate(recipe['brief']),CreativeContract.model_validate(contract),attempt_id=str(attempt.id),payload=payload)
+                    if (not strategy['overall_pass'] or strategy!=item.get('strategy_verification')
+                            or checks['local_layout']['defects'] or checks['render_sha256']!=checksum
+                            or lineage['recipe_hash']!=recipe['hash']
+                            or recipe['hash']!=digest({k:v for k,v in recipe.items() if k!='hash'})
+                            or lineage['copy_hash']!=digest(item['authored_copy'])
+                            or lineage['spec_hash']!=digest(recipe['spec'])
+                            or lineage['background_sha256']!=recipe['background']['sha256']
+                            or attempt.qa.get('copy_editor')!=checks):
+                        reasons.append('COPY_EDITOR_CHECKS_UNRESOLVED')
+                except DeliveryError: raise
+                except (ValueError,KeyError,TypeError): reasons.append('COPY_EDITOR_CHECKS_UNRESOLVED')
             current = uow.runs.current_successful(brand_id=brand.id, kind='strategy')
             approval = uow.approvals.latest_for_run(current.id) if current else None
             profile = uow.profiles.by_id(current.input_profile_id) if current and current.input_profile_id else None

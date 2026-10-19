@@ -16,6 +16,16 @@ Marketing teams and small agencies often move from scattered website research to
 - Carries the approved message, evidence and constraints into poster production. Local overlay defects get one bounded recomposition of the same background before a new background is considered.
 - Keeps image-specific QA and rejection reasons after refresh. Accepted downloads revalidate ownership, current approvals, required checks and the exact saved bytes; drafts and rejected previews remain separate.
 
+## Edit the words, keep the evidence
+
+Open **Edit copy** on a saved poster with managed composition inputs. Change the headline, subheadline or CTA label, inspect source quotations, preview locally, save an independent revision and compare it with the original. Saved revisions and their checks survive refresh and server restart.
+
+![Evidence-aware copy editor in the running application, with fictional data](docs/images/copy-editor-desktop.png)
+
+*Actual application screenshot with fictional source assertions and a local compositor. Edits call no models and never inherit the original’s visual QA. Saving, comparing, reopening and exporting drafts work; paid visual re-review is not implemented in the application. Exact source wording does not certify general meaning or independent truth.*
+
+[Saved synthetic draft sample](docs/results/copy-editor-draft.png) · [Sample provenance](docs/results/copy-editor-draft.json) · [Mobile view](docs/images/copy-editor-mobile.png) · [API, lineage, limitations and verification commands](COPY_EDITOR_RESULT.md)
+
 ## Architecture
 
 ```mermaid

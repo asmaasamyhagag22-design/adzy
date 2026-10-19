@@ -117,6 +117,11 @@ MATRIX: dict[tuple[str, str], tuple[str, str, str]] = {
     ("GET", "/api/poster/runs/{run_id}/delivery"): (W, "IMAGE", ""),
     ("GET", "/api/poster/runs/{run_id}/download"): (W, "IMAGE", ""),
 
+    # Local composition still reads canonical ownership/evidence from PostgreSQL.
+    ("GET", "/api/poster/runs/{run_id}/copy-editor"): (W, "IMAGE", ""),
+    ("POST", "/api/poster/runs/{run_id}/copy-preview"): (W, "IMAGE", ""),
+    ("POST", "/api/poster/runs/{run_id}/copy-revisions"): (W, "IMAGE", ""),
+
     # ---- scrape ----
     ("POST", "/api/scrape"): (W, "SCRAPE", ""),
 

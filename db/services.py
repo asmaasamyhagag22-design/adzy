@@ -795,6 +795,11 @@ class PersistenceService:
         every one of the five is a separate publication somebody made.
         """
         with self._uow_factory() as uow:
+            recipe = (metadata or {}).get('editor_recipe')
+            if recipe:
+                background = recipe['background']
+                uow.gallery_blobs.ensure(checksum=background['sha256'],byte_size=background['bytes'],
+                    mime=background['mime'],storage_key=background['storage_key'])
             blob = uow.gallery_blobs.ensure(checksum=checksum, byte_size=byte_size, mime=mime,
                                             storage_key=storage_key)
             entry = uow.gallery_entries.create(

@@ -19,6 +19,7 @@ def render_html_to_png(
     width: int = POSTER_W,
     height: int = POSTER_H,
     scale: int = 2,
+    offline: bool = False,
 ) -> Path:
     from playwright.sync_api import sync_playwright
 
@@ -36,6 +37,7 @@ def render_html_to_png(
             # network — networkidle covers their requests, and document.fonts.ready
             # guarantees the faces are applied before we screenshot (else the first
             # paint can fall back to a system font).
+            if offline: page.route("**/*", lambda route: route.abort())
             page.set_content(html, wait_until="networkidle")
             try:
                 page.evaluate("async () => { await document.fonts.ready; }")
@@ -51,13 +53,14 @@ def render_html_to_png(
     return out_path
 
 
-def inspect_layout(html: str) -> dict:
+def inspect_layout(html: str, *, offline: bool = False) -> dict:
     """Local compositor geometry/ink measurements; not a vision verdict."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser=p.chromium.launch()
         try:
             page=browser.new_page(viewport={'width':POSTER_W,'height':POSTER_H})
+            if offline: page.route('**/*', lambda route: route.abort())
             page.set_content(html,wait_until='networkidle')
             page.evaluate('document.fonts.ready')
             boxes=page.evaluate('''() => ['.brand-logo','.headline,.hero-headline,.lockup-headline','.sub','.cta'].flatMap(s=>{

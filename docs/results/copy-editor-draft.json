@@ -1,0 +1,17 @@
+{
+  "kind": "SAVED_LOCAL_DRAFT_SAMPLE",
+  "brand": "Studio Fixture (fictional)",
+  "synthetic": true,
+  "source": "Offline copy-editor browser journey",
+  "sha256": "c0d399dbed65a1dbe05d1293961da43c322a37847d8971eb1b18a15bfbf79f82",
+  "source_support": "EXACT_QUOTATION_OF_SYNTHETIC_SOURCE_ASSERTION",
+  "visual_review": "NOT_CHECKED",
+  "accepted": false,
+  "final_eligible": false,
+  "provider_dispatches": 0,
+  "limitations": [
+    "Not live model output quality evidence.",
+    "No paid visual re-review or human review.",
+    "A source assertion is not independent truth."
+  ]
+}

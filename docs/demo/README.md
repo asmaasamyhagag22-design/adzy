@@ -30,3 +30,16 @@ This public demo requires no Firefox artwork, private dataset, authorization pac
 Three distinct histories remain explicit: the complete synthetic app journey; two real Firefox renders that were visually rejected at12/12 with no accepted final download; and a manually directed offline improved preview without canonical acceptance. Historical real/local images are retained only in the original workspace and not redistributed here.
 
 [Final interface screenshots](../images/poster-v1-final-rejected-desktop.png) · [mobile](../images/poster-v1-final-rejected-mobile.png) · [asset disposition](../../THIRD_PARTY_ASSETS.md).
+
+
+### Evidence-aware copy editing
+
+With the synthetic app running, approve its strategy, create a poster and select **Edit copy** in Create. Preview unsupported wording, choose **Use source wording**, save an independent revision, compare with Original, then reload and export the draft. The local editor never calls a provider. Historical posters without a managed text-free background and structured inputs show an explicit unavailable reason.
+
+Run the complete browser journey, including response loss, a late preview, restart and checksum downloads:
+
+```bash
+python tools/verify_copy_editor_browser.py --directory /tmp/copy-editor-demo --evidence-dir /tmp/copy-editor-browser
+```
+
+The browser tool explicitly materializes a fake QA fixture in its guarded disposable database to exercise final delivery. This fixture operation is absent from the application API and does not qualify a real image. See [copy editor details](../../COPY_EDITOR_RESULT.md).
