@@ -22,6 +22,8 @@ also works on us-central1.
 """
 from __future__ import annotations
 
+from poster.paid_boundary import paid_call
+
 import os
 import re
 import unicodedata
@@ -452,7 +454,7 @@ def generate_oneshot_poster(prompt: str, out_path: str | Path, *,
                 TRANSPORT_STATS["provider_request_attempts"] += 1
                 if cand_model not in TRANSPORT_STATS["models_tried"]:
                     TRANSPORT_STATS["models_tried"].append(cand_model)
-                resp = cl.models.generate_content(
+                resp = paid_call(cl.models.generate_content,
                     model=cand_model,
                     contents=contents,
                     config=types.GenerateContentConfig(**_cfg_kw),

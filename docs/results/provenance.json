@@ -1,24 +1,6 @@
 {
-  "scope": "Archived generated outputs and a separately identified fictional integration render. No affiliation, commissioned campaign, live deployment, ROI or current factual-copy certification is claimed.",
+  "scope": "Public fictional application fixture only. Optional third-party branded historical concepts are preserved privately and excluded from this distribution.",
   "assets": [
-    {
-      "file": "volume-cafe-concept.png",
-      "brand_label": "Volume Cafe",
-      "kind": "historical generated concept",
-      "sha256": "043071b6b645e4f36c5eedcf3172752427c7817c854b065446ff856193e721d7",
-      "copied_from_existing_output": true,
-      "regenerated_for_publication": false,
-      "current_live_QA_certified": false
-    },
-    {
-      "file": "nahdi-app-concept.png",
-      "brand_label": "Nahdi",
-      "kind": "historical generated concept",
-      "sha256": "49544e6691aec19296cd46e0ed00eadc6d7d0d6effa851af8adf0eaf696cfd71",
-      "copied_from_existing_output": true,
-      "regenerated_for_publication": false,
-      "current_live_QA_certified": false
-    },
     {
       "file": "studio-fixture-poster.png",
       "brand_label": "Studio Fixture",

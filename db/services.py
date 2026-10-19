@@ -810,6 +810,11 @@ class PersistenceService:
         with self._uow_factory() as uow:
             return uow.gallery_entries.visible_to(user_id=user_id, limit=limit)
 
+    def poster_gallery_result(self, *, user_id: UUID, run_id: UUID | None = None,
+                              domain_key: str | None = None) -> GalleryEntryRecord | None:
+        with self._uow_factory() as uow:
+            return uow.gallery_entries.poster_result(user_id=user_id, run_id=run_id, domain_key=domain_key)
+
     def gallery_entry_for_legacy_seq(self, *, legacy_seq: int) -> GalleryEntryRecord | None:
         """The deterministic import identity. Position in the source index IS the identity, so a
         re-import finds its own earlier work instead of duplicating it."""
@@ -919,7 +924,7 @@ class PersistenceService:
             if attempt.run_id != run.id or attempt.brand_id != run.brand_id:
                 raise InvalidTransition("attempt does not belong to this run and brand")
             attempt = uow.attempts.finalize_failure(
-                attempt_id=attempt.id, error=str(error)[:500])
+                attempt_id=attempt.id, error=str(error)[:500], qa=attempt.qa)
             failed_run, changed = uow.runs.finalize_failure(
                 run_id=run.id, error=str(error)[:500])
             if not changed and run.status != "failed":
@@ -953,7 +958,7 @@ class PersistenceService:
             )
             attempt = uow.attempts.finalize_success(
                 attempt_id=attempt.id, asset_id=asset.id,
-                qa=data.qa, qa_passed=data.qa_passed)
+                qa={**(attempt.qa or {}), **data.qa}, qa_passed=data.qa_passed)
             inject("after_attempt_finalize")
             run, changed = uow.runs.finalize_success(
                 run_id=run.id, output=data.output,

@@ -106,6 +106,17 @@ MATRIX: dict[tuple[str, str], tuple[str, str, str]] = {
     ("POST", "/api/brands/{domain_key}/owner-inputs"): (W, "OWNER_INPUTS", ""),
     ("POST", "/api/brands/{domain_key}/trends"): (W, "ANALYSIS", ""),
 
+    # ---- canonical review and exact poster recovery/delivery ----
+    # PostgreSQL remains business authority; review uses local SQLite only for progress.
+    ("POST", "/api/review/start"): (W, "APPROVAL", ""),
+    ("GET", "/api/review/{workflow_id}"): (W, "APPROVAL", ""),
+    ("POST", "/api/review/{workflow_id}/resume"): (W, "APPROVAL", ""),
+    ("GET", "/api/poster/operations/latest"): (W, "IMAGE", ""),
+    ("GET", "/api/poster/operations/{operation_key}"): (W, "IMAGE", ""),
+    ("GET", "/api/poster/operations/{operation_key}/candidates/{candidate_id}/preview"): (W, "IMAGE", ""),
+    ("GET", "/api/poster/runs/{run_id}/delivery"): (W, "IMAGE", ""),
+    ("GET", "/api/poster/runs/{run_id}/download"): (W, "IMAGE", ""),
+
     # ---- scrape ----
     ("POST", "/api/scrape"): (W, "SCRAPE", ""),
 

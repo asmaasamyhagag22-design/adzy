@@ -289,6 +289,8 @@ app.include_router(canonical_reel.router, prefix="/api", tags=["canonical-reel"]
                    dependencies=_authed)
 app.include_router(analysis.router, prefix="/api", tags=["webapp"], dependencies=_authed_spend)
 app.include_router(generate.router, prefix="/api", tags=["webapp"], dependencies=_authed_spend)
+# Read-only recovery/delivery verifies identity and policy without consuming generation quota.
+app.include_router(generate.read_router, prefix="/api", tags=["poster-delivery"], dependencies=_authed)
 app.include_router(influencer.router, prefix="/api", tags=["webapp"], dependencies=_authed_spend)
 # ^ AdArchitect web app fully wired: auth · brands · scrape · analysis · generate · influencer.
 

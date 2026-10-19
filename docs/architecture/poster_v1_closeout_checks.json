@@ -1,0 +1,102 @@
+{
+  "synthetic": true,
+  "provider_calls": 0,
+  "screenshots_are_synthetic": true,
+  "mobile_strategy_approval_works": true,
+  "download_matches_recorded_checksum": true,
+  "refresh_preserves_revision": true,
+  "foreign_owner_download_status": 404,
+  "mobile_final_control_works": true,
+  "rejected_single_primary_action": true,
+  "rejected_unavailable_downloads_hidden": true,
+  "no_accepted_revision_action_hidden": true,
+  "prior_accepted_revision_access_preserved": true,
+  "rejected_preview_survives_refresh": true,
+  "rejected_preview_foreign_status": 404,
+  "rejected_preview_not_final": true,
+  "draft_final_download_status": 409,
+  "draft_export_works": true,
+  "selected_accepted_revision_survives_refresh_beside_latest_draft": true,
+  "page_errors": [],
+  "status": "READY_FOR_PUBLICATION_REVIEW",
+  "new_ui_js_passed": 21,
+  "current_compiler_passed": 18,
+  "clean_selected_cases_collected": 318,
+  "previous_release_python_passed": 280,
+  "previous_release_js_passed": 19,
+  "live_model_quality": "UNVERIFIED",
+  "semantic": "SHADOW_UNQUALIFIED",
+  "langfuse_server_ingestion": "UNVERIFIED",
+  "mobile_scroll": [
+    {
+      "target": "status",
+      "scrollY": 998,
+      "top": 324.046875,
+      "bottom": 519.046875,
+      "bars": [
+        {
+          "selector": ".adzy-topbar",
+          "position": "static",
+          "top": -998,
+          "bottom": -879
+        },
+        {
+          "selector": ".adzy-nav",
+          "position": "static",
+          "top": -939,
+          "bottom": -891
+        }
+      ],
+      "overflow": false
+    },
+    {
+      "target": "preview",
+      "scrollY": 1100,
+      "top": 437.046875,
+      "bottom": 829.546875,
+      "bars": [
+        {
+          "selector": ".adzy-topbar",
+          "position": "static",
+          "top": -1100,
+          "bottom": -981
+        },
+        {
+          "selector": ".adzy-nav",
+          "position": "static",
+          "top": -1041,
+          "bottom": -993
+        }
+      ],
+      "overflow": false
+    },
+    {
+      "target": "checks",
+      "scrollY": 1493,
+      "top": 602.546875,
+      "bottom": 695.734375,
+      "bars": [
+        {
+          "selector": ".adzy-topbar",
+          "position": "static",
+          "top": -1493,
+          "bottom": -1374
+        },
+        {
+          "selector": ".adzy-nav",
+          "position": "static",
+          "top": -1434,
+          "bottom": -1386
+        }
+      ],
+      "overflow": false
+    }
+  ],
+  "screenshots": {
+    "poster-v1-final-rejected-desktop.png": "509411c88d23b645f7155c391018be43bc38ae4332068764e6961339f3f64e68",
+    "poster-v1-final-rejected-mobile.png": "977c9c351680f4bfdca396a3d29ab636481465b932dfb852cb0ddb19df91e3b2",
+    "poster-v1-final-rejected-prior-accepted.png": "917948f62e4c12cacd5c76c9399fcf282e5d0fc5e932ae86335ce6fbd06527ca",
+    "poster-v1-final-mobile-scroll-preview.png": "abb962ebf477ba14e9fb04a6ce2ba2497f34625207cef9b26878775668efcc25",
+    "poster-v1-final-mobile-scroll-checks.png": "0f9b16344ab465e10b8781c084b9334c9a63b2c785b04ba347deabb8cc3a3f64"
+  }
+}

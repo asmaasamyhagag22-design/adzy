@@ -280,3 +280,120 @@ def test_sdk_exception_redacted_before_export_and_segment_correlation():
     assert len(spans)==2 and len({s.context.trace_id for s in spans})==1
     assert 'PRIVATE_' not in str([dict(s.attributes) for s in spans])
     assert 'ERROR' in str(dict(spans[0].attributes))
+
+
+def test_explicit_start_recovers_same_undecided_subject_after_swot_review(review,tmp_path):
+    from sqlalchemy import select,delete
+    from db.models import Approval,Run
+    service,p,data,_,_=review
+    brand=p._brand_row(domain_key=data['domain'],user_id=data['actor'])
+    swot=service.current_successful_run(brand_id=brand.id,kind='swot',user_id=UUID(data['actor']))
+    # Remove only this disposable fixture's simulated SWOT approval to reproduce initial preparation.
+    with service._uow_factory() as uow:
+        uow.session.execute(delete(Approval).where(Approval.subject_run_id==swot.id));uow.commit()
+    directory=tmp_path/'pending-swot';setup(directory)
+    workflow=ReviewWorkflow(directory,p,actor_id=data['actor'])
+    first=workflow.start(domain_key=data['domain'],subject_id=data['subject'],reuse=True)
+    assert first['status']=='BLOCKED' and first['reasons']==['SWOT_NOT_APPROVED']
+    assert workflow.start(domain_key=data['domain'],subject_id=data['subject'],reuse=True)['status']=='BLOCKED'
+    assert not approvals(service,data)
+    service.approve_current_swot(brand_id=brand.id,user_id=UUID(data['actor']),expected_run_id=swot.id)
+    second=workflow.start(domain_key=data['domain'],subject_id=data['subject'],reuse=True)
+    assert second['workflow_id']==first['workflow_id']
+    assert second['status']=='NEEDS_REVIEW' and second['pending_nodes']==['human_review']
+    assert not approvals(service,data)  # no automatic strategy decision during repair
+    assert workflow.start(domain_key=data['domain'],subject_id=data['subject'],reuse=True)['workflow_id']==first['workflow_id']
+
+
+def test_compiler_recovery_keeps_checkpoint_exact_decision_and_never_reapproves(review, monkeypatch):
+    from workflows.services import CampaignReviewServices
+    from poster.strategy_contract import CreativeContractError
+    service, provider, data, w, state = review
+    original = CampaignReviewServices.compile
+    def blocked(self, state):
+        raise CreativeContractError('PROOF_MESSAGE_MISMATCH', 'SYNTHETIC compiler block')
+    monkeypatch.setattr(CampaignReviewServices, 'compile', blocked)
+    failed = w.resume(state['workflow_id'], decision(state))
+    assert failed['status'] == 'BLOCKED' and failed['reasons'] == ['PROOF_MESSAGE_MISMATCH']
+    before = [(r.id, r.decided_at) for r in approvals(service, data)]
+    monkeypatch.setattr(CampaignReviewServices, 'compile', original)
+    monkeypatch.setattr(CampaignReviewServices, 'decide', lambda *a: pytest.fail('approval replay'))
+    recovered = w.start(domain_key=data['domain'], subject_id=data['subject'], reuse=True)
+    assert recovered['status'] == 'READY_FOR_CREATIVE'
+    assert recovered['workflow_id'] == state['workflow_id']
+    assert recovered['subject_hash'] == state['subject_hash']
+    assert recovered['decision'] == failed['decision']
+    assert [(r.id, r.decided_at) for r in approvals(service, data)] == before
+
+
+def test_compiler_recovery_cannot_refresh_changed_material_hashes(review, monkeypatch):
+    from workflows.services import CampaignReviewServices
+    from poster.strategy_contract import CreativeContractError
+    from db.models import Run
+    service, provider, data, w, state = review
+    original = CampaignReviewServices.compile
+    monkeypatch.setattr(CampaignReviewServices, 'compile', lambda *a: (_ for _ in ()).throw(
+        CreativeContractError('PROOF_MESSAGE_MISMATCH', 'SYNTHETIC compiler block')))
+    w.resume(state['workflow_id'], decision(state))
+    monkeypatch.setattr(CampaignReviewServices, 'compile', original)
+    with service._uow_factory() as uow:
+        run = uow.session.get(Run, UUID(data['subject']))
+        run.output = {**run.output, 'modified_metadata': 'cannot become fresh approval'}
+        uow.commit()
+    recovered = w.start(domain_key=data['domain'], subject_id=data['subject'], reuse=True)
+    assert recovered['status'] == 'BLOCKED' and recovered['reasons'] == ['STALE_SUBJECT']
+    assert recovered['subject_hash'] == state['subject_hash']
+    assert len(approvals(service, data)) == 1
+
+
+@pytest.mark.parametrize('final_server_available', [True, False])
+def test_demo_never_migrates_against_temporary_unix_only_postgres(tmp_path, monkeypatch, final_server_available):
+    """Docker's init server accepts Unix probes before the published TCP server starts."""
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    import workflows.demo as demo
+    import workflows.runtime as runtime
+    import sqlalchemy
+    from alembic import command as migrations
+    state = {'tcp_probes': 0, 'tcp_ready': False, 'migrations': 0, 'stopped': False}
+
+    def docker_command(args):
+        if args[:2] == ['docker', 'port']:
+            return '127.0.0.1:23765'
+        if args[:2] == ['docker', 'stop']:
+            state['stopped'] = True
+        return 'SYNTHETIC_CONTAINER'
+
+    def readiness(args, **kwargs):
+        # The temporary bootstrap server already accepts Unix-socket connections.
+        if '-h' not in args:
+            return SimpleNamespace(returncode=0)
+        state['tcp_probes'] += 1
+        state['tcp_ready'] = final_server_available and state['tcp_probes'] >= 3
+        return SimpleNamespace(returncode=0 if state['tcp_ready'] else 1)
+
+    class Engine:
+        def begin(self):
+            assert state['tcp_ready'], 'migrations started while only the temporary server was ready'
+            return nullcontext(object())
+
+    def migrate(*args):
+        assert state['tcp_ready']
+        state['migrations'] += 1
+
+    monkeypatch.setenv('BASEERA_DATABASE_URL', '')
+    monkeypatch.setattr(demo, 'command', docker_command)
+    monkeypatch.setattr(demo.subprocess, 'run', readiness)
+    monkeypatch.setattr(demo.time, 'sleep', lambda seconds: None)
+    monkeypatch.setattr(sqlalchemy, 'create_engine', lambda *args, **kwargs: Engine())
+    monkeypatch.setattr(migrations, 'upgrade', migrate)
+    monkeypatch.setattr(demo, 'connect', lambda manifest: (object(), object()))
+    monkeypatch.setattr(demo, 'seed', lambda *args: {})
+    monkeypatch.setattr(runtime, 'setup', lambda directory: None)
+    if final_server_available:
+        assert demo.init(tmp_path/'demo')['initialized'] is True
+        assert state['tcp_probes'] == 3 and state['migrations'] == 1
+    else:
+        with pytest.raises(RuntimeError, match='PostgreSQL startup failed'):
+            demo.init(tmp_path/'demo')
+        assert state['migrations'] == 0 and state['stopped']

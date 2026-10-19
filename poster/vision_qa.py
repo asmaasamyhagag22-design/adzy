@@ -102,6 +102,8 @@ def required_poster_qa_policy(
     logo_composited: bool,
     expect_real_products: Optional[bool],
     product_named: bool = False,
+    authorized_brand_names: Optional[list[str]] = None,
+    visual_medium: str = "photography",
 ) -> PosterQAPolicy:
     """Return the one supported policy, including explicit and reasoned non-applicability."""
     checks = [
@@ -122,7 +124,10 @@ def required_poster_qa_policy(
         non_applicable["product_count"] = "no real product is required in this Poster"
     else:
         checks.extend(["placement_logical", "product_count"])
+    names = sorted(set(str(v) for v in (authorized_brand_names or []) if str(v).strip()))
+    if arabic and names: checks.append('latin_review')
     return PosterQAPolicy(
+        version=2 if (arabic and names) or visual_medium != "photography" else 1,
         mandatory_checks=checks,
         non_applicable_checks=non_applicable,
         context={
@@ -130,6 +135,8 @@ def required_poster_qa_policy(
             "logo_composited": bool(logo_composited),
             "expect_real_products": expect_real_products,
             "product_named": bool(product_named),
+            **({"authorized_brand_names":names} if arabic and names else {}),
+            **({"visual_medium":visual_medium} if visual_medium != "photography" else {}),
         },
     )
 
@@ -168,6 +175,7 @@ class PosterQAVerdict(BaseModel):
     # the typed defect BRAND_CONSTRAINT_NOT_GROUNDED. An ungrounded citation is recorded here
     # and does NOT set `on_brand_color` false, so it cannot block or trigger a paid re-render.
     brand_constraint_lineage: dict = Field(default_factory=dict)
+    latin_review: dict = Field(default_factory=dict)
     score: int = 7                  # art-director score 1..10
     # TRI-STATE (P6, 2026-07-15): True = PASS, False = FAIL, None = NOT_CHECKED.
     # It used to default to True, so a single Vertex 429 on the QA call silently converted the art
@@ -217,6 +225,7 @@ def _failed_check_names(qa: PosterQAVerdict, policy: PosterQAPolicy) -> list[str
         "product_count": (int(qa.product_count or 0) == 1 if product_named
                           else int(qa.product_count or 0) > 0),
         "score": 7 <= int(qa.score or 0) <= 10,
+        "latin_review": qa.latin_review.get("status") == "AUTHORIZED_ONLY",
     }
     return [name for name in policy.mandatory_checks if not predicates.get(name, False)]
 
@@ -246,7 +255,7 @@ def decide_poster_acceptance(
         if qa.qa_source != POSTER_QA_SOURCE:
             reason_codes.append("QA_SOURCE_NOT_AUTHORITATIVE")
         if (qa.policy_id != POSTER_QA_POLICY_ID
-                or qa.policy_version != POSTER_QA_POLICY_VERSION):
+                or qa.policy_version not in (1, 2)):
             reason_codes.append("QA_POLICY_UNKNOWN")
         elif (qa.policy_id != required_policy.policy_id
               or qa.policy_version != required_policy.version
@@ -353,6 +362,8 @@ def _policy_from_verdict(qa: Optional[PosterQAVerdict]) -> PosterQAPolicy:
         logo_composited=bool(context.get("logo_composited", False)),
         expect_real_products=context.get("expect_real_products", False),
         product_named=bool(context.get("product_named", False)),
+        authorized_brand_names=context.get("authorized_brand_names"),
+        visual_medium=context.get("visual_medium","photography"),
     )
 
 
@@ -376,6 +387,13 @@ def poster_acceptance_from_output(
     except Exception:
         qa = None
     policy = _policy_from_verdict(qa)
+    contract = raw.get('creative_contract')
+    if qa is not None and isinstance(contract, Mapping) and qa.policy_version == 2:
+        context=dict(policy.context)
+        names=[v['value'] for v in (contract.get('copy_metadata_evidence') or {}).get('business_name',[]) if v.get('value')]
+        policy=required_poster_qa_policy(arabic=bool(context.get('arabic')),logo_composited=bool(context.get('logo_composited')),
+            expect_real_products=context.get('expect_real_products'),product_named=bool(context.get('product_named')),
+            authorized_brand_names=names,visual_medium=context.get("visual_medium","photography"))
     bound = getattr(qa, "attempt_identity", None)
     attempt_id = str(expected_attempt_id or raw.get("generation_attempt_id")
                      or getattr(bound, "attempt_id", "") or "unbound")
@@ -389,6 +407,7 @@ def poster_acceptance_from_output(
 
 
 class _QAResponse(BaseModel):
+    latin_review_complete: bool = False
     has_latin_text: bool
     cta_clipped: bool
     on_brand_color: bool
@@ -609,6 +628,24 @@ def poster_vision_qa(
         + _pass_criteria(arabic, logo_composited=logo_composited)
         + "- reason = one short sentence naming the biggest problem (or 'clean')."
     )
+    names = policy.context.get('authorized_brand_names', [])
+    if policy.context.get("arabic") and names:
+        import json
+        # Replace both conflicting Arabic-only instructions, not just the first one.
+        system = system.replace(lang_line,
+            'The authored language is Arabic. Only these exact evidenced brand names may appear in Latin: '
+            + json.dumps(names,ensure_ascii=False) + '. This includes the CTA. Other Latin is unwanted. '
+            'Set has_latin_text for unwanted or ambiguous Latin; do not flag an exact authorized name alone. '
+            'Transcribe every line. Set latin_review_complete=true only after resolving every Latin occurrence. '
+            'Ambiguity must fail, never guess a brand role.')
+        system = system.replace('no Latin in the copy', 'no unwanted or ambiguous Latin in the copy')
+    medium=policy.context.get('visual_medium','photography')
+    if medium!='photography':
+        system = system.replace('candid/documentary or flat natural lighting (amateur/stock) rather than a polished brand campaign.', 'an unintended candid photographic background rather than the approved graphic medium.')
+        system += ('\nThe approved art direction medium is '+medium+'. Professional illustration or typography '
+            'is intentional. Do not require photography, candid people or photorealistic lighting. '
+            'Judge craftsmanship and composition. candid_violation concerns an unintended candid/photo background, '
+            'not intentional flat graphic shapes. Keep all factual, script, clipping and identity checks.\n')
     user = "Review this rendered poster as an art director and return the verdict."
 
     try:
@@ -618,7 +655,7 @@ def poster_vision_qa(
         return _unverified(f"QA call failed ({type(exc).__name__})")
 
     fields_set = set(getattr(resp, "model_fields_set", set()) or set())
-    response_field = {"critic_pass": "overall_pass"}
+    response_field = {"critic_pass": "overall_pass", "latin_review":"latin_review_complete"}
     completed = [
         check for check in policy.mandatory_checks
         if response_field.get(check, check) in fields_set
@@ -657,8 +694,24 @@ def poster_vision_qa(
         except Exception:  # noqa: BLE001 — a lineage check must never take down the QA pass
             _constraint_lineage = {}
 
+    latin_review = {}
+    extra_latin = False
+    if policy.context.get("arabic") and names:
+        lines=list(getattr(resp,'text_lines',[]) or [])
+        complete=bool(getattr(resp,'latin_review_complete',False)) and bool(lines)
+        leftovers=[]
+        for line in lines:
+            remaining=line
+            for name in sorted(names,key=len,reverse=True):
+                remaining=re.sub(r'(?<!\w)'+re.escape(name)+r'(?!\w)', '', remaining)
+            if re.search(r'[A-Za-z]',remaining): leftovers.append(remaining)
+        status='AMBIGUOUS' if not complete else 'UNEXPECTED' if leftovers else 'AUTHORIZED_ONLY'
+        latin_review={'status':status,'authorized_brand_names':names,
+                      'model_has_latin_text':bool(resp.has_latin_text)}
+        extra_latin=status!='AUTHORIZED_ONLY'
     verdict = PosterQAVerdict(
-        has_latin_text=bool(resp.has_latin_text),
+        latin_review=latin_review,
+        has_latin_text=bool(resp.has_latin_text) or extra_latin,
         cta_clipped=bool(resp.cta_clipped),
         on_brand_color=_on_brand_color,
         brand_constraint_lineage=_constraint_lineage,

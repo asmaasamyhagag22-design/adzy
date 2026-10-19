@@ -1,0 +1,31 @@
+name: Poster V1 offline release checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  synthetic-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-app.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements-app.txt
+      - run: python -m pip check
+      - run: python -m playwright install --with-deps chromium
+      - run: docker pull postgres:16-alpine
+      - run: python tools/check_poster_v1.py --evidence-dir /tmp/poster-v1-checks
+      - run: python tools/verify_poster_v1_browser.py --directory /tmp/poster-v1-demo --evidence-dir /tmp/poster-v1-browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-poster-v1-evidence
+          path: |
+            /tmp/poster-v1-checks
+            /tmp/poster-v1-browser

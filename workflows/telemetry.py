@@ -8,7 +8,10 @@ import re
 def mask(data, **kwargs):
     # Allow only protocol tokens and digests, never arbitrary callback/customer strings.
     if isinstance(data, dict):
-        return {k: mask(v) for k, v in data.items() if k in {'status','workflow_ref','cost_status','error'}}
+        return {k: mask(v) for k, v in data.items() if k in {'status','workflow_ref','cost_status','error','policy_version','method','copy_hash','evidence_hash','repair_count'}}
+    if isinstance(data, int) and not isinstance(data, bool) and 0 <= data <= 100: return data
+    if isinstance(data, str) and data in ('adzy.poster.copy-evidence@1', 'adzy.poster.copy-evidence@1.1', 'exact-approved-quotation@1'):
+        return data
     if isinstance(data, str) and (data in {'OK','ERROR','UNKNOWN','PAUSED','BLOCKED','REJECTED','NEEDS_REVIEW','READY_FOR_CREATIVE'} or re.fullmatch('[a-f0-9]{32,64}',data)):
         return data
     return '[REDACTED]'
@@ -53,14 +56,14 @@ class Telemetry:
         self.events.append({'status':'ERROR'})
 
     @contextmanager
-    def observation(self, name, kind='span'):
+    def observation(self, name, kind='span', metadata=None):
         self.events.append({'name':name, 'status':'START'})
         cm = obs = None
         if self.client:
             try:
                 cm = self.client.start_as_current_observation(name=name, as_type=kind,
                     trace_context={'trace_id':self.trace_id} if self.trace_id else None,
-                    metadata={'workflow_ref':self.trace_id, 'cost_status':'UNKNOWN'})
+                    metadata={'workflow_ref':self.trace_id, 'cost_status':'UNKNOWN', **(metadata or {})})
                 obs = cm.__enter__()
             except Exception:
                 cm = None

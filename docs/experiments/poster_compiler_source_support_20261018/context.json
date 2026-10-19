@@ -1,0 +1,1169 @@
+{
+  "strategy_version_id": "554140c3-f747-4064-8506-4a7dc980e784",
+  "run_kind": "strategy",
+  "run_status": "succeeded",
+  "run_brand_id": "93f18d7f-4218-45a4-b0a2-01d803098e8c",
+  "brand_id": "93f18d7f-4218-45a4-b0a2-01d803098e8c",
+  "domain_reference": "firefox_com",
+  "is_current": true,
+  "approval_state": "approved",
+  "profile_snapshot_id": "9308599f-db3f-4a6d-99b0-196ba11ac1e6",
+  "run_input_profile_id": "9308599f-db3f-4a6d-99b0-196ba11ac1e6",
+  "profile": {
+    "name": {
+      "value": "Firefox",
+      "evidence": [
+        {
+          "quote": "Firefox Browser",
+          "page_url": "https://www.firefox.com/ar/",
+          "extractor": "ai_curated_public_source"
+        }
+      ],
+      "confidence": "high",
+      "source_type": "extracted"
+    },
+    "visual": {
+      "logo_url": "https://www.firefox.com/media/img/logos/firefox/logo-word-hor.f3b18871b657.svg",
+      "palette_hex": [
+        "#20123a",
+        "#ff7139",
+        "#fff4df"
+      ]
+    },
+    "category": {
+      "value": "Firefox Browser",
+      "evidence": [
+        {
+          "quote": "Firefox Browser",
+          "page_url": "https://www.firefox.com/ar/",
+          "extractor": "ai_curated_public_source"
+        }
+      ],
+      "confidence": "high",
+      "source_type": "extracted"
+    },
+    "languages": [
+      {
+        "code": "ar",
+        "proportion": 1
+      }
+    ],
+    "source_url": "https://www.firefox.com/ar/",
+    "existing_ctas": [
+      {
+        "value": "نزِّل Firefox",
+        "evidence": [
+          {
+            "quote": "نزِّل Firefox",
+            "page_url": "https://www.firefox.com/ar/",
+            "extractor": "ai_curated_public_source"
+          }
+        ],
+        "confidence": "high",
+        "source_type": "extracted"
+      }
+    ],
+    "trust_signals": [
+      {
+        "value": "نحجب المُتعقّبات وملفات تعريف الارتباط من الأطراف الثالثة افتراضيًا",
+        "evidence": [
+          {
+            "quote": "نحجب المُتعقّبات وملفات تعريف الارتباط من الأطراف الثالثة افتراضيًا",
+            "page_url": "https://www.firefox.com/ar/",
+            "extractor": "ai_curated_public_source"
+          }
+        ],
+        "confidence": "high",
+        "source_type": "extracted"
+      },
+      {
+        "value": "فنحن نحظر مُعظم المتعقّبات تلقائيًا.",
+        "evidence": [
+          {
+            "quote": "فنحن نحظر مُعظم المتعقّبات تلقائيًا.",
+            "page_url": "https://www.firefox.com/ar/",
+            "extractor": "ai_curated_public_source"
+          }
+        ],
+        "confidence": "high",
+        "source_type": "extracted"
+      }
+    ],
+    "demo_provenance": {
+      "kind": "REAL_PUBLIC_BRAND_AI_CURATED",
+      "geography": "UNKNOWN",
+      "affiliation": "Unofficial portfolio demonstration; not a Mozilla campaign",
+      "owner_review": "PENDING"
+    },
+    "audience_signals": [
+      {
+        "value": "مستخدمو Firefox المهتمون بالخصوصية",
+        "evidence": [
+          {
+            "quote": "الخصوصية مُدمجة",
+            "page_url": "https://www.firefox.com/ar/",
+            "extractor": "ai_curated_public_source"
+          }
+        ],
+        "confidence": "medium",
+        "source_type": "inferred"
+      }
+    ],
+    "value_propositions": [
+      {
+        "value": "الخصوصية مُدمجة",
+        "evidence": [
+          {
+            "quote": "الخصوصية مُدمجة",
+            "page_url": "https://www.firefox.com/ar/",
+            "extractor": "ai_curated_public_source"
+          }
+        ],
+        "confidence": "high",
+        "source_type": "extracted"
+      },
+      {
+        "value": "تحكَّم في الإنترنت.",
+        "evidence": [
+          {
+            "quote": "تحكَّم في الإنترنت.",
+            "page_url": "https://www.firefox.com/ar/",
+            "extractor": "ai_curated_public_source"
+          }
+        ],
+        "confidence": "high",
+        "source_type": "extracted"
+      }
+    ]
+  },
+  "requested_config": {
+    "objective": {
+      "origin": "ENGINEERING_DEMO_PROPOSAL",
+      "business": {
+        "type": "AWARENESS_GROWTH",
+        "market": "",
+        "metric": {
+          "value": null,
+          "status": "UNKNOWN"
+        },
+        "target": {
+          "value": null,
+          "status": "UNKNOWN"
+        },
+        "baseline": {
+          "value": null,
+          "status": "UNKNOWN"
+        },
+        "geography": [],
+        "constraints": [],
+        "description": "عرض الحماية الافتراضية في Firefox للجمهور العربي؛ هدف تجريبي مقترح للمراجعة",
+        "time_horizon": {
+          "value": null,
+          "status": "UNKNOWN"
+        }
+      },
+      "objective_id": "firefox_ar_portfolio_awareness",
+      "marketing_role": "DEMAND_CREATION",
+      "schema_version": 1,
+      "media_optimization": {
+        "value": null,
+        "status": "NOT_SET"
+      },
+      "behavioral_objective": {
+        "value": null,
+        "status": "UNKNOWN"
+      }
+    },
+    "decision_type": "POSITIONING",
+    "schema_version": 1,
+    "requested_scope": {
+      "geography": []
+    }
+  },
+  "output": {
+    "canonical_strategy": {
+      "claims": [
+        {
+          "scope": {
+            "role": "FRAME_OF_REFERENCE",
+            "market": "",
+            "geography": [],
+            "profile_field": "category"
+          },
+          "claim_id": "cl_c404d682153ea70d",
+          "statement": "Firefox Browser",
+          "limitations": [
+            "Brand-owned source; not independent validation."
+          ],
+          "epistemic_type": "SOURCE_ASSERTION",
+          "schema_version": 1,
+          "evidence_strength": "MODERATE",
+          "supersedes_claim_id": null,
+          "verification_status": "SUPPORTED",
+          "supporting_evidence_ids": [
+            "ev_fa14e8c7efb96efe"
+          ],
+          "contradicting_evidence_ids": []
+        },
+        {
+          "scope": {
+            "role": "BRAND_CAPABILITY",
+            "market": "",
+            "geography": [],
+            "profile_field": "value_propositions"
+          },
+          "claim_id": "cl_497084d195038dad",
+          "statement": "الخصوصية مُدمجة",
+          "limitations": [
+            "Brand-owned source; not independent validation."
+          ],
+          "epistemic_type": "SOURCE_ASSERTION",
+          "schema_version": 1,
+          "evidence_strength": "MODERATE",
+          "supersedes_claim_id": null,
+          "verification_status": "SUPPORTED",
+          "supporting_evidence_ids": [
+            "ev_3add7ef8a8bf3ffd"
+          ],
+          "contradicting_evidence_ids": []
+        },
+        {
+          "scope": {
+            "role": "BRAND_CAPABILITY",
+            "market": "",
+            "geography": [],
+            "profile_field": "value_propositions"
+          },
+          "claim_id": "cl_0e69dfcc2a35ee4a",
+          "statement": "تحكَّم في الإنترنت.",
+          "limitations": [
+            "Brand-owned source; not independent validation."
+          ],
+          "epistemic_type": "SOURCE_ASSERTION",
+          "schema_version": 1,
+          "evidence_strength": "MODERATE",
+          "supersedes_claim_id": null,
+          "verification_status": "SUPPORTED",
+          "supporting_evidence_ids": [
+            "ev_de2c00d5fb4dc91b"
+          ],
+          "contradicting_evidence_ids": []
+        },
+        {
+          "scope": {
+            "role": "REASON_TO_BELIEVE",
+            "market": "",
+            "geography": [],
+            "profile_field": "trust_signals"
+          },
+          "claim_id": "cl_82d419e99f467f48",
+          "statement": "نحجب المُتعقّبات وملفات تعريف الارتباط من الأطراف الثالثة افتراضيًا",
+          "limitations": [
+            "Brand-owned source; not independent validation."
+          ],
+          "epistemic_type": "SOURCE_ASSERTION",
+          "schema_version": 1,
+          "evidence_strength": "MODERATE",
+          "supersedes_claim_id": null,
+          "verification_status": "SUPPORTED",
+          "supporting_evidence_ids": [
+            "ev_98ff0bbe93ca1554"
+          ],
+          "contradicting_evidence_ids": []
+        },
+        {
+          "scope": {
+            "role": "REASON_TO_BELIEVE",
+            "market": "",
+            "geography": [],
+            "profile_field": "trust_signals"
+          },
+          "claim_id": "cl_b5a43c86ba5b4725",
+          "statement": "فنحن نحظر مُعظم المتعقّبات تلقائيًا.",
+          "limitations": [
+            "Brand-owned source; not independent validation."
+          ],
+          "epistemic_type": "SOURCE_ASSERTION",
+          "schema_version": 1,
+          "evidence_strength": "MODERATE",
+          "supersedes_claim_id": null,
+          "verification_status": "SUPPORTED",
+          "supporting_evidence_ids": [
+            "ev_b275836d520782cb"
+          ],
+          "contradicting_evidence_ids": []
+        },
+        {
+          "scope": {
+            "role": "CUSTOMER_RELEVANCE",
+            "market": "",
+            "geography": [],
+            "profile_field": "audience_signals"
+          },
+          "claim_id": "cl_6b8fe1567826e0e0",
+          "statement": "مستخدمو Firefox المهتمون بالخصوصية",
+          "limitations": [
+            "Brand-owned source; not independent validation.",
+            "Atomic profile inference is linked to the quote but is not a verbatim source assertion."
+          ],
+          "epistemic_type": "INFERENCE",
+          "schema_version": 1,
+          "evidence_strength": "MODERATE",
+          "supersedes_claim_id": null,
+          "verification_status": "PARTIALLY_SUPPORTED",
+          "supporting_evidence_ids": [
+            "ev_a44336ec26386c32"
+          ],
+          "contradicting_evidence_ids": []
+        },
+        {
+          "scope": {
+            "role": "CUSTOMER_RELEVANCE",
+            "market": "",
+            "geography": [],
+            "customer_subject": "own_brand",
+            "customer_voice_kind": "pain_point"
+          },
+          "claim_id": "cl_11e6508d202d31ca",
+          "statement": "الخصوصية والحماية من التعقب تحتاجان ضبطًا عند تعطل الفيديو",
+          "limitations": [
+            "Single observed customer signal; occurrence is established, but prevalence is not.",
+            "Normalized/translated collector interpretation; the original comment remains in the evidence excerpt."
+          ],
+          "epistemic_type": "INFERENCE",
+          "schema_version": 1,
+          "evidence_strength": "WEAK",
+          "supersedes_claim_id": null,
+          "verification_status": "PARTIALLY_SUPPORTED",
+          "supporting_evidence_ids": [
+            "ev_c3814e999a3204b7"
+          ],
+          "contradicting_evidence_ids": []
+        },
+        {
+          "scope": {
+            "role": "COMPETITIVE_DIFFERENTIATION",
+            "market": "",
+            "geography": []
+          },
+          "claim_id": "cl_e23640832874dca6",
+          "statement": "يساعدك Microsoft Edge على الحد من التتبّع عبر مواقع الويب ويوفّر إعدادات مرنة تساعدك على تحقيق التوازن بين الخصوصية وتجارب الويب التي تريدها.",
+          "limitations": [
+            "Competitor/source assertion; comparative conclusion not implied."
+          ],
+          "epistemic_type": "SOURCE_ASSERTION",
+          "schema_version": 1,
+          "evidence_strength": "MODERATE",
+          "supersedes_claim_id": null,
+          "verification_status": "SUPPORTED",
+          "supporting_evidence_ids": [
+            "ev_d5e91050cc019f53"
+          ],
+          "contradicting_evidence_ids": []
+        },
+        {
+          "scope": {
+            "role": "EXPECTED_OBJECTIVE_EFFECT",
+            "objective_id": "firefox_ar_portfolio_awareness"
+          },
+          "claim_id": "cl_hyp_d4496a511c784413bdaa14b2ddeea083",
+          "statement": "This positioning may support: عرض الحماية الافتراضية في Firefox للجمهور العربي؛ هدف تجريبي مقترح للمراجعة",
+          "limitations": [
+            "Future outcome; requires measurement after approval and activation."
+          ],
+          "epistemic_type": "HYPOTHESIS",
+          "schema_version": 1,
+          "evidence_strength": "UNKNOWN",
+          "supersedes_claim_id": null,
+          "verification_status": "NOT_TESTED",
+          "supporting_evidence_ids": [],
+          "contradicting_evidence_ids": []
+        },
+        {
+          "scope": {
+            "role": "EXPECTED_OBJECTIVE_EFFECT",
+            "objective_id": "firefox_ar_portfolio_awareness"
+          },
+          "claim_id": "cl_hyp_9702beada09d4a09b6e56e1431d80769",
+          "statement": "This positioning may support: عرض الحماية الافتراضية في Firefox للجمهور العربي؛ هدف تجريبي مقترح للمراجعة",
+          "limitations": [
+            "Future outcome; requires measurement after approval and activation."
+          ],
+          "epistemic_type": "HYPOTHESIS",
+          "schema_version": 1,
+          "evidence_strength": "UNKNOWN",
+          "supersedes_claim_id": null,
+          "verification_status": "NOT_TESTED",
+          "supporting_evidence_ids": [],
+          "contradicting_evidence_ids": []
+        }
+      ],
+      "decision": {
+        "options": [
+          {
+            "target": "مستخدمو Firefox المهتمون بالخصوصية; customer signal (one observation, not prevalence): الخصوصية والحماية من التعقب تحتاجان ضبطًا عند تعطل الفيديو",
+            "option_id": "pos_1",
+            "trade_offs": [
+              "Concentrating on الخصوصية مُدمجة deprioritizes تحكَّم في الإنترنت. as the primary trial trigger."
+            ],
+            "option_status": "SELECTED",
+            "consumer_value": "الخصوصية مُدمجة",
+            "reason_to_believe": "فنحن نحظر مُعظم المتعقّبات تلقائيًا.",
+            "frame_of_reference": "Firefox Browser",
+            "differentiated_value": "الخصوصية مُدمجة",
+            "hypothesis_claim_ids": [
+              "cl_hyp_d4496a511c784413bdaa14b2ddeea083"
+            ],
+            "supporting_claim_ids": [
+              "cl_6b8fe1567826e0e0",
+              "cl_11e6508d202d31ca",
+              "cl_c404d682153ea70d",
+              "cl_497084d195038dad",
+              "cl_b5a43c86ba5b4725",
+              "cl_e23640832874dca6"
+            ],
+            "positioning_statement": "For مستخدمو Firefox المهتمون بالخصوصية; customer signal (one observation, not prevalence): الخصوصية والحماية من التعقب تحتاجان ضبطًا عند تعطل الفيديو, الخصوصية مُدمجة within Firefox Browser, with فنحن نحظر مُعظم المتعقّبات تلقائيًا. as the reason to believe.",
+            "why_it_may_be_rejected": "Reject if owner review does not accept this target/value concentration or if measurement does not support it as the stronger first-trial trigger.",
+            "consumer_value_claim_ids": [
+              "cl_497084d195038dad"
+            ],
+            "differentiation_claim_ids": [
+              "cl_e23640832874dca6"
+            ],
+            "reason_to_believe_claim_ids": [
+              "cl_b5a43c86ba5b4725"
+            ],
+            "internal_supporting_claim_ids": [
+              "cl_6b8fe1567826e0e0",
+              "cl_11e6508d202d31ca",
+              "cl_c404d682153ea70d",
+              "cl_e23640832874dca6"
+            ],
+            "missing_evidence_requirement_ids": []
+          },
+          {
+            "target": "مستخدمو Firefox المهتمون بالخصوصية",
+            "option_id": "pos_2",
+            "trade_offs": [
+              "Concentrating on تحكَّم في الإنترنت. deprioritizes الخصوصية مُدمجة as the primary trial trigger."
+            ],
+            "option_status": "ALTERNATIVE",
+            "consumer_value": "تحكَّم في الإنترنت.",
+            "reason_to_believe": "فنحن نحظر مُعظم المتعقّبات تلقائيًا.",
+            "frame_of_reference": "Firefox Browser",
+            "differentiated_value": "تحكَّم في الإنترنت.",
+            "hypothesis_claim_ids": [
+              "cl_hyp_9702beada09d4a09b6e56e1431d80769"
+            ],
+            "supporting_claim_ids": [
+              "cl_6b8fe1567826e0e0",
+              "cl_c404d682153ea70d",
+              "cl_0e69dfcc2a35ee4a",
+              "cl_b5a43c86ba5b4725"
+            ],
+            "positioning_statement": "For مستخدمو Firefox المهتمون بالخصوصية, تحكَّم في الإنترنت. within Firefox Browser, with فنحن نحظر مُعظم المتعقّبات تلقائيًا. as the reason to believe.",
+            "why_it_may_be_rejected": "Reject if owner review does not accept this target/value concentration or if measurement does not support it as the stronger first-trial trigger.",
+            "consumer_value_claim_ids": [
+              "cl_0e69dfcc2a35ee4a"
+            ],
+            "differentiation_claim_ids": [],
+            "reason_to_believe_claim_ids": [
+              "cl_b5a43c86ba5b4725"
+            ],
+            "internal_supporting_claim_ids": [
+              "cl_6b8fe1567826e0e0",
+              "cl_c404d682153ea70d"
+            ],
+            "missing_evidence_requirement_ids": []
+          }
+        ],
+        "rationale": "The provisional selection prioritizes الخصوصية مُدمجة as the evidenced value most directly related to AWARENESS_GROWTH (عرض الحماية الافتراضية في Firefox للجمهور العربي؛ هدف تجريبي مقترح للمراجعة); the other options retain different evidenced trial triggers and explicit trade-offs.",
+        "decision_id": "dec_c493648367c84243b10e3d5a264335a7",
+        "objective_id": "firefox_ar_portfolio_awareness",
+        "decision_type": "POSITIONING",
+        "approval_state": "PENDING",
+        "contradictions": [],
+        "decision_state": "VERIFIED",
+        "schema_version": 1,
+        "selection_status": "FINAL",
+        "accepted_claim_ids": [
+          "cl_6b8fe1567826e0e0",
+          "cl_11e6508d202d31ca",
+          "cl_c404d682153ea70d",
+          "cl_497084d195038dad",
+          "cl_b5a43c86ba5b4725",
+          "cl_e23640832874dca6"
+        ],
+        "selected_option_id": "pos_1",
+        "rationale_claim_ids": [
+          "cl_6b8fe1567826e0e0",
+          "cl_11e6508d202d31ca",
+          "cl_c404d682153ea70d",
+          "cl_497084d195038dad",
+          "cl_b5a43c86ba5b4725",
+          "cl_e23640832874dca6"
+        ],
+        "unresolved_unknowns": [
+          "Business objective metric is UNKNOWN.",
+          "Business objective baseline is UNKNOWN.",
+          "Business objective target is UNKNOWN.",
+          "Business objective time_horizon is UNKNOWN.",
+          "This decision fact can only be supplied by the owner."
+        ],
+        "research_question_id": "rq_0e9b54247bdb4c94a8eb9d045555e7f8",
+        "provisional_option_id": "",
+        "verification_result_id": "vr_5eb554a8f4ce43d2bb96f1858722ea07"
+      },
+      "evidence": [
+        {
+          "market": "",
+          "channel": "ai_curated_public_source",
+          "excerpt": "Firefox Browser",
+          "collector": "ai_curated_public_source",
+          "freshness": "UNKNOWN",
+          "geography": [],
+          "raw_value": "Firefox Browser",
+          "relevance": "RELEVANT",
+          "source_ref": "profile.category[0].evidence[0]",
+          "source_url": "https://www.firefox.com/ar/",
+          "time_scope": "",
+          "captured_at": "2026-10-18T00:00:00Z",
+          "evidence_id": "ev_fa14e8c7efb96efe",
+          "limitations": [
+            "Brand-owned source; not independent validation."
+          ],
+          "observed_at": null,
+          "reliability": "SOURCE_DEPENDENT",
+          "subject_ref": "firefox_com",
+          "availability": "AVAILABLE",
+          "origin_group": null,
+          "source_class": "BRAND_OWNED",
+          "schema_version": 1,
+          "observed_at_status": "UNKNOWN",
+          "originating_run_id": null,
+          "derived_from_evidence_ids": []
+        },
+        {
+          "market": "",
+          "channel": "ai_curated_public_source",
+          "excerpt": "الخصوصية مُدمجة",
+          "collector": "ai_curated_public_source",
+          "freshness": "UNKNOWN",
+          "geography": [],
+          "raw_value": "الخصوصية مُدمجة",
+          "relevance": "RELEVANT",
+          "source_ref": "profile.value_propositions[0].evidence[0]",
+          "source_url": "https://www.firefox.com/ar/",
+          "time_scope": "",
+          "captured_at": "2026-10-18T00:00:00Z",
+          "evidence_id": "ev_3add7ef8a8bf3ffd",
+          "limitations": [
+            "Brand-owned source; not independent validation."
+          ],
+          "observed_at": null,
+          "reliability": "SOURCE_DEPENDENT",
+          "subject_ref": "firefox_com",
+          "availability": "AVAILABLE",
+          "origin_group": null,
+          "source_class": "BRAND_OWNED",
+          "schema_version": 1,
+          "observed_at_status": "UNKNOWN",
+          "originating_run_id": null,
+          "derived_from_evidence_ids": []
+        },
+        {
+          "market": "",
+          "channel": "ai_curated_public_source",
+          "excerpt": "تحكَّم في الإنترنت.",
+          "collector": "ai_curated_public_source",
+          "freshness": "UNKNOWN",
+          "geography": [],
+          "raw_value": "تحكَّم في الإنترنت.",
+          "relevance": "RELEVANT",
+          "source_ref": "profile.value_propositions[1].evidence[0]",
+          "source_url": "https://www.firefox.com/ar/",
+          "time_scope": "",
+          "captured_at": "2026-10-18T00:00:00Z",
+          "evidence_id": "ev_de2c00d5fb4dc91b",
+          "limitations": [
+            "Brand-owned source; not independent validation."
+          ],
+          "observed_at": null,
+          "reliability": "SOURCE_DEPENDENT",
+          "subject_ref": "firefox_com",
+          "availability": "AVAILABLE",
+          "origin_group": null,
+          "source_class": "BRAND_OWNED",
+          "schema_version": 1,
+          "observed_at_status": "UNKNOWN",
+          "originating_run_id": null,
+          "derived_from_evidence_ids": []
+        },
+        {
+          "market": "",
+          "channel": "ai_curated_public_source",
+          "excerpt": "نحجب المُتعقّبات وملفات تعريف الارتباط من الأطراف الثالثة افتراضيًا",
+          "collector": "ai_curated_public_source",
+          "freshness": "UNKNOWN",
+          "geography": [],
+          "raw_value": "نحجب المُتعقّبات وملفات تعريف الارتباط من الأطراف الثالثة افتراضيًا",
+          "relevance": "RELEVANT",
+          "source_ref": "profile.trust_signals[0].evidence[0]",
+          "source_url": "https://www.firefox.com/ar/",
+          "time_scope": "",
+          "captured_at": "2026-10-18T00:00:00Z",
+          "evidence_id": "ev_98ff0bbe93ca1554",
+          "limitations": [
+            "Brand-owned source; not independent validation."
+          ],
+          "observed_at": null,
+          "reliability": "SOURCE_DEPENDENT",
+          "subject_ref": "firefox_com",
+          "availability": "AVAILABLE",
+          "origin_group": null,
+          "source_class": "BRAND_OWNED",
+          "schema_version": 1,
+          "observed_at_status": "UNKNOWN",
+          "originating_run_id": null,
+          "derived_from_evidence_ids": []
+        },
+        {
+          "market": "",
+          "channel": "ai_curated_public_source",
+          "excerpt": "فنحن نحظر مُعظم المتعقّبات تلقائيًا.",
+          "collector": "ai_curated_public_source",
+          "freshness": "UNKNOWN",
+          "geography": [],
+          "raw_value": "فنحن نحظر مُعظم المتعقّبات تلقائيًا.",
+          "relevance": "RELEVANT",
+          "source_ref": "profile.trust_signals[1].evidence[0]",
+          "source_url": "https://www.firefox.com/ar/",
+          "time_scope": "",
+          "captured_at": "2026-10-18T00:00:00Z",
+          "evidence_id": "ev_b275836d520782cb",
+          "limitations": [
+            "Brand-owned source; not independent validation."
+          ],
+          "observed_at": null,
+          "reliability": "SOURCE_DEPENDENT",
+          "subject_ref": "firefox_com",
+          "availability": "AVAILABLE",
+          "origin_group": null,
+          "source_class": "BRAND_OWNED",
+          "schema_version": 1,
+          "observed_at_status": "UNKNOWN",
+          "originating_run_id": null,
+          "derived_from_evidence_ids": []
+        },
+        {
+          "market": "",
+          "channel": "ai_curated_public_source",
+          "excerpt": "الخصوصية مُدمجة",
+          "collector": "ai_curated_public_source",
+          "freshness": "UNKNOWN",
+          "geography": [],
+          "raw_value": "مستخدمو Firefox المهتمون بالخصوصية",
+          "relevance": "RELEVANT",
+          "source_ref": "profile.audience_signals[0].evidence[0]",
+          "source_url": "https://www.firefox.com/ar/",
+          "time_scope": "",
+          "captured_at": "2026-10-18T00:00:00Z",
+          "evidence_id": "ev_a44336ec26386c32",
+          "limitations": [
+            "Brand-owned source; not independent validation.",
+            "Atomic profile inference is linked to the quote but is not a verbatim source assertion."
+          ],
+          "observed_at": null,
+          "reliability": "SOURCE_DEPENDENT",
+          "subject_ref": "firefox_com",
+          "availability": "AVAILABLE",
+          "origin_group": null,
+          "source_class": "BRAND_OWNED",
+          "schema_version": 1,
+          "observed_at_status": "UNKNOWN",
+          "originating_run_id": null,
+          "derived_from_evidence_ids": []
+        },
+        {
+          "market": "",
+          "channel": "ai_curated_public_source",
+          "excerpt": "I tweaked the Privacy and security | Enhanced Tracking Protection | Custom and unchecked the second setting and the issue was resolved.",
+          "collector": "ai_curated_public_source",
+          "freshness": "UNKNOWN",
+          "geography": [],
+          "raw_value": "الخصوصية والحماية من التعقب تحتاجان ضبطًا عند تعطل الفيديو",
+          "relevance": "RELEVANT",
+          "source_ref": "marketing_intel.pain_points[0].evidence[0]",
+          "source_url": "https://support.mozilla.org/en-US/questions/1556753",
+          "time_scope": "",
+          "captured_at": "2026-10-18T00:00:00Z",
+          "evidence_id": "ev_c3814e999a3204b7",
+          "limitations": [
+            "Single observed customer signal; occurrence is established, but prevalence is not.",
+            "Normalized/translated collector interpretation; the original comment remains in the evidence excerpt."
+          ],
+          "observed_at": null,
+          "reliability": "SOURCE_DEPENDENT",
+          "subject_ref": "firefox_com",
+          "availability": "AVAILABLE",
+          "origin_group": null,
+          "source_class": "CUSTOMER_VOICE",
+          "schema_version": 1,
+          "observed_at_status": "UNKNOWN",
+          "originating_run_id": null,
+          "derived_from_evidence_ids": []
+        },
+        {
+          "market": "",
+          "channel": "ai_curated_public_source",
+          "excerpt": "يساعدك Microsoft Edge على الحد من التتبّع عبر مواقع الويب ويوفّر إعدادات مرنة تساعدك على تحقيق التوازن بين الخصوصية وتجارب الويب التي تريدها.",
+          "collector": "ai_curated_public_source",
+          "freshness": "UNKNOWN",
+          "geography": [],
+          "raw_value": "يساعدك Microsoft Edge على الحد من التتبّع عبر مواقع الويب ويوفّر إعدادات مرنة تساعدك على تحقيق التوازن بين الخصوصية وتجارب الويب التي تريدها.",
+          "relevance": "RELEVANT",
+          "source_ref": "competitor_intel.Microsoft Edge.usps[0].evidence[0]",
+          "source_url": "https://explore.microsoft.com/ar-sa/edge/features/tracking-prevention?form=MT0160",
+          "time_scope": "",
+          "captured_at": "2026-10-18T00:00:00Z",
+          "evidence_id": "ev_d5e91050cc019f53",
+          "limitations": [
+            "Competitor/source assertion; comparative conclusion not implied."
+          ],
+          "observed_at": null,
+          "reliability": "SOURCE_DEPENDENT",
+          "subject_ref": "firefox_com",
+          "availability": "AVAILABLE",
+          "origin_group": null,
+          "source_class": "COMPETITOR_ANALYSIS",
+          "schema_version": 1,
+          "observed_at_status": "UNKNOWN",
+          "originating_run_id": null,
+          "derived_from_evidence_ids": []
+        }
+      ],
+      "verification": {
+        "rubric": {
+          "coherence": "MEETS",
+          "feasibility": "NOT_ASSESSABLE",
+          "real_trade_off": "MEETS",
+          "differentiation": "PARTIAL",
+          "customer_relevance": "PARTIAL",
+          "objective_relevance": "PARTIAL",
+          "reason_to_believe_credibility": "PARTIAL"
+        },
+        "status": "PASS_WITH_DISCLOSURE",
+        "defects": [],
+        "checked_at": "2026-10-17T21:30:57.214371+00:00",
+        "schema_version": 1,
+        "eligible_for_approval": true,
+        "verification_result_id": "vr_5eb554a8f4ce43d2bb96f1858722ea07"
+      },
+      "schema_version": 1,
+      "research_question": {
+        "scope": {
+          "geography": []
+        },
+        "question": "Which positioning should this brand use to best support the explicit business objective within the requested market/scope?",
+        "unknowns": [
+          "Business objective metric is UNKNOWN.",
+          "Business objective baseline is UNKNOWN.",
+          "Business objective target is UNKNOWN.",
+          "Business objective time_horizon is UNKNOWN.",
+          "This decision fact can only be supplied by the owner."
+        ],
+        "question_id": "rq_0e9b54247bdb4c94a8eb9d045555e7f8",
+        "stop_reason": "",
+        "objective_id": "firefox_ar_portfolio_awareness",
+        "decision_type": "POSITIONING",
+        "schema_version": 1,
+        "sufficiency_status": "SUFFICIENT",
+        "evidence_requirements": [
+          {
+            "scope": {
+              "geography": []
+            },
+            "status": "AVAILABLE",
+            "required": true,
+            "criticality": "BLOCKING",
+            "subject_ref": "firefox_com",
+            "requirement_id": "req_brand_capability",
+            "allow_disclosure": false,
+            "owner_input_only": false,
+            "requirement_type": "BRAND_CAPABILITY_PROOF",
+            "decision_dependency": "The selected positioning's evidenced consumer value",
+            "required_claim_roles": [
+              "BRAND_CAPABILITY"
+            ],
+            "accepted_source_classes": [
+              "BRAND_OWNED"
+            ],
+            "minimum_evidence_strength": "WEAK",
+            "acceptable_epistemic_types": [
+              "SOURCE_ASSERTION",
+              "INFERENCE",
+              "DIRECT_OBSERVATION"
+            ],
+            "minimum_independent_origins": 0,
+            "acceptable_verification_statuses": [
+              "SUPPORTED",
+              "CORROBORATED",
+              "PARTIALLY_SUPPORTED"
+            ]
+          },
+          {
+            "scope": {
+              "geography": []
+            },
+            "status": "AVAILABLE",
+            "required": true,
+            "criticality": "BLOCKING",
+            "subject_ref": "firefox_com",
+            "requirement_id": "req_customer_relevance",
+            "allow_disclosure": false,
+            "owner_input_only": false,
+            "requirement_type": "CUSTOMER_RELEVANCE",
+            "decision_dependency": "The selected target/customer problem",
+            "required_claim_roles": [
+              "CUSTOMER_RELEVANCE"
+            ],
+            "accepted_source_classes": [
+              "CUSTOMER_VOICE"
+            ],
+            "minimum_evidence_strength": "WEAK",
+            "acceptable_epistemic_types": [
+              "SOURCE_ASSERTION",
+              "INFERENCE",
+              "DIRECT_OBSERVATION"
+            ],
+            "minimum_independent_origins": 0,
+            "acceptable_verification_statuses": [
+              "SUPPORTED",
+              "CORROBORATED",
+              "PARTIALLY_SUPPORTED"
+            ]
+          },
+          {
+            "scope": {
+              "geography": []
+            },
+            "status": "AVAILABLE",
+            "required": true,
+            "criticality": "BLOCKING",
+            "subject_ref": "firefox_com",
+            "requirement_id": "req_competitive_differentiation",
+            "allow_disclosure": false,
+            "owner_input_only": false,
+            "requirement_type": "COMPETITIVE_DIFFERENTIATION",
+            "decision_dependency": "The selected differentiated value",
+            "required_claim_roles": [
+              "COMPETITIVE_DIFFERENTIATION"
+            ],
+            "accepted_source_classes": [
+              "COMPETITOR_ANALYSIS"
+            ],
+            "minimum_evidence_strength": "WEAK",
+            "acceptable_epistemic_types": [
+              "SOURCE_ASSERTION",
+              "INFERENCE",
+              "DIRECT_OBSERVATION"
+            ],
+            "minimum_independent_origins": 0,
+            "acceptable_verification_statuses": [
+              "SUPPORTED",
+              "CORROBORATED",
+              "PARTIALLY_SUPPORTED"
+            ]
+          },
+          {
+            "scope": {
+              "geography": []
+            },
+            "status": "AVAILABLE",
+            "required": true,
+            "criticality": "BLOCKING",
+            "subject_ref": "firefox_com",
+            "requirement_id": "req_reason_to_believe",
+            "allow_disclosure": false,
+            "owner_input_only": false,
+            "requirement_type": "REASON_TO_BELIEVE_PROOF",
+            "decision_dependency": "The selected reason to believe",
+            "required_claim_roles": [
+              "REASON_TO_BELIEVE"
+            ],
+            "accepted_source_classes": [
+              "BRAND_OWNED"
+            ],
+            "minimum_evidence_strength": "MODERATE",
+            "acceptable_epistemic_types": [
+              "SOURCE_ASSERTION",
+              "INFERENCE",
+              "DIRECT_OBSERVATION"
+            ],
+            "minimum_independent_origins": 0,
+            "acceptable_verification_statuses": [
+              "SUPPORTED",
+              "CORROBORATED",
+              "PARTIALLY_SUPPORTED"
+            ]
+          },
+          {
+            "scope": {
+              "geography": []
+            },
+            "status": "UNKNOWN",
+            "required": false,
+            "criticality": "DECISION_LIMITING",
+            "subject_ref": "firefox_com",
+            "requirement_id": "req_objective_measurement",
+            "allow_disclosure": true,
+            "owner_input_only": true,
+            "requirement_type": "OBJECTIVE_MEASUREMENT",
+            "decision_dependency": "Future outcome measurement, not final positioning selection",
+            "required_claim_roles": [
+              "OWNER_CONTEXT"
+            ],
+            "accepted_source_classes": [
+              "OWNER_INPUT"
+            ],
+            "minimum_evidence_strength": "WEAK",
+            "acceptable_epistemic_types": [
+              "HUMAN_ASSERTION"
+            ],
+            "minimum_independent_origins": 0,
+            "acceptable_verification_statuses": [
+              "SUPPORTED",
+              "CORROBORATED"
+            ]
+          }
+        ],
+        "unmet_requirement_ids": []
+      },
+      "research_sufficiency_assessment": {
+        "unknowns": [
+          "Business objective metric is UNKNOWN.",
+          "Business objective baseline is UNKNOWN.",
+          "Business objective target is UNKNOWN.",
+          "Business objective time_horizon is UNKNOWN.",
+          "This decision fact can only be supplied by the owner."
+        ],
+        "policy_id": "baseera.positioning.research_sufficiency",
+        "limitations": [
+          "Brand-owned source; not independent validation.",
+          "Single observed customer signal; occurrence is established, but prevalence is not.",
+          "Normalized/translated collector interpretation; the original comment remains in the evidence excerpt.",
+          "Competitor/source assertion; comparative conclusion not implied."
+        ],
+        "question_id": "rq_0e9b54247bdb4c94a8eb9d045555e7f8",
+        "assessment_id": "rsa_7d383988e56af5e1",
+        "overall_status": "SUFFICIENT",
+        "policy_version": "1.0.0",
+        "schema_version": 1,
+        "execution_status": "EXECUTED",
+        "requirement_results": [
+          {
+            "scope": {
+              "geography": []
+            },
+            "blocking": false,
+            "unknowns": [],
+            "policy_id": "baseera.positioning.research_sufficiency",
+            "criticality": "BLOCKING",
+            "limitations": [
+              "Brand-owned source; not independent validation."
+            ],
+            "reason_code": "QUALIFYING_LOCAL_EVIDENCE",
+            "subject_ref": "firefox_com",
+            "reason_detail": "Existing local evidence meets the requirement's explicit epistemic, scope, verification, strength, and independence policy.",
+            "action_details": "Use only the listed qualifying evidence already serialized in this Strategy Run.",
+            "current_status": "SATISFIED",
+            "policy_version": "1.0.0",
+            "requirement_id": "req_brand_capability",
+            "stop_condition": {
+              "kind": "EVIDENCE_THRESHOLD_MET",
+              "description": "The requirement is met by the listed qualifying local evidence."
+            },
+            "limitation_codes": [],
+            "resolution_action": "USE_EXISTING_LOCAL_EVIDENCE",
+            "decision_dependency": "The selected positioning's evidenced consumer value",
+            "independence_status": "NOT_REQUIRED",
+            "evidence_considered_ids": [
+              "ev_fa14e8c7efb96efe",
+              "ev_3add7ef8a8bf3ffd",
+              "ev_de2c00d5fb4dc91b",
+              "ev_98ff0bbe93ca1554",
+              "ev_b275836d520782cb",
+              "ev_a44336ec26386c32"
+            ],
+            "qualifying_evidence_ids": [
+              "ev_3add7ef8a8bf3ffd",
+              "ev_de2c00d5fb4dc91b"
+            ],
+            "required_evidence_class": [
+              "BRAND_OWNED"
+            ],
+            "independent_origin_count": 0,
+            "required_epistemic_strength": "WEAK"
+          },
+          {
+            "scope": {
+              "geography": []
+            },
+            "blocking": false,
+            "unknowns": [],
+            "policy_id": "baseera.positioning.research_sufficiency",
+            "criticality": "BLOCKING",
+            "limitations": [
+              "Single observed customer signal; occurrence is established, but prevalence is not.",
+              "Normalized/translated collector interpretation; the original comment remains in the evidence excerpt."
+            ],
+            "reason_code": "QUALIFYING_LOCAL_EVIDENCE",
+            "subject_ref": "firefox_com",
+            "reason_detail": "Existing local evidence meets the requirement's explicit epistemic, scope, verification, strength, and independence policy.",
+            "action_details": "Use only the listed qualifying evidence already serialized in this Strategy Run.",
+            "current_status": "SATISFIED",
+            "policy_version": "1.0.0",
+            "requirement_id": "req_customer_relevance",
+            "stop_condition": {
+              "kind": "EVIDENCE_THRESHOLD_MET",
+              "description": "The requirement is met by the listed qualifying local evidence."
+            },
+            "limitation_codes": [],
+            "resolution_action": "USE_EXISTING_LOCAL_EVIDENCE",
+            "decision_dependency": "The selected target/customer problem",
+            "independence_status": "NOT_REQUIRED",
+            "evidence_considered_ids": [
+              "ev_c3814e999a3204b7"
+            ],
+            "qualifying_evidence_ids": [
+              "ev_c3814e999a3204b7"
+            ],
+            "required_evidence_class": [
+              "CUSTOMER_VOICE"
+            ],
+            "independent_origin_count": 0,
+            "required_epistemic_strength": "WEAK"
+          },
+          {
+            "scope": {
+              "geography": []
+            },
+            "blocking": false,
+            "unknowns": [],
+            "policy_id": "baseera.positioning.research_sufficiency",
+            "criticality": "BLOCKING",
+            "limitations": [
+              "Competitor/source assertion; comparative conclusion not implied."
+            ],
+            "reason_code": "QUALIFYING_LOCAL_EVIDENCE",
+            "subject_ref": "firefox_com",
+            "reason_detail": "Existing local evidence meets the requirement's explicit epistemic, scope, verification, strength, and independence policy.",
+            "action_details": "Use only the listed qualifying evidence already serialized in this Strategy Run.",
+            "current_status": "SATISFIED",
+            "policy_version": "1.0.0",
+            "requirement_id": "req_competitive_differentiation",
+            "stop_condition": {
+              "kind": "EVIDENCE_THRESHOLD_MET",
+              "description": "The requirement is met by the listed qualifying local evidence."
+            },
+            "limitation_codes": [],
+            "resolution_action": "USE_EXISTING_LOCAL_EVIDENCE",
+            "decision_dependency": "The selected differentiated value",
+            "independence_status": "NOT_REQUIRED",
+            "evidence_considered_ids": [
+              "ev_d5e91050cc019f53"
+            ],
+            "qualifying_evidence_ids": [
+              "ev_d5e91050cc019f53"
+            ],
+            "required_evidence_class": [
+              "COMPETITOR_ANALYSIS"
+            ],
+            "independent_origin_count": 0,
+            "required_epistemic_strength": "WEAK"
+          },
+          {
+            "scope": {
+              "geography": []
+            },
+            "blocking": false,
+            "unknowns": [],
+            "policy_id": "baseera.positioning.research_sufficiency",
+            "criticality": "BLOCKING",
+            "limitations": [
+              "Brand-owned source; not independent validation."
+            ],
+            "reason_code": "QUALIFYING_LOCAL_EVIDENCE",
+            "subject_ref": "firefox_com",
+            "reason_detail": "Existing local evidence meets the requirement's explicit epistemic, scope, verification, strength, and independence policy.",
+            "action_details": "Use only the listed qualifying evidence already serialized in this Strategy Run.",
+            "current_status": "SATISFIED",
+            "policy_version": "1.0.0",
+            "requirement_id": "req_reason_to_believe",
+            "stop_condition": {
+              "kind": "EVIDENCE_THRESHOLD_MET",
+              "description": "The requirement is met by the listed qualifying local evidence."
+            },
+            "limitation_codes": [],
+            "resolution_action": "USE_EXISTING_LOCAL_EVIDENCE",
+            "decision_dependency": "The selected reason to believe",
+            "independence_status": "NOT_REQUIRED",
+            "evidence_considered_ids": [
+              "ev_fa14e8c7efb96efe",
+              "ev_3add7ef8a8bf3ffd",
+              "ev_de2c00d5fb4dc91b",
+              "ev_98ff0bbe93ca1554",
+              "ev_b275836d520782cb",
+              "ev_a44336ec26386c32"
+            ],
+            "qualifying_evidence_ids": [
+              "ev_98ff0bbe93ca1554",
+              "ev_b275836d520782cb"
+            ],
+            "required_evidence_class": [
+              "BRAND_OWNED"
+            ],
+            "independent_origin_count": 0,
+            "required_epistemic_strength": "MODERATE"
+          },
+          {
+            "scope": {
+              "geography": []
+            },
+            "blocking": false,
+            "unknowns": [
+              "This decision fact can only be supplied by the owner."
+            ],
+            "policy_id": "baseera.positioning.research_sufficiency",
+            "criticality": "DECISION_LIMITING",
+            "limitations": [],
+            "reason_code": "OWNER_INPUT_REQUIRED",
+            "subject_ref": "firefox_com",
+            "reason_detail": "This decision fact can only be supplied by the owner.",
+            "action_details": "Ask the owner for the missing typed fact; do not infer it from brand materials.",
+            "current_status": "UNMET",
+            "policy_version": "1.0.0",
+            "requirement_id": "req_objective_measurement",
+            "stop_condition": {
+              "kind": "OWNER_ANSWER_RECORDED",
+              "description": "The owner answer is recorded as typed OWNER_INPUT evidence in a new Strategy Run."
+            },
+            "limitation_codes": [],
+            "resolution_action": "ASK_OWNER",
+            "decision_dependency": "Future outcome measurement, not final positioning selection",
+            "independence_status": "NOT_REQUIRED",
+            "evidence_considered_ids": [],
+            "qualifying_evidence_ids": [],
+            "required_evidence_class": [
+              "OWNER_INPUT"
+            ],
+            "independent_origin_count": 0,
+            "required_epistemic_strength": "WEAK"
+          }
+        ],
+        "blocking_requirement_ids": [],
+        "eligible_for_final_selection": true
+      }
+    }
+  }
+}

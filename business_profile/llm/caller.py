@@ -12,6 +12,8 @@ without hitting the network or burning tokens.
 """
 from __future__ import annotations
 
+from poster.paid_boundary import paid_call, retain_failure
+
 import logging
 import os
 import time
@@ -44,6 +46,9 @@ class Usage:
     duration_ms: int = 0
     model: str = ""
     finish_reason: Optional[str] = None
+    usage_available: Optional[bool] = None
+    provider_response_id: Optional[str] = None
+    resolved_model_version: Optional[str] = None
 
 
 # Pricing per 1M tokens (input, output). Update if pricing changes.
@@ -57,6 +62,7 @@ _PRICING: dict[str, tuple[float, float]] = {
     "gpt-4o": (2.500, 10.000),
     # Gemini (approx list price /1M tokens; on Vertex these draw from GCP credits).
     "gemini-2.5-pro": (1.250, 10.000),
+    "gemini-3.5-flash-lite": (0.300, 2.500),  # Vertex Standard, verified 2026-10-18
     "gemini-2.5-flash": (0.300, 2.500),
     "gemini-2.0-flash": (0.150, 0.600),
     "gemini-1.5-pro": (1.250, 5.000),
@@ -245,7 +251,17 @@ class GeminiCaller:
         timeout_s: float = 60.0,
         temperature: float = 0.0,
         max_retries: int = 1,
+        max_output_tokens: Optional[int] = None,
+        thinking_level: Optional[str] = None,
+        strict_completion: bool = False,
+        pricing_per_million: Optional[tuple[float, float]] = None,
+        provider_response_schema: Optional[dict] = None,
     ):
+        self.pricing_per_million = pricing_per_million
+        self.provider_response_schema = provider_response_schema
+        self.max_output_tokens = max_output_tokens
+        self.thinking_level = thinking_level
+        self.strict_completion = strict_completion
         self.model = model
         # An explicit API key (AI Studio) flips us out of Vertex mode.
         self._api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -301,17 +317,26 @@ class GeminiCaller:
             contents = user_prompt
 
         for attempt in range(self.max_retries + 1):
+            resp = None
             try:
-                resp = client.models.generate_content(
+                resp = paid_call(client.models.generate_content, _stage=group_name,
                     model=self.model,
                     contents=contents,
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt,
                         temperature=self.temperature,
                         response_mime_type="application/json",
-                        response_schema=response_model,
+                        response_schema=self.provider_response_schema if self.provider_response_schema is not None else response_model,
+                        max_output_tokens=self.max_output_tokens,
+                        thinking_config=(types.ThinkingConfig(thinking_level=self.thinking_level) if self.thinking_level else None),
+                        http_options=(types.HttpOptions(timeout=int(self.timeout_s * 1000)) if self.strict_completion else None),
                     ),
                 )
+                if self.strict_completion:
+                    candidate = (getattr(resp, 'candidates', None) or [None])[0]
+                    reason = getattr(candidate, 'finish_reason', None)
+                    if (getattr(reason, 'name', None) or str(reason)).upper() != 'STOP':
+                        raise ValueError('INCOMPLETE_MODEL_OUTPUT')
                 parsed = getattr(resp, "parsed", None)
                 if parsed is None:
                     # Some SDK versions don't auto-parse; validate the JSON text.
@@ -339,10 +364,14 @@ class GeminiCaller:
                     input_tokens=in_tok,
                     output_tokens=out_tok,
                     thoughts_tokens=thoughts_tok,
-                    cost_usd=_cost_for(self.model, in_tok, out_tok + thoughts_tok),
+                    cost_usd=((in_tok * self.pricing_per_million[0] + (out_tok + thoughts_tok) * self.pricing_per_million[1]) / 1_000_000
+                              if self.pricing_per_million is not None else _cost_for(self.model, in_tok, out_tok + thoughts_tok)),
                     duration_ms=int((time.monotonic() - started) * 1000),
                     model=self.model,
                     finish_reason=finish_reason,
+                    usage_available=um is not None,
+                    provider_response_id=getattr(resp, 'response_id', None),
+                    resolved_model_version=getattr(resp, 'model_version', None),
                 )
                 logger.info(
                     "Gemini call ok group=%s model=%s in=%d out=%d think=%d cost=$%.4f ms=%d fr=%s",
@@ -352,9 +381,10 @@ class GeminiCaller:
                 return parsed, usage
             except Exception as e:
                 last_err = e
+                diagnostic = retain_failure(e, group_name, received=resp is not None)
                 logger.warning(
-                    "Gemini call failed (attempt %d/%d) group=%s err=%s",
-                    attempt + 1, self.max_retries + 1, group_name, e,
+                    "Gemini call failed (attempt %d/%d) group=%s diagnostic=%s",
+                    attempt + 1, self.max_retries + 1, group_name, diagnostic,
                 )
                 if attempt < self.max_retries:
                     time.sleep(1.0 + attempt)

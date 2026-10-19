@@ -1,23 +1,10 @@
 # -*- coding: utf-8 -*-
-"""The front page shows work this system actually made for real brands.
+"""The public gallery uses three project-created synthetic demo examples.
 
-Owner, 2026-07-26: «استخدم بدل صور الشخص القالع اللي انا معملتوش — دا عايزه يبان شغلنا احنا اول ما
-يخش» ("use these instead of the shirtless person I didn't make — I want OUR work visible the moment
-someone enters").
-
-MEASURED before the change: `frontend/assets/showcase/` held exactly two files, and both were the
-same bare-shouldered blond stock-styled male — `volt_portrait.png` (a headshot) and
-`volt_poster.png` (a Spanish-language energy-drink ad). `/api/showcase` lists that folder verbatim,
-and the landing page drives BOTH its hero slideshow and its gallery from that list, so those two
-images were the entire visual argument the product made for itself. Neither was made for a real
-client of hers.
-
-Replaced with four assets from real runs: a Nahdi (Saudi pharmacy) app campaign, a Volume Qatar
-café poster, an NTI (Egypt) bilingual poster, and an AI-influencer portrait. Three countries, two
-scripts — which is also the D-8 claim the product makes, shown rather than stated.
-
-This test does not judge taste. It pins two things that were measurably wrong: that the showcase
-is not empty, and that the retired stock assets do not come back.
+Optional branded campaign media remain in the owner's original workspace and are excluded from
+this public candidate. The existing endpoint and gallery are unchanged. These checks retain the
+minimum populated gallery and prevent retired stock imagery / broken hardcoded landing assets.
+Synthetic fixtures establish application behavior, not paid-provider design quality.
 """
 from __future__ import annotations
 

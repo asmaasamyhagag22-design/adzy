@@ -76,7 +76,25 @@ class ReviewWorkflow:
         ident = str(uuid4())
         with self._execution(ident, (domain_key,subject_id), reuse=reuse) as (graph,config,services):
             if reuse and not config['metadata']['new_binding']:
-                return self._checked_snapshot(graph,config,services)
+                existing = self._checked_snapshot(graph,config,services)
+                # Explicit recovery of a terminal compiler block uses the same exact
+                # subject and persisted approval. It never replays apply_decision.
+                swot_recovery = (not existing.get('decision')
+                    and existing.get('reasons') == ['SWOT_NOT_APPROVED']
+                    and services.requirements()['swot_approved'])
+                compiler_recovery = (existing.get('reasons') == ['PROOF_MESSAGE_MISMATCH']
+                    and existing.get('decision', {}).get('decision') == 'approved')
+                if (existing.get('status') != 'BLOCKED' or existing.get('pending_nodes')
+                        or not (swot_recovery or compiler_recovery)):
+                    return existing
+                subject = services.validate(existing)
+                if compiler_recovery:
+                    d = existing['decision']
+                    if (subject['approval'] != 'approved'
+                            or d['subject_id'] != existing['subject_id']
+                            or d['subject_hash'] != existing['subject_hash']):
+                        raise ReviewBoundaryError('DECISION_CHANGED')
+                ident = existing['workflow_id']
             with self.telemetry.observation('review_segment'):
                 graph.invoke({'version':VERSION,'workflow_id':ident,'status':'NEEDS_REVIEW',
                               'reasons':[],'required_actions':[]},config,durability='sync')

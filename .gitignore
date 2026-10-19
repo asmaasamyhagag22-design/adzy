@@ -12,8 +12,6 @@ venv/
 # `git add .` could leak the key into history.
 .env
 .env.*
-# ...but the template carries no secrets and the README tells people to copy it
-!.env.example
 *.key
 
 # Scrape outputs (large, regeneratable)
@@ -43,13 +41,9 @@ project_light.zip
 *\ (2).*
 * copy.*
 
-# Local scratch / diagnostics (move keepers into tools/ or scripts/).
-# ANCHORED to the repo root on purpose: unanchored, `verify_*.py` also swallowed
-# `scripts/verify_meta_token.py`, so two committed tests imported a module git was
-# silently refusing to track. Keepers under scripts/ and tools/ are now tracked,
-# which is what the line above always meant.
-/inspect_*.py
-/verify_*.py
+# Local scratch / diagnostics (move keepers into tools/ or scripts/)
+inspect_*.py
+verify_*.py
 api_*.json
 *_diagnostic.txt
 error_log.txt
@@ -98,21 +92,17 @@ registry/
 /*.bed.m4a
 /*.vo.m4a
 
-# stray scratch outputs (were committed by accident)
-/out.wav
-/x.mp3
-/image-*.png
+# pytest --basetemp scratch (see DB2B.5); never authoritative
+.tmp/
 
-# Application runtime and publication exclusions
+# Local review workflow environments and isolated synthetic runtime stores
 /.venv-workflow*/
-/.venv-app*/
 /.review-demo*/
+/.venv-app*/
 /.review-app-demo*/
-/database_export/
-/.pytest-*/
-/scratchpad/
-/frontend/assets/showcase/
-/*_profile*.json
-/*_real.json
-/te_eg_gemini.json
-/logs/*.log
+
+# Persistent local portfolio database, source snapshots and private runtime
+/.adzy-portfolio/
+
+# Required, reviewed offline browser check used by Poster V1 CI
+!tools/verify_poster_v1_browser.py

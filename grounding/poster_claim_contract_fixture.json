@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "creative_contract_id": "cc_fictional_evaluation",
+  "strategy_version_id": "f23798c8-4c9e-4242-95f8-c977c2606732",
+  "brand_id": "0f0f0dfd-f295-4705-9dc7-c8576adb80ee",
+  "domain_reference": "fiction_example_test",
+  "profile_snapshot_id": "6901a15d-1ec7-490e-ac42-a230f63f2bc2",
+  "objective_id": "obj_buffalo",
+  "decision_id": "dec_buffalo",
+  "decision_type": "POSITIONING",
+  "target": "Operations teams managing launch deadlines",
+  "frame_of_reference": "Business services",
+  "positioning_statement": "Guided specialist onboarding",
+  "consumer_value": "Guided specialist onboarding",
+  "differentiated_value": "Transparent delivery milestones",
+  "reason_to_believe": "Published guided specialist onboarding process",
+  "supporting_claim_ids": [
+    "c"
+  ],
+  "consumer_value_claim_ids": [
+    "c"
+  ],
+  "differentiation_claim_ids": [],
+  "reason_to_believe_claim_ids": [],
+  "internal_supporting_claim_ids": [],
+  "approved_unknowns": [],
+  "primary_message": "Guided specialist onboarding",
+  "proof_points": [],
+  "differentiation_evidence": [],
+  "internal_supporting_evidence": [],
+  "allowed_claim_ids": [],
+  "allowed_claims": [],
+  "prohibited_or_unverified_claims": [],
+  "message_boundaries": [
+    "Reuse exact scoped evidence only."
+  ],
+  "copy_evidence": [],
+  "asset_type": "POSTER",
+  "channel_context": "",
+  "language": "en",
+  "locale": "",
+  "cta_direction": "Visit website",
+  "product_offer_focus": "",
+  "brand_visual_constraints": [],
+  "brand_tone_constraints": [],
+  "internal_disclosures": [],
+  "consumer_facing_disclosures": [],
+  "creative_hypothesis": null,
+  "expected_response": null,
+  "preflight": {
+    "status": "READY",
+    "reasons": []
+  }
+}

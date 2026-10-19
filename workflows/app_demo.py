@@ -13,6 +13,7 @@ def main():
     parser.add_argument('--directory', default='.review-app-demo')
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--capture-sdk', action='store_true', help='In-memory SDK exporter; save redacted synthetic spans on shutdown')
+    parser.add_argument('--synthetic-posters', choices=['accepted','draft','rejected'], help='Explicit fake render/QA responses, offline demo only')
     args = parser.parse_args()
     isolate()
     directory = Path(args.directory).resolve()
@@ -36,6 +37,11 @@ def main():
     if m.get('synthetic') is not True: raise ValueError('Only disposable synthetic demo supported')
     os.environ.update(PERSISTENCE_BACKEND='postgres',BASEERA_DATABASE_URL=m['dsn'],
         BASEERA_WEBAPP_DIR=str(directory/'application'),ADZY_REVIEW_STATE_DIR=str(directory/'review'))
+    if args.synthetic_posters:
+        os.environ.update(BASEERA_ENABLE_PAID_IMAGES='1', BASEERA_NO_SPEND='1', ADZY_POSTER_RESERVATION_USD='0.6',
+            ADZY_POSTER_BUDGET_USD='10', ADZY_POSTER_CALL_ESTIMATES_JSON='{}')
+        from .synthetic_poster import install
+        install(args.synthetic_posters)
     from api.main import app
     exporter = telemetry = None
     if args.capture_sdk:

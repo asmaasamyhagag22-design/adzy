@@ -1,0 +1,23 @@
+{
+  "scope": "Public synthetic-only replacements; no third-party campaign image copied",
+  "assets": [
+    {
+      "file": "01_synthetic_poster.png",
+      "sha256": "ddf915de5bab02faaf3a58e3b21a58ca6c905770ef15aac4ea481c5935f4d522",
+      "kind": "project fictional application/compositor fixture; fake external responses",
+      "live_quality_evidence": false
+    },
+    {
+      "file": "02_synthetic_review.jpg",
+      "sha256": "df51533658dad96d75e55abee2852ca492b106a3b1e35a929426a646ce4f1206",
+      "kind": "project fictional application/compositor fixture; fake external responses",
+      "live_quality_evidence": false
+    },
+    {
+      "file": "03_synthetic_rejected.png",
+      "sha256": "509411c88d23b645f7155c391018be43bc38ae4332068764e6961339f3f64e68",
+      "kind": "project fictional application/compositor fixture; fake external responses",
+      "live_quality_evidence": false
+    }
+  ]
+}

@@ -66,6 +66,9 @@ def test_postgres_persistence_does_not_force_unverified_qa_to_true(monkeypatch, 
         checksum="a" * 64)
 
     class Service:
+        def run_for_user(self, **kwargs):
+            return SimpleNamespace(effective_config={})
+
         def finalize_creative(self, data):
             captured["finalization"] = data
             return SimpleNamespace(

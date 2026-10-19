@@ -760,6 +760,21 @@ def build_llm_concept_prompt(
     persona = _persona_lines(profile)
     style = _brandbook_style_lines(brand_book)
 
+    medium=getattr(spec,'visual_medium','photography') if spec else 'photography'
+    if medium in ('illustration','typography'):
+        system=("Create an image-generation prompt for the approved advertising message. "
+            + ("Use an editorial illustration, not a photo. " if medium=='illustration' else
+               "Use abstract shapes and a quiet field supporting compositor typography; draw NO text. ")
+            + "No invented product interface, factual guarantee, metrics or third-party marks. "
+            "Use this brand's evidenced palette and design language. "
+            "Reserve the supplied text box as calm negative space. No letters, logos or numbers.")
+        user=f"Brand:{brief.business_name}\nMessage:{brief.headline}\nEvidence:{brief.subheadline or ''}\nPalette:{palette}\nText box:{text_box}\nBrand language:{_brand_dna_lines(brand_dna)}"
+        try:
+            response,_=caller(system,user,_CreativeConceptResponse,group_name='poster_concept')
+            prompt=str(response.image_prompt)
+        except Exception:
+            prompt=f'{medium} using the evidenced brand palette {palette}; one abstract focal element, calm text area.'
+        return ("Vertical4:5. No text or logos. "+prompt)
     if style:
         # UNDERSTAND → CREATE: the BrandBook learned the brand's real visual world from its
         # own photos; generate a FRESH photo in that exact world (not a reused site image,
@@ -910,6 +925,10 @@ class _DesignSpecResponse(BaseModel):
     Pure design — carries no factual claims. (No numeric range constraints here:
     OpenAI strict structured outputs reject min/max; we clamp `scrim_strength` after.)
     """
+    visual_medium: Literal["photography","illustration","typography"] = "photography"
+    headline_font_size: Optional[float] = None
+    support_font_size: Optional[float] = None
+    cta_font_size: Optional[float] = None
     layout: Literal[
         "bottom_band", "side_panel_left", "side_panel_right",
         "top_anchor", "center_editorial", "magazine_hero",
@@ -1014,6 +1033,10 @@ def build_design_spec(
         "premium vertical ad poster for THIS specific brand. You choose DESIGN ONLY "
         "(layout, emphasis, color role) — you never invent facts.\n"
         "Pick values that fit THIS brand's character so different brands look different:\n"
+        "- visual_medium: photography, illustration or typography. Choose for the approved message "
+        "and source brand language. Do not default every service to people at laptops or every privacy message to a shield.\n"
+        "- headline_font_size/support_font_size/cta_font_size: optional CSS pixels on a1080px canvas; "
+        "aim for support >=46 and CTA >=38 for390px readability. Never change approved words.\n"
         "- layout: bottom_band | side_panel_left | side_panel_right | top_anchor | "
         "center_editorial | magazine_hero\n"
         "- headline_treatment: stacked_hero (a short punchy headline as a bold word-stack), "
@@ -1115,6 +1138,10 @@ def build_design_spec(
                                       variation_seed=variation_seed_int(variation))
         _cta = _seeded.cta_style
     return PosterDesignSpec(
+        visual_medium=getattr(resp,'visual_medium','photography'),
+        headline_font_size=(min(160,max(24,resp.headline_font_size)) if resp.headline_font_size else None),
+        support_font_size=(min(64,max(44,resp.support_font_size or 46))),
+        cta_font_size=(min(56,max(38,resp.cta_font_size or 38))),
         cta_style=_cta,
         layout=layout,
         logo_corner=_LOGO_CORNER_BY_LAYOUT.get(layout, "top_left"),

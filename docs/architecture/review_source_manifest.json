@@ -1,0 +1,270 @@
+{
+  "method": "Runtime local-module inventory of actual synthetic canonical build + graph start/resume; explicit existing schema/migrations added. Optional SDK dependencies are pinned separately. Not a full-app release manifest. Core db/*.py and verify entry point explicitly included for init and regression support.",
+  "required_sources": [
+    {
+      "path": "alembic.ini",
+      "sha256": "7fcfb8e688973f4af802e52b82f9395b3721a4c75c7e53b37b8a3ea9c961b715",
+      "git_status": "A  alembic.ini"
+    },
+    {
+      "path": "api/__init__.py",
+      "sha256": "6d2703bd14246e19302999e9f80df1aed75b526100aabec34f94244c16bb9392",
+      "git_status": "tracked/unchanged"
+    },
+    {
+      "path": "api/brand_translate.py",
+      "sha256": "85b16b98f4c2721a9018a96eec9e4f3d4165f38c235db7a51545c0d52b32dc9f",
+      "git_status": "M  api/brand_translate.py"
+    },
+    {
+      "path": "api/job_access.py",
+      "sha256": "ca8941644d6a0f27eb0e0555d995f3afd8247ee865e29b87b07ff1643e59afff",
+      "git_status": "A  api/job_access.py"
+    },
+    {
+      "path": "api/persistence.py",
+      "sha256": "803296932bee3935eb2050aefb27d3cd1fcb31a7ada08667e9ca87b6e748630e",
+      "git_status": "AM api/persistence.py"
+    },
+    {
+      "path": "api/read_model.py",
+      "sha256": "350afd1ba6af01fb371c5bd50303a759489d6c632545e365c0ec980dc1855df9",
+      "git_status": "A  api/read_model.py"
+    },
+    {
+      "path": "api/user_auth.py",
+      "sha256": "22c1968879ecb08a7c2c47ea7f2ee29268c3dbab0b615df3d2a3fd3b6a2a2f4d",
+      "git_status": "M  api/user_auth.py"
+    },
+    {
+      "path": "config_env.py",
+      "sha256": "afd11a0d4006cf9a5fd279ce1e43ee1cedf344c8984c46d5ce26c173b24a9b2f",
+      "git_status": "tracked/unchanged"
+    },
+    {
+      "path": "db/__init__.py",
+      "sha256": "4924741cddd65fa89a3fe02c4b5cab0003d4ff863e4a4949a36a1d811d6f7029",
+      "git_status": "A  db/__init__.py"
+    },
+    {
+      "path": "db/base.py",
+      "sha256": "07a3585e5444feece07e6d6b491aa63189305796b1236c8ea01c23bb8841dc6f",
+      "git_status": "A  db/base.py"
+    },
+    {
+      "path": "db/config.py",
+      "sha256": "5cd9333cc9505b9eb0c2392b1b4c03e847f51ef7e2dd0133a5be63d466f2a005",
+      "git_status": "AM db/config.py"
+    },
+    {
+      "path": "db/errors.py",
+      "sha256": "3cab5248d51894fe7711241ef621085ee47d2757e89c700ac505dc311d4db6c5",
+      "git_status": "A  db/errors.py"
+    },
+    {
+      "path": "db/legacy_identity.py",
+      "sha256": "3c9d673638c3cc7546c1b5ed6647d5e3f4918429a940bbdac5489ac966f1192b",
+      "git_status": "A  db/legacy_identity.py"
+    },
+    {
+      "path": "db/migrations/env.py",
+      "sha256": "c533167d1f2d8787619023b0ee08f2f21f2ed4ba8c4d6bcc53ba0f2ffc30e9f8",
+      "git_status": "AM db/migrations/env.py"
+    },
+    {
+      "path": "db/migrations/script.py.mako",
+      "sha256": "dfa626e0ab391be2470f0c87b432cb45e5bdb5a3f91c019eeec11e15b60185be",
+      "git_status": "A  db/migrations/script.py.mako"
+    },
+    {
+      "path": "db/migrations/versions/0001_initial_schema.py",
+      "sha256": "dade1f64acb0a99f263bf4474b2ba866608f4edf40c2d38d19df708a64d13066",
+      "git_status": "AM db/migrations/versions/0001_initial_schema.py"
+    },
+    {
+      "path": "db/migrations/versions/0002_legacy_compat_and_currentness.py",
+      "sha256": "98a331618a09ba9ff17ed58bb9d0aaef9c90f7e0967e2404ee4ce6d6dbdda054",
+      "git_status": "A  db/migrations/versions/0002_legacy_compat_and_currentness.py"
+    },
+    {
+      "path": "db/migrations/versions/0003_job_events_and_gallery.py",
+      "sha256": "8a7621c51870709037426a7f0568659753316bb7c46f37d93e88eaca845ea645",
+      "git_status": "AM db/migrations/versions/0003_job_events_and_gallery.py"
+    },
+    {
+      "path": "db/migrations/versions/0004_job_results.py",
+      "sha256": "3f570a4ea5d479f92092aae94587c1c8b5e74c41bec275f684ef9061ef2e4664",
+      "git_status": "AM db/migrations/versions/0004_job_results.py"
+    },
+    {
+      "path": "db/migrations/versions/0005_strategy_approvals.py",
+      "sha256": "7680f194555b9e5c97649dc0e8f8ec9f9337c4a33ea51afdbb6e3306f0fa9f86",
+      "git_status": "A  db/migrations/versions/0005_strategy_approvals.py"
+    },
+    {
+      "path": "db/models.py",
+      "sha256": "4032a476d17ad778e9015579604c28e073faf41f37eb45e138e532f8f7245b12",
+      "git_status": "AM db/models.py"
+    },
+    {
+      "path": "db/records.py",
+      "sha256": "58d17596cb2935fc87a1a96d674b3325436825752e4dc66a5f168c2eb5fbcd83",
+      "git_status": "AM db/records.py"
+    },
+    {
+      "path": "db/repositories.py",
+      "sha256": "650b340e140ed3858ee0121fe8d216914438559e632afc14a4fefa42528d2237",
+      "git_status": "AM db/repositories.py"
+    },
+    {
+      "path": "db/security.py",
+      "sha256": "f38d54550c858a6a658b9e38856247cfee9c6e50c7f86b03f5afec5159259a2d",
+      "git_status": "A  db/security.py"
+    },
+    {
+      "path": "db/services.py",
+      "sha256": "7868f6b6f529dee224bfca895b0f8cad264decd42b78c25baf6c745f39b20f40",
+      "git_status": "AM db/services.py"
+    },
+    {
+      "path": "db/session.py",
+      "sha256": "7417da52cd37a8326392afa1b30eb3fe7455693e5b4563ef5d44c56adc02037a",
+      "git_status": "A  db/session.py"
+    },
+    {
+      "path": "db/test_database_safety.py",
+      "sha256": "df9b05c4f4b04add680e2d06aeae4511bfdbf2afa1560d7c7d3e7c03edc554c0",
+      "git_status": "A  db/test_database_safety.py"
+    },
+    {
+      "path": "db/uow.py",
+      "sha256": "aea26e07da572d4e0e20b6aa5d30557fd0396c5f582d513e819a22107e258d48",
+      "git_status": "AM db/uow.py"
+    },
+    {
+      "path": "poster/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "git_status": "tracked/unchanged"
+    },
+    {
+      "path": "poster/locale.py",
+      "sha256": "fa40ad1622afcdf374a0a8c2ccf0c1f16eaffebbe2c62637d787fa540728df81",
+      "git_status": "M  poster/locale.py"
+    },
+    {
+      "path": "poster/strategy_contract.py",
+      "sha256": "6bd8da52859b0ab4fcf2911251e4545c4c8d647f387c1bea6fdc16c2b7e8dcbe",
+      "git_status": "A  poster/strategy_contract.py"
+    },
+    {
+      "path": "strategy/__init__.py",
+      "sha256": "e256a0f2a2b93b03fedcc6269b25833cfd332827ef8980284d5cbc7fb23491e4",
+      "git_status": "tracked/unchanged"
+    },
+    {
+      "path": "strategy/builder.py",
+      "sha256": "bd86515ad0dd84d846dd7721930267f1d6f70cdf3e313c7d0bb71fc0b6c7c979",
+      "git_status": "MM strategy/builder.py"
+    },
+    {
+      "path": "strategy/positioning/__init__.py",
+      "sha256": "a21d11ee512344f4adedc099d39892a11ea2c325b410ddef90053cf724fe90a2",
+      "git_status": "A  strategy/positioning/__init__.py"
+    },
+    {
+      "path": "strategy/positioning/adapters.py",
+      "sha256": "339871ed1952e5a18d301f12d85385995078053f6fb2d7f7bbd0316e30c98c56",
+      "git_status": "A  strategy/positioning/adapters.py"
+    },
+    {
+      "path": "strategy/positioning/contracts.py",
+      "sha256": "28bedd84dbfaa1971407a8853fb151e53c8b6d1ff697adb5dbd4e771c29fe7a6",
+      "git_status": "A  strategy/positioning/contracts.py"
+    },
+    {
+      "path": "strategy/positioning/distinctness.py",
+      "sha256": "9aed0296ebabbc837682637a3c9781b5bdacd85020794ec38101b147a55c5789",
+      "git_status": "A  strategy/positioning/distinctness.py"
+    },
+    {
+      "path": "strategy/positioning/objective.py",
+      "sha256": "ce4d7b84ba3574f0bb589bff8140f3efcbe3943b2ce78a1dc8a51b9705184787",
+      "git_status": "A  strategy/positioning/objective.py"
+    },
+    {
+      "path": "strategy/positioning/projection.py",
+      "sha256": "6c7ab2dbca1573fa93b04377977efce6c34181f5b7b0726f583d2a38f25d3989",
+      "git_status": "A  strategy/positioning/projection.py"
+    },
+    {
+      "path": "strategy/positioning/research.py",
+      "sha256": "a03f478fe59723182542afa0b0f8c341cfb3f01bb9e95b71093c2e3408a4be9f",
+      "git_status": "A  strategy/positioning/research.py"
+    },
+    {
+      "path": "strategy/positioning/service.py",
+      "sha256": "70670ee66c393d5f72772866965343a5fcd947a3643fe502ccff568381251a28",
+      "git_status": "A  strategy/positioning/service.py"
+    },
+    {
+      "path": "strategy/positioning/verifier.py",
+      "sha256": "2c8974c562b3e9923f67d01798cb629f8cedce0d5a37029f522c542ed6abad42",
+      "git_status": "A  strategy/positioning/verifier.py"
+    },
+    {
+      "path": "vertex_spend.py",
+      "git_status": "M vertex_spend.py",
+      "sha256": "5ab9f5008bb5fc368a17e4180a1904479dc8bbc9f8b78f87ef24685f47eb793a"
+    },
+    {
+      "path": "workflows/__init__.py",
+      "sha256": "e98af0a7a75c928d32238f65ee15f71323d6111590cc2e99efc05cf1371aa39f",
+      "git_status": "?? workflows/__init__.py"
+    },
+    {
+      "path": "workflows/contracts.py",
+      "sha256": "b46a38997f78a1c66f6ee2697c69fa8a475e2528fc788f826539ffeebc4d4a0e",
+      "git_status": "?? workflows/contracts.py"
+    },
+    {
+      "path": "workflows/demo.py",
+      "sha256": "1a1c0f167d1f5d1babb3c2250b971ac7fa32566733d317f7be1f16b4e2026708",
+      "git_status": "?? workflows/demo.py"
+    },
+    {
+      "path": "workflows/graph.py",
+      "sha256": "97c418287c4f0188c8b84d0117ed984795c6e845df4db287c386ec8e2ad18917",
+      "git_status": "?? workflows/graph.py"
+    },
+    {
+      "path": "workflows/runtime.py",
+      "sha256": "8062b7bacd90ad1112b5a6e195fcd44ddbe9421bc1792820bb6825180660dbcd",
+      "git_status": "?? workflows/runtime.py"
+    },
+    {
+      "path": "workflows/services.py",
+      "sha256": "f1f9dd157dcf6ddfec2fd4f7c4849e6736e5f936b0865cc62888ea0f5e211a0d",
+      "git_status": "?? workflows/services.py"
+    },
+    {
+      "path": "workflows/synthetic.py",
+      "sha256": "85a3871da2e0ecb24a36a0f48dcaab1e8eadee76f7b521c570033f1f0434678a",
+      "git_status": "?? workflows/synthetic.py"
+    },
+    {
+      "path": "workflows/telemetry.py",
+      "sha256": "b78e4f5ca6fbe27156f1829866ff82ae2d1631b79846bf8bc0d2cd665522c680",
+      "git_status": "?? workflows/telemetry.py"
+    },
+    {
+      "path": "workflows/tools.py",
+      "sha256": "52bac05ad092cfca7a9c2c55eb2ef1a191409cf657fcdaa24f6568326b6bdb9a",
+      "git_status": "?? workflows/tools.py"
+    },
+    {
+      "path": "workflows/verify.py",
+      "sha256": "aa114aa694ec4ed8e86734c3b5669a27f6d4a9a9bcfa371bcfeb47650346b5e4",
+      "git_status": "?? workflows/verify.py"
+    }
+  ]
+}
