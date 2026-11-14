@@ -1,12 +1,13 @@
 """Authenticated V2 campaign research, exact review and source refresh."""
 from datetime import datetime, timezone
+from hashlib import sha256
 from threading import BoundedSemaphore
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from api.brand_translate import domain_key_from_url
 from api.persistence import get_persistence
@@ -52,9 +53,19 @@ class DirectionRequest(BaseModel):
     selected: int = Field(ge=0, le=2)
 
 
+PosterSha256 = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
+
+
+class PosterPreviews(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    portrait: PosterSha256
+    square: PosterSha256
+
+
 class ReviewRequest(BaseModel):
     run_id: UUID
     decision: Literal["approved", "rejected"]
+    artifact_sha256: PosterPreviews | None = None
 
 
 class RefreshRequest(BaseModel):
@@ -201,12 +212,27 @@ def start(domain: str, request: StartRequest, service=Depends(store),
 
 @router.post("/{domain}/review")
 def review(domain: str, request: ReviewRequest, service=Depends(store)):
+    from poster.campaign_package import PosterLayoutError, prepare_approval
+
     def decide():
         snapshot = service.snapshot(domain)
         if snapshot.run is None or snapshot.run.id != request.run_id:
             raise CampaignConflict("CAMPAIGN_CHANGED")
         with trace_for_run(snapshot.run).stage("campaign.approval") as outcome:
-            view = service.decide(domain, request.run_id, request.decision)
+            hashes = request.artifact_sha256.model_dump() if request.artifact_sha256 else None
+            bundle = None
+            if snapshot.run.output.get("kind") == "SOURCE_CAMPAIGN" and request.decision == "approved":
+                view = current_package(service, domain, request.run_id, require_approval=False)
+                if not hashes:
+                    raise CampaignConflict("POSTER_PREVIEWS_REQUIRED")
+                if not view["approved"]:
+                    try:
+                        bundle = prepare_approval(view, webapp_dir() / "campaign-posters", hashes)
+                    except PosterLayoutError as exc:
+                        raise CampaignConflict(str(exc)) from None
+                    except OSError:
+                        raise HTTPException(503, detail={"code": "POSTER_ARTIFACT_UNAVAILABLE"}) from None
+            view = service.decide(domain, request.run_id, request.decision, artifact_hashes=hashes, bundle=bundle)
             outcome["status"] = "OK" if view["approved"] else "REJECTED"
             return view
 
@@ -278,7 +304,7 @@ def current_package(service, domain, run_id, *, require_approval):
     return view
 
 
-def render_package(service, domain, run_id, renderer, *, require_approval):
+def package_response(service, domain, run_id, load, *, require_approval):
     from poster.campaign_package import PosterLayoutError
 
     view = current_package(service, domain, run_id, require_approval=require_approval)
@@ -286,17 +312,11 @@ def render_package(service, domain, run_id, renderer, *, require_approval):
         raise HTTPException(503, detail={"code": "EXPORT_BUSY"})
     try:
         try:
-            from playwright.sync_api import Error as BrowserError
-        except ImportError:
-            raise HTTPException(503, detail={"code": "POSTER_RENDER_UNAVAILABLE"}) from None
-        try:
-            output = renderer(view)
+            output = load(view)
         except PosterLayoutError as exc:
             raise CampaignConflict(str(exc)) from None
-        except (BrowserError, OSError):
-            raise HTTPException(503, detail={"code": "POSTER_RENDER_UNAVAILABLE"}) from None
         latest = current_package(service, domain, run_id, require_approval=require_approval)
-        if require_approval and latest["approval_id"] != view["approval_id"]:
+        if latest["approval_id"] != view["approval_id"]:
             raise CampaignConflict("CURRENT_PACKAGE_APPROVAL_REQUIRED")
         return output
     finally:
@@ -305,27 +325,35 @@ def render_package(service, domain, run_id, renderer, *, require_approval):
 
 @router.get("/{domain}/package/preview")
 def preview_package(domain: str, run_id: UUID, size: Literal["portrait", "square"], service=Depends(store)):
-    from poster.campaign_package import preview_poster
+    from poster.campaign_package import approved_preview, preview_poster
 
-    image = execute(lambda: render_package(
-        service, domain, run_id, lambda view: preview_poster(view, size, webapp_dir() / "campaign-posters"),
-        require_approval=False,
-    ))
-    return Response(image, media_type="image/png", headers={"Cache-Control": "private, no-store"})
+    def load(view):
+        if view["approved"]:
+            return approved_preview(service.approved_archive(domain, view), size)
+        try:
+            from playwright.sync_api import Error as BrowserError
+        except ImportError:
+            raise HTTPException(503, detail={"code": "POSTER_RENDER_UNAVAILABLE"}) from None
+        try:
+            return preview_poster(view, size, webapp_dir() / "campaign-posters")
+        except (BrowserError, OSError):
+            raise HTTPException(503, detail={"code": "POSTER_RENDER_UNAVAILABLE"}) from None
+
+    image = execute(lambda: package_response(service, domain, run_id, load, require_approval=False))
+    return Response(image, media_type="image/png", headers={
+        "Cache-Control": "private, no-store", "X-Poster-SHA256": sha256(image).hexdigest(),
+    })
 
 
 @router.get("/{domain}/package/export")
 def download_package(domain: str, run_id: UUID, service=Depends(store)):
-    from poster.campaign_package import export_package
-
     def export():
         snapshot = service.snapshot(domain)
         if snapshot.run is None or snapshot.run.id != run_id:
             raise CampaignConflict("CAMPAIGN_CHANGED")
         with trace_for_run(snapshot.run).stage("campaign.export"):
-            return render_package(service, domain, run_id,
-                                  lambda view: export_package(view, webapp_dir() / "campaign-posters"),
-                                  require_approval=True)
+            return package_response(service, domain, run_id, lambda view: service.approved_archive(domain, view),
+                                    require_approval=True)
 
     bundle = execute(export)
     return Response(bundle, media_type="application/zip", headers={

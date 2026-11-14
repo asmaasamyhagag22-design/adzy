@@ -25,7 +25,7 @@ load_dotenv()
 
 from scraper.schemas import ScrapeManifest  # noqa: E402
 from business_profile.rules.orchestrator import apply_rules  # noqa: E402
-from business_profile.llm.caller import default_caller  # noqa: E402
+from business_profile.llm.caller import default_caller, format_cost  # noqa: E402
 from business_profile.llm.embeddings import embed_texts  # noqa: E402
 from business_profile.llm.evidence_pack import build_evidence_pack  # noqa: E402
 from business_profile.llm.prompts import SYSTEM_PROMPT, build_offerings_prompt  # noqa: E402
@@ -80,7 +80,7 @@ def main(argv) -> int:
                                  group_name="offerings")
             names = [o.name for o in resp.offerings]
             report[slug][f"cap_{cap}"] = names
-            print(f"\n  --- cap={cap}: {len(names)} offerings (${usage.cost_usd:.4f}) ---")
+            print(f"\n  --- cap={cap}: {len(names)} offerings ({format_cost(usage.cost_usd)}) ---")
             for n in names:
                 print(f"     • {n}")
 

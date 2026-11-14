@@ -112,7 +112,8 @@ def _approval(row: Approval) -> ApprovalRecord:
         id=row.id, brand_id=row.brand_id, subject_run_id=row.subject_run_id,
         decision=row.decision, decided_by_user_id=row.decided_by_user_id,
         decided_at=row.decided_at, origin=row.origin, imported_at=row.imported_at,
-        subject_kind=row.subject_kind, note=row.note)
+        subject_kind=row.subject_kind, note=row.note,
+        artifact_manifest=dict(row.artifact_manifest) if row.artifact_manifest is not None else None)
 
 
 def _job(row: Job) -> JobRecord:
@@ -513,15 +514,24 @@ class ApprovalRepository:
 
     def create_live(self, *, brand_id: UUID, run_id: UUID,
                     actor_id: UUID, note: str | None = None,
-                    subject_kind: str = "swot", decision: str = "approved") -> ApprovalRecord:
+                    subject_kind: str = "swot", decision: str = "approved",
+                    approval_id: UUID | None = None, artifact_manifest: dict | None = None,
+                    artifact_archive: bytes | None = None) -> ApprovalRecord:
         row = Approval(
-            brand_id=brand_id, subject_run_id=run_id, subject_kind=subject_kind,
+            id=approval_id, brand_id=brand_id, subject_run_id=run_id, subject_kind=subject_kind,
             decision=decision, decided_by_user_id=actor_id, decided_at=utcnow(),
-            origin="live", imported_at=None, note=note,
+            origin="live", imported_at=None, note=note, artifact_manifest=artifact_manifest,
+            artifact_archive=artifact_archive,
         )
         self.session.add(row)
         self.session.flush()
         return _approval(row)
+
+    def campaign_archive(self, *, brand_id: UUID, approval_id: UUID, run_id: UUID) -> bytes | None:
+        return self.session.scalar(select(Approval.artifact_archive).where(
+            Approval.brand_id == brand_id, Approval.id == approval_id, Approval.subject_run_id == run_id,
+            Approval.subject_kind == "campaign", Approval.decision == "approved",
+        ))
 
 
 def _job_event(row: JobEvent) -> JobEventRecord:

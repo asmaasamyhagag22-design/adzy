@@ -15,6 +15,7 @@
     SUPPORTED_OFFER: 'وُجد السعر والفرع والشروط والصلاحية في المصدر',
     OFFER_NOT_FOUND: 'الصفحة لا تحتوي عرضًا منظمًا',
     SOURCE_UNAVAILABLE: 'تعذر الوصول إلى المصدر',
+    SOURCE_PARTIAL_RESPONSE: 'المصدر رجّع جزءًا من الصفحة. مطلوب التقاط الصفحة كاملة.',
     UNSUPPORTED_OFFER_PAGE_CONTENT: 'الصفحة تحتاج مراجعة بسبب محتوى خارج الصيغة المدعومة',
     UNPARSED_OFFER_CONTEXT: 'ظهر سياق إضافي يحتاج مراجعة قبل صياغة الإعلان',
     OFFER_EXPIRED: 'انتهت صلاحية العرض',
@@ -25,9 +26,17 @@
     QUOTE_CONTEXT_AMBIGUOUS: 'ظهر الاقتباس في سياقات مختلفة',
     BRAND_SOURCE_ORIGIN_MISMATCH: 'اختَر رابطًا من نفس أصل موقع البراند.',
     PEER_SOURCE_MUST_BE_DISTINCT: 'اختَر موقع منافس من نطاق مستقل.',
-    EXPORT_BUSY: 'فيه رسم بوستر شغّال. جرّب بعد ما يخلص.',
+    EXPORT_BUSY: 'فيه طلب بوستر شغّال. جرّب بعد ما يخلص.',
     POSTER_CLIPPING: 'النص أطول من مساحة البوستر. عدّل اتجاه الحملة وراجع المعاينة.',
     POSTER_RENDER_UNAVAILABLE: 'تعذّر تشغيل محرّك رسم البوستر.',
+    POSTER_PREVIEWS_REQUIRED: 'اعرض المقاسين قبل الاعتماد.',
+    POSTER_PREVIEW_CHANGED: 'تغيّرت معاينة البوستر. اعرض المقاسين من جديد.',
+    POSTER_ARTIFACT_CORRUPT: 'تلفت معاينة البوستر المحفوظة.',
+    POSTER_ARTIFACT_UNAVAILABLE: 'تعذّر قراءة معاينات البوستر.',
+    APPROVED_ARTIFACT_CORRUPT: 'تعذّر التحقق من الحزمة المعتمدة. لازم تستعيد النسخة المحفوظة.',
+    CAMPAIGN_ARCHIVE_TOO_LARGE: 'حجم حزمة البوسترات أكبر من الحد المتاح.',
+    CAMPAIGN_REVIEW_CHANGED: 'تغيّر قرار مراجعة الحملة. راجع حالتها الحالية.',
+    CURRENT_PACKAGE_APPROVAL_REQUIRED: 'التنزيل يتطلب اعتماد الحزمة الحالية.',
     SOURCE_RECHECK_REQUIRED: 'أعد فحص المصادر قبل اعتماد الحزمة.',
     COPY_REQUIRES_EVIDENCE_REVIEW: 'الصياغة تحتاج مراجعة دليل. استخدم النص المحافظ أو صياغة مقبولة من نفس المصدر.',
     BRIEF_REVIEW_REQUIRED: 'راجع الـCreative brief عشان تجهّز الحزمة.',
@@ -35,6 +44,7 @@
     CAMPAIGN_RESEARCH_BUSY: 'فيه بحث شغّال. جرّب بعد ما يخلص.',
     INVALID_SOURCE_URL: 'أدخل رابطًا عامًا صالحًا للبراند.',
     FEATURE_EVIDENCE: 'لسه محتاجين دليل للميزة المرتبطة بالهدف',
+    QUALIFIED_ACTION: 'شروط الميزة تحتاج مراجعة قبل التوجيه للتنزيل',
     ACTION_DESTINATION: 'محتاجين صفحة الإجراء الرسمية',
     COMMERCIAL_TERMS: 'محتاجين شروط العرض أو الإجراء المنشورة',
     EDITORIAL_SOURCE: 'مصدر مرتبط بالاتجاه التحريري',
@@ -60,6 +70,7 @@
   };
   const label = value => messages[value] || value;
   let brand, state, timer, lastPlan, requestNumber = 0, busy = false;
+  let previews = {};
 
   function path(suffix = '') {
     return '/api/v2/campaigns/' + encodeURIComponent(brand.domain_key) + suffix;
@@ -95,11 +106,15 @@
 
   function packagePanel(proposal, approved, reason, decision) {
     const {brief, evidence, planner, package: creative} = proposal;
+    const disclosure = creative?.art?.disclosure || 'الرسم توضيحي.';
     const fieldNames = {headline:'العنوان', message:'الرسالة', cta:'الدعوة', caption:'نص المنشور', art:'المشهد البصري'};
     const sources = evidence.map((item, index) => `<li id="v2-source-${index}">
       <strong>${planner?.edition ? esc(item.scope) : index === 0 ? 'البراند' : planner ? 'صفحة الإجراء' : 'المنافس المقترح'} · ${esc(label(item.outcome))}</strong>
       <p>${link(item.page_url, item.page_url)}</p>
       ${item.quote ? `${planner?.edition ? "" : `<p>${esc(item.scope)}</p>`}<blockquote dir="auto">${esc(item.quote)}</blockquote>` : ''}
+      ${item.anchor?.qualifications?.length ? `<p>شروط مرتبطة بالاقتباس</p><ul>${
+        item.anchor.qualifications.map(span => `<li dir="auto">${esc(span.quote)}</li>`).join('')
+      }</ul>` : ''}
       <details><summary>تفاصيل الالتقاط</summary>
         ${item.capture_kind === 'publisher_snapshot' ? '<p>لقطة محفوظة من الناشر</p>' : ''}
         <p dir="auto">${esc(item.field || item.context)}</p><p dir="ltr">${esc(item.captured_at)}</p>
@@ -193,28 +208,37 @@
       </section>` : ''}
       ${creative && !reason ? `<section class="v2-panel${planner?.edition ? " v2-edition-preview" : ""}">
         <h2>معاينة الحملة</h2>
-        <article class="v2-creative v2-package-card theme-${esc(creative.theme)}" id="v2-package-card" dir="${esc(creative.direction)}">
-          <div class="v2-creative-header" dir="auto">${esc(creative.brand_name)}</div>
-          <h2>${esc(creative.copy.headline)}</h2><p>${esc(creative.copy.message)}</p>
-          <p class="v2-creative-cta">${link(creative.source_url, creative.copy.cta)}</p>
-        </article>
-        <div class="v2-actions">
-          <button type="button" class="adzy-btn flat" data-v2-preview="portrait">اعرض البوستر الطولي</button>
-          <button type="button" class="adzy-btn flat" data-v2-preview="square">اعرض البوستر المربّع</button>
-        </div>
-        <div id="v2-poster-preview"></div>
-        <h3>نص المنشور</h3><p dir="auto">${esc(creative.caption)}</p>
-        ${shots ? `<h3>سيناريو وStoryboard نصي</h3><ol class="v2-items">${shots}</ol>` : ""}
-        <h3>مراجعة بشرية مطلوبة</h3>
-        <ul>${brief.human_review.map(note => `<li>${esc(note)}</li>`).join('')}</ul>
-        ${planner?.edition ? `<p>${esc(creative.art?.disclosure || "الرسم توضيحي.")} راجع ربط النص بأوصاف الناشر.</p>${claimsFor(planner.options[brief.selected])}` :
-          '<p>التطبيق يطابق الاقتباس في HTML الصفحة. راجع دعم الاقتباس للنص الإعلاني قبل استخدامه.</p>'}
-        <p>الاعتماد يتيح تصدير الحزمة للمراجعة المحلية.</p>
-        ${decision === 'rejected' ? '<p>رُفضت هذه النسخة.</p>' : ''}
-        <div class="v2-actions">
-          ${approved ? '<button type="button" class="adzy-btn blue" id="v2-download">نزّل حزمة المراجعة</button>'
-            : '<button type="button" class="adzy-btn coral" id="v2-approve">اعتمد هذه النسخة</button>'}
-          <button type="button" class="adzy-btn flat" id="v2-reject">ارفض هذه النسخة</button>
+        <div class="v2-preview-layout">
+          <div class="v2-preview-media">
+            <div class="v2-actions v2-preview-formats" role="group" aria-label="مقاس معاينة البوستر">
+              <button type="button" class="adzy-btn flat" data-v2-preview="portrait" aria-pressed="false">البوستر الطولي</button>
+              <button type="button" class="adzy-btn flat" data-v2-preview="square" aria-pressed="false">البوستر المربّع</button>
+            </div>
+            <div id="v2-poster-preview"></div>
+          </div>
+          <div class="v2-preview-review">
+            <article class="v2-creative v2-package-card theme-${esc(creative.theme)}" id="v2-package-card" dir="${esc(creative.direction)}">
+              <div class="v2-creative-header" dir="auto">${esc(creative.brand_name)}</div>
+              <h2>${esc(creative.copy.headline)}</h2><p>${esc(creative.copy.message)}</p>
+              <p class="v2-creative-cta">${link(creative.source_url, creative.copy.cta)}</p>
+            </article>
+            <h3>نص المنشور</h3><p dir="auto">${esc(creative.caption)}</p>
+            ${shots ? `<h3>سيناريو وStoryboard نصي</h3><ol class="v2-items">${shots}</ol>` : ""}
+            <h3>مراجعة بشرية مطلوبة</h3>
+            <ul>${brief.human_review.map(note => `<li>${esc(note)}</li>`).join('')}</ul>
+            ${planner?.edition ? `
+              ${brief.human_review.some(note => note.includes(disclosure)) ? '' : `<p>${esc(disclosure)}</p>`}
+              ${claimsFor(planner.options[brief.selected])}` :
+              '<p>التطبيق يطابق الاقتباس في HTML الصفحة. راجع دعم الاقتباس للنص الإعلاني قبل استخدامه.</p>'}
+            <p>${approved ? 'التنزيل يستعيد الصورتين المعتمدتين.' :
+              'اعرض المقاسين. الاعتماد يحفظ الصورتين اللي راجعتهم ويسمح بتنزيل الحزمة.'}</p>
+            ${decision === 'rejected' ? '<p>رُفضت هذه النسخة.</p>' : ''}
+            <div class="v2-actions">
+              ${approved ? '<button type="button" class="adzy-btn blue" id="v2-download">نزّل حزمة المراجعة</button>'
+                : '<button type="button" class="adzy-btn coral" id="v2-approve">اعتمد هذه النسخة</button>'}
+              <button type="button" class="adzy-btn flat" id="v2-reject">ارفض هذه النسخة</button>
+            </div>
+          </div>
         </div>
       </section>` : ''}
     `;
@@ -226,9 +250,10 @@
     const run = state.run_id;
     const query = '?run_id=' + encodeURIComponent(run);
     const endpoint = size ? '/package/preview' + query + '&size=' + size : '/package/export' + query;
-    const buttons = byId('v2-result').querySelectorAll('[data-v2-preview], #v2-download');
+    const buttons = byId('v2-result').querySelectorAll('[data-v2-preview], #v2-download, #v2-approve');
+    if (size) delete previews[size];
     for (const button of buttons) button.disabled = true;
-    showStatus(size ? 'بنرسم معاينة البوستر…' : 'بنرسم مقاسي البوستر…');
+    showStatus(size ? 'بنحمّل معاينة البوستر…' : 'بنحمّل الحزمة المعتمدة…');
     try {
       const response = await fetch(path(endpoint), {headers: window.authHeaders()});
       if (!response.ok) {
@@ -238,11 +263,22 @@
       const file = await response.blob();
       if (seq !== requestNumber) return;
       if (size) {
+        const digest = response.headers.get('X-Poster-SHA256');
+        if (!/^[a-f0-9]{64}$/.test(digest || '')) throw new Error('POSTER_ARTIFACT_UNAVAILABLE');
         const reader = new FileReader();
         reader.onload = () => {
           if (seq !== requestNumber) return;
           const poster = document.createElement('img');
           poster.alt = size === 'portrait' ? 'البوستر الطولي' : 'البوستر المربّع';
+          poster.onload = () => {
+            if (seq !== requestNumber || !poster.isConnected) return;
+            previews[size] = digest;
+            for (const button of byId('v2-result').querySelectorAll('[data-v2-preview]')) {
+              button.setAttribute('aria-pressed', String(button.dataset.v2Preview === size));
+            }
+            const approve = byId('v2-approve');
+            if (approve) approve.disabled = busy || !previews.portrait || !previews.square;
+          };
           poster.src = reader.result;
           byId('v2-poster-preview').replaceChildren(poster);
         };
@@ -257,16 +293,27 @@
       }
       showStatus(size ? 'معاينة البوستر جاهزة.' : 'حزمة المراجعة جاهزة.');
     } catch (error) {
-      if (seq === requestNumber) showStatus('تعذّر رسم البوستر · ' + label(error.message));
+      if (seq === requestNumber) showStatus('تعذّر تحميل البوستر · ' + label(error.message));
     } finally {
-      for (const button of buttons) button.disabled = false;
+      if (seq === requestNumber) {
+        for (const button of buttons) button.disabled = busy;
+        const approve = byId('v2-approve');
+        if (approve) approve.disabled = busy || !previews.portrait || !previews.square;
+      }
     }
   }
 
   function wireReview(root) {
     for (const control of root.querySelectorAll('button, input, select, textarea')) control.disabled = busy;
     byId('v2-refresh')?.addEventListener('click', () => submit('/refresh', {run_id: state.run_id}));
-    byId('v2-approve')?.addEventListener('click', () => submit('/review', {run_id: state.run_id, decision: 'approved'}));
+    const approve = byId('v2-approve');
+    if (approve) {
+      const needsPreviews = state.proposal.kind === 'SOURCE_CAMPAIGN';
+      approve.disabled = busy || (needsPreviews && (!previews.portrait || !previews.square));
+      approve.addEventListener('click', () => submit('/review', {
+        run_id: state.run_id, decision: 'approved', ...(needsPreviews ? {artifact_sha256: previews} : {}),
+      }));
+    }
     byId('v2-reject')?.addEventListener('click', () => submit('/review', {run_id: state.run_id, decision: 'rejected'}));
   }
 
@@ -459,6 +506,7 @@
 
   async function load() {
     const seq = ++requestNumber;
+    previews = {};
     busy = true;
     render();
     showStatus('بنحمّل نسخة الحملة…');
@@ -490,6 +538,7 @@
       const next = await window.api('POST', path(suffix), body);
       if (seq !== requestNumber) return;
       const unchanged = suffix === '/refresh' && next.run_id === state.run_id;
+      if (next.run_id !== state.run_id || next.approval_id !== state.approval_id) previews = {};
       state = next;
       showStatus(unchanged ? 'بصمة الدليل تطابق النسخة المحفوظة.'
         : state.approved ? 'تم اعتماد نسخة الحملة الحالية.' : 'حُفظت نتيجة النسخة الحالية.');

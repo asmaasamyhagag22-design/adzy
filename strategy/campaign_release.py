@@ -54,8 +54,12 @@ def release_metadata(release, planner, edition_sha256=None):
             "policy": planner,
             "sha256": implementation_hash("strategy/campaign_planner.py"),
             "edition_sha256": edition_sha256,
+            "evidence_implementation_sha256": implementation_hash("strategy/campaign_evidence.py"),
             "edition_implementation_sha256": implementation_hash("strategy/campaign_editions.py"),
             "transport_sha256": implementation_hash("strategy/campaign_research.py"),
+            "socket_policy_sha256": implementation_hash("scraper/campaign_http.py"),
+            "renderer_sha256": implementation_hash("poster/campaign_package.py"),
+            "locked_dependencies_sha256": implementation_hash("requirements-app.txt"),
             "package_sha256": implementation_hash("strategy/campaign_package.py"),
         },
         "guardrails": {

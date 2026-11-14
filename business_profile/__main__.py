@@ -6,6 +6,7 @@ Usage:
     python -m business_profile path/to/manifest.json -o profile.json --verbose
 """
 from __future__ import annotations
+from business_profile.llm.caller import format_cost
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -113,7 +114,7 @@ def main(
         profile = result.profile
         llm_summary = (
             f"{result.llm_result.total_calls}/4 calls, "
-            f"${result.llm_result.total_cost_usd:.4f}, "
+            f"{format_cost(result.llm_result.total_cost_usd)}, "
             f"in={result.llm_result.total_input_tokens} "
             f"out={result.llm_result.total_output_tokens}"
         )

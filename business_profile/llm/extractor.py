@@ -64,7 +64,7 @@ class LLMExtractionResult:
 
     total_input_tokens: int = 0
     total_output_tokens: int = 0
-    total_cost_usd: float = 0.0
+    total_cost_usd: float | None = 0.0
     total_calls: int = 0
     total_failed: int = 0
     model: str = ""
@@ -131,7 +131,7 @@ def run_llm_extraction(
     results: dict[str, GroupResult] = {}
     total_in = 0
     total_out = 0
-    total_cost = 0.0
+    total_cost: float | None = 0.0
     total_calls = 0
     total_failed = 0
     model = ""
@@ -167,7 +167,8 @@ def run_llm_extraction(
             )
             total_in += usage.input_tokens
             total_out += usage.output_tokens
-            total_cost += usage.cost_usd
+            if total_cost is not None:
+                total_cost = None if usage.cost_usd is None else total_cost + usage.cost_usd
             total_calls += 1
             model = usage.model or model
         except Exception as e:
@@ -184,7 +185,7 @@ def run_llm_extraction(
         trust=results["trust"],
         total_input_tokens=total_in,
         total_output_tokens=total_out,
-        total_cost_usd=total_cost,
+        total_cost_usd=total_cost if not total_failed else None,
         total_calls=total_calls,
         total_failed=total_failed,
         model=model,

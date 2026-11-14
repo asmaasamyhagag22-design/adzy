@@ -7,11 +7,14 @@ from urllib.error import HTTPError
 from urllib.parse import urldefrag, urlsplit
 from time import monotonic
 
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from scraper.extractors.links import extract_links_from_html
 from strategy.campaign_package import Brief, Input, Source, digest, proposal, public_soup, valid_source_url
 from strategy.campaign_research import ResearchGap, same_source
+from strategy.campaign_evidence import (
+    CONFLICT_SIGNAL, EvidenceAnchor, INSTRUCTION, QUALIFIER_LABEL, REFERENCE, SourceBlock, anchor_for,
+)
 from strategy.campaign_v2 import CampaignConflict
 from strategy.campaign_editions import build_edition, edit_edition_copy, find_edition
 from strategy.campaign_copy import CopyEdit, plan_copy, source_read_cta, validate_copy, writing_for
@@ -23,7 +26,7 @@ from workflows.campaign_telemetry import CampaignTrace, source_error
 
 PAGE_LIMIT = 4
 SECONDS = 12.0
-POLICY = "source-campaign-planner@2"
+POLICY = "source-campaign-planner@3"
 STOP = set("""increase grow drive boost get for from about the and into with people visit visits
 explanation clicks click catalog page more a an to of in find want interested concerned
 using use explain how what who discover build builds download downloads install
@@ -36,14 +39,9 @@ PATTERNS = {
     "TRANSACTION": r"\b(bookings?|reserve|reservations?|buy|purchases?|orders?|tickets?|sign.?ups?|donations?)\b|حجز|شراء|طلب|تذاكر|تبرع|اشتراك",
 }
 UNSAFE_URL = re.compile(r"login|logout|cart|checkout|register|signup|unsubscribe|account|(?:^|/)api(?:/|$)", re.I)
-CONFLICT_SIGNAL = re.compile(
-    r"\b(?:no longer|discontinued|not available|unavailable|does not support|temporarily suspended)\b"
-    r"|لم يعد|غير متاح|توقف دعم", re.I,
-)
-CONDITIONAL = re.compile(
-    r"[$€£]|\b(?:USD|EUR|EGP|GBP|AED|SAR|only|except|until|availability|offer|eligible|trial)\b"
-    r"|فقط|حتى|سعر|خصم|عرض|فرع", re.I,
-)
+BLOCK_ELEMENTS = {"p", "li", "dt", "dd", "tr", "blockquote"}
+NAMED_ENTITY = re.compile(r"\b[A-Z][\w-]*(?:[ \t]+[A-Z][\w-]*)+\b")
+SENTENCE = re.compile(r"\S.*?(?:[.!?؟](?=\s|$)|$)")
 
 
 class PlanInput(Input):
@@ -82,6 +80,13 @@ def phrase(text):
     return " ".join(re.findall(r"[^\W_]+", unicodedata.normalize("NFKC", text).casefold()))
 
 
+def mismatched_subject(text, heading_terms):
+    return len(heading_terms) >= 2 and any(
+        (entity_terms := words(entity)) & heading_terms and not heading_terms <= entity_terms
+        for entity in NAMED_ENTITY.findall(text)
+    )
+
+
 def inspect(page, clock, terms, objective=""):
     soup = public_soup(page.body)
     body = soup.body
@@ -90,18 +95,31 @@ def inspect(page, clock, terms, objective=""):
     text_hash = digest(clean(body.get_text(" ", strip=True)))
     heading = ""
     heading_parent = None
+    heading_number = 0
+    qualifier_section = False
     entries = []
     named = set()
     headings = set()
+    groups = {}
     objective_phrase = f" {phrase(objective)} "
     title = clean(soup.title.get_text(" ", strip=True))[:180] if soup.title else ""
-    for node in (body.select_one("main") or body).select("h1,h2,h3,h4,p"):
-        if node.find_parent(["header", "nav", "footer", "aside"]):
+    selector = "h1,h2,h3,h4,p,li,dt,dd,tr,blockquote"
+    for ordinal, node in enumerate((body.select_one("main") or body).select(selector)):
+        if node.find_parent(["header", "nav", "footer"]):
             continue
+        aside = node.find_parent("aside") is not None
         text = clean(node.get_text(" ", strip=True))
-        if node.name != "p":
+        scope = node.find_parent(["section", "article"])
+        if node.name not in BLOCK_ELEMENTS:
+            if aside:
+                continue
+            if heading and (scope is None or scope is heading_parent) and QUALIFIER_LABEL.match(text):
+                qualifier_section = True
+                continue
+            qualifier_section = False
             heading = text
-            heading_parent = node.find_parent(["section", "article"]) or node.parent
+            heading_number = ordinal
+            heading_parent = scope or node.parent
             label = phrase(heading)
             if node.name != "h1" and 3 <= len(heading) <= 75:
                 headings.add(label)
@@ -109,20 +127,34 @@ def inspect(page, clock, terms, objective=""):
                     and len(words(heading)) >= 2 and f" {label} " in objective_phrase):
                 named.add(heading)
             continue
-        if not 3 <= len(heading) <= 75 or not 30 <= len(text) <= 1600:
+        if not text or not 3 <= len(heading) <= 75 or node.find_parent(BLOCK_ELEMENTS):
             continue
-        if heading in named:
-            scope = node.find_parent(["section", "article"])
-            if (scope is not None and scope is not heading_parent) or not any(
-                parent is heading_parent for parent in node.parents
-            ):
+        if heading in named and ((scope is not None and scope is not heading_parent) or not any(
+            parent is heading_parent for parent in node.parents
+        )):
+            continue
+        groups.setdefault((heading_number, heading, id(scope)), []).append(
+            SourceBlock(ordinal, node.name, text, aside or qualifier_section)
+        )
+    for (_, heading, _), group in groups.items():
+        heading_terms = words(heading) & terms
+        for index, block in enumerate(group):
+            text = block.text
+            if block.context_only or not 30 <= len(text) <= 1600 or INSTRUCTION.search(text):
                 continue
-        for sentence in re.split(r"(?<=[.!?؟])\s+", text):
-            if not 30 <= len(sentence) <= 180 or re.match(r"^(?:just|simply)\b", sentence, re.I):
+            antecedent = group[index - 1].text if index and REFERENCE.match(text) else ""
+            if mismatched_subject(text, heading_terms) or mismatched_subject(antecedent, heading_terms):
                 continue
-            score = len(words(sentence) & terms) + 2 * len(words(heading) & terms)
-            if score:
-                entries.append({"label": heading, "quote": sentence, "context": text, "score": score})
+            for match in SENTENCE.finditer(text):
+                sentence = match.group()
+                if (not 30 <= len(sentence) <= 180 or sentence.endswith(":")
+                        or re.match(r"^(?:just|simply)\b", sentence, re.I)):
+                    continue
+                score = len(words(sentence) & terms) + 2 * len(heading_terms)
+                if score:
+                    anchor = anchor_for(heading, group, index, match.start(), match.end(), words)
+                    entries.append({"label": heading, "quote": sentence, "context": text, "score": score,
+                                    "anchor": anchor.model_dump(mode="json")})
     for entry in entries:
         if entry["label"] in named:
             label = f" {phrase(entry['label'])} "
@@ -170,7 +202,6 @@ def best_fact(pages, terms):
     candidates = [(page, item) for page, item in candidates
                   if (not named or phrase(item["label"]) in named) and words(item["quote"]) & terms
                   and not item.get("mentions_other_variant")
-                  and not CONDITIONAL.search(item["context"])
                   and not CONFLICT_SIGNAL.search(item["quote"])]
     if not candidates:
         return None
@@ -183,7 +214,8 @@ def best_fact(pages, terms):
     ))
     return {**{k: v for k, v in page.items() if k not in {"entries", "named_sections"}}, **entry,
             "scope": entry["label"], "outcome": "QUOTE_OBSERVED",
-            "constraints": {"basis": "FULL_SOURCE_CONTEXT", "page_path": urlsplit(page["page_url"]).path,
+            "constraints": {"basis": entry["anchor"]["context_extent"],
+                            "page_path": urlsplit(page["page_url"]).path,
                             "price": None, "branch": None, "valid_until": None,
                             "market": "UNCONFIRMED"}}
 
@@ -194,12 +226,21 @@ def conflicting_evidence(fact, pages):
     subject = words(fact["label"])
     if not subject:
         return []
+    nearby = [
+        {"page_url": fact["page_url"], "captured_at": fact["captured_at"],
+         "quote": span["quote"], "context": span["text"]}
+        for span in fact["anchor"]["qualifications"] if CONFLICT_SIGNAL.search(span["quote"])
+    ]
+    if nearby:
+        return nearby
     return [
         {"page_url": page["page_url"], "captured_at": page["captured_at"],
          "quote": entry["quote"], "context": entry["context"]}
         for page in pages for entry in page["entries"]
         if CONFLICT_SIGNAL.search(entry["quote"])
-        and subject <= words(entry["label"] + " " + entry["quote"])
+        and (subject <= words(entry["quote"])
+             or (phrase(fact["label"]) == phrase(entry["label"])
+                 and subject & words(entry["quote"])))
     ]
 
 
@@ -279,11 +320,15 @@ def research_plan(request, load, clock, *, trace=None):
         else:
             outcome.update(status="BLOCKED", reason="FEATURE_EVIDENCE")
     gap = steps[-1]["gap_after"] if steps else "FEATURE_EVIDENCE"
-    if fact and kind == "DOWNLOAD" and not destination and gap != "SOURCE_CONFLICT":
-        gap = "ACTION_DESTINATION"
+    if fact and kind == "DOWNLOAD" and gap != "SOURCE_CONFLICT":
+        if fact["anchor"]["qualifications"]:
+            gap = "QUALIFIED_ACTION"
+        elif not destination:
+            gap = "ACTION_DESTINATION"
     if kind in {"OFFER", "TRANSACTION"} and gap != "SOURCE_CONFLICT":
         gap = "COMMERCIAL_TERMS"
     missing = {
+        "QUALIFIED_ACTION": ("راجع شروط الناشر قبل توجيه الجمهور للتنزيل.", "Review publisher conditions before promoting the download."),
         "SOURCE_CONFLICT": ("أي مصدر رسمي يوضح حالة الميزة الحالية؟", "Which official source confirms whether the feature is currently available?"),
         "FEATURE_EVIDENCE": ("أدخل رابط الصفحة الرسمية التي تشرح الميزة المطلوبة.", "Provide the official page explaining the feature in the goal."),
         "ACTION_DESTINATION": ("ما رابط صفحة التنزيل الرسمية التي تريد توجيه الجمهور إليها؟", "Which official download information page should the campaign link to?"),
@@ -317,6 +362,8 @@ def draft_brief(request, fact, destination, *, policy=STABLE_GUARDRAILS):
     language_index = not arabic
     label = fact["label"]
     proof = fact["quote"]
+    qualified = bool(fact["anchor"]["qualifications"])
+    topic_guide = ("راجع شروط الناشر للموضوع.", "Review the publisher’s conditions.")[language_index]
     guide = fact["page_url"]
     options = [
         {
@@ -367,13 +414,15 @@ def draft_brief(request, fact, destination, *, policy=STABLE_GUARDRAILS):
         title = option["headline"]
         if option["action"] == "READ_FEATURE" and specific_heading(fact, request.objective):
             title = label
-        if not arabic and len(proof) <= 105:
+        if qualified:
+            card_message = topic_guide
+        elif not arabic and len(proof) <= 105:
             card_message = proof
         else:
             card_message = label
         if title == card_message:
-            card_message = ("الدليل والشرح من موقع البراند.", "The publisher explains the feature.")[language_index]
-        if (policy == SOURCE_CTA_POLICY and destination is None and not writing and option["action"] == "READ_FEATURE"
+            card_message = publisher_guide(label, request.language)
+        if (policy == SOURCE_CTA_POLICY and not qualified and destination is None and not writing and option["action"] == "READ_FEATURE"
                 and option["destination"] == fact["page_url"] and title == label
                 and specific_heading(fact, request.objective)):
             cta = source_read_cta(label, request.language)
@@ -399,6 +448,18 @@ def draft_brief(request, fact, destination, *, policy=STABLE_GUARDRAILS):
             "middle_shot": ("يظهر اسم الميزة وتظل الخلفية ثابتة.", "Reveal the topic label and hold the background still.")[language_index],
             "end_shot": ("تظهر بطاقة باسم البراند والدعوة.", "End on the brand name and exact call to action.")[language_index],
         })
+    if qualified:
+        guide_headlines = [
+            ("شروط الناشر", "Publisher conditions"),
+            ("هل الشروط مناسبة لك؟", "Do the conditions fit your needs?"),
+            ("ما الذي توضّحه الشروط؟", "What do the conditions cover?"),
+        ]
+        for option, direction, headlines in zip(options, directions, guide_headlines, strict=True):
+            title = headlines[language_index]
+            cta = ("راجع المصدر", "Check the source")[language_index]
+            option["cta"] = cta
+            direction.update(headline=title, hook=title, message=topic_guide, cta=cta,
+                             caption=f"{title} {topic_guide} {cta}.")
     chosen = options[selected]
     assumption = ("الجمهور فرضية تحريرية. نختبر هل اهتمامه بالميزة يدفعه للنقر.",
                   "The audience is a working hypothesis. Test whether interest in the feature drives the intended click.")[language_index]
@@ -407,7 +468,7 @@ def draft_brief(request, fact, destination, *, policy=STABLE_GUARDRAILS):
               ("الهدف زيارة شرح محدد. لو اختفى شرح الميزة أو تغيّر الهدف لإجراء، أعد البحث عن الوجهة.",
                "The goal is a visit to a specific explanation. Reopen the choice if it disappears or the goal changes to an action."))[language_index]
     brief = Brief.model_validate({
-        "summary": fact["quote"], "audience": chosen["audience"],
+        "summary": topic_guide if qualified else fact["quote"], "audience": chosen["audience"],
         "market": ("نطاق السوق يحتاج تأكيدًا قبل النشر.", "Confirm market scope before publishing.")[language_index],
         "source": Source(url=guide, quote=fact["quote"], scope=fact["scope"]),
         "objective": request.objective, "metric": chosen["metric"], "assumption": assumption,
@@ -450,11 +511,19 @@ def build_plan(request, brand_name, load, clock, *, request_id=None, trace=None)
         if options[0]["cta"] == source_read_cta(fact["label"], request.language):
             outcome["reason"] = "SOURCE_HEADING_CTA"
         sources = [fact] + ([destination] if destination else [])
-        planner.update(options=options, claims=[
-            {"fields": ["brief.summary", "package.copy.message"], "evidence_index": 0,
-             "basis": "PUBLISHER_QUOTE_AND_SECTION_LABEL", "semantic_review": "HUMAN_REVIEW_REQUIRED"},
+        qualified = bool(fact["anchor"]["qualifications"])
+        planner.update(options=options, qualified_source_guide=qualified, claims=[
+            {"fields": [] if qualified else ["brief.summary", "package.copy.message"], "evidence_index": 0,
+             "basis": "QUALIFIED_PUBLISHER_CONTEXT" if qualified else "PUBLISHER_QUOTE_AND_SECTION_LABEL",
+             "semantic_review": "HUMAN_REVIEW_REQUIRED"},
         ])
         return proposal(brief, brand_name, sources, planner=planner)
+
+
+def publisher_guide(label, language):
+    if language.split("-")[0] == "ar":
+        return f"اقرأ عن «{label}» لدى الناشر."
+    return f"Read the publisher’s details on “{label}”."
 
 
 def anchored_claim(previous, field, text):
@@ -463,7 +532,7 @@ def anchored_claim(previous, field, text):
     if field == "package.copy.message":
         evidence = previous["evidence"][0]
         return text in {evidence["quote"], evidence["label"],
-                        "الدليل والشرح من موقع البراند.", "The publisher explains the feature."}
+                        publisher_guide(evidence["label"], previous["brief"]["language"])}
     return False
 
 
@@ -481,6 +550,20 @@ def _review_draft(previous, edit, trace_id):
     if edit.selected >= len(brief.directions):
         raise CampaignConflict("DIRECTION_NOT_FOUND")
     option = planner["options"][edit.selected]
+    if not planner.get("edition"):
+        anchor = previous["evidence"][0].get("anchor")
+        if anchor is None:
+            raise CampaignConflict("SOURCE_RECHECK_REQUIRED")
+        try:
+            checked = EvidenceAnchor.model_validate(anchor)
+        except ValidationError as exc:
+            raise CampaignConflict("CREATIVE_BINDING_CHANGED") from exc
+        if checked.subject != previous["evidence"][0]["scope"] or (
+            checked.support.quote != previous["evidence"][0]["quote"]
+        ) or (
+            bool(checked.qualifications) != planner.get("qualified_source_guide", False)
+        ):
+            raise CampaignConflict("CREATIVE_BINDING_CHANGED")
     directions = list(brief.directions)
     if edit.copy_edit and planner.get("edition"):
         directions[edit.selected] = edit_edition_copy(directions[edit.selected], edit.copy_edit, option)
@@ -491,6 +574,7 @@ def _review_draft(previous, edit, trace_id):
         guardrails = (planner.get("version") or {}).get("guardrails", {}).get("policy", STABLE_GUARDRAILS)
         # Only reuse the baseline's feature headline for directions pointing to the same source.
         if (guardrails in {HEADING_REVIEW_POLICY, SOURCE_CTA_POLICY} and not writing
+                and not planner.get("qualified_source_guide")
                 and option["destination"] == fact["page_url"]
                 and specific_heading(fact, brief.objective)):
             source_heading = fact["label"]
@@ -518,7 +602,7 @@ def _review_draft(previous, edit, trace_id):
                        for field in ("headline", "message", "cta", "caption")
                        if getattr(before, field) != getattr(after, field))
     result = proposal(revised, previous["brand_name"], previous["evidence"], changes=changes, planner=planner)
-    if planner.get("edition"):
+    if planner.get("edition") or planner.get("qualified_source_guide"):
         return result
     message = result["package"]["copy"]["message"]
     writing = writing_for(previous["evidence"][0], option["action"], brief.language)
@@ -540,6 +624,7 @@ def refresh_plan(previous, load, clock, *, trace=None):
     unchanged = (
         old == new and previous["planner"].get("edition_sha256") == updated["planner"].get("edition_sha256")
         and previous["planner"]["gap"] == updated["planner"]["gap"]
+        and [row.get("anchor") for row in previous["evidence"]] == [row.get("anchor") for row in updated["evidence"]]
         and [(row["page_url"], row["capture_kind"], row["quote"], row["scope"]) for row in previous["evidence"]]
         == [(row["page_url"], row["capture_kind"], row["quote"], row["scope"]) for row in updated["evidence"]]
     )

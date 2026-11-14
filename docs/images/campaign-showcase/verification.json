@@ -1,0 +1,70 @@
+{
+  "captured_at_local": "2026-11-15",
+  "chromium": "147.0.7727.15",
+  "viewport_checks": {
+    "app_mobile_css_width": 393,
+    "local_readme_css_widths": [
+      320,
+      393,
+      1280
+    ]
+  },
+  "campaign_panel_height_device_pixels": {
+    "desktop": [
+      3364,
+      1640
+    ],
+    "mobile": [
+      3492,
+      2540
+    ]
+  },
+  "presentation_sha256": {
+    "buffalo-formats.webp": "488cd728163ffb911860c9536575368b26ca393d9397ae60c9fde0a714ab2746",
+    "campaign-review-mobile.webp": "a70cf173519306d5847145d2062a59e7d2405fdc13a06a4661be709ffa3b86a9",
+    "campaign-review.webp": "0e84c8dfa2488e37d69949c127fec372a6a6d360744c461997127fcbd334ea8a"
+  },
+  "browser_replay": {
+    "cases": {
+      "buffalo": {
+        "status": "EXPORTED",
+        "seconds": 35.62,
+        "public_pages": 4,
+        "plan_run_id": "28e0b6b2-8bb1-4a5a-97f1-f28a02c0f0cb",
+        "reviewed_run_id": "a9029842-d041-451c-85b1-b4dc07dfc936",
+        "direction_revision_run_id": "d081ec90-adf3-44e4-81c7-edcf039ae0af",
+        "restored_run_id": "916f6044-54c5-4c95-bce6-dcec07421b0c",
+        "restored_approval_id": "f8e3fbaf-6e59-41e0-8f3f-e822133c4dc9",
+        "restored_zip_sha256": "1973e5a750213ced1309dc37506b6445f2ed7000c790e23ba0d378daab193894",
+        "visited_destination": null,
+        "stale_export_http": 409,
+        "rejected_copy_http": 409,
+        "unregistered_copy_response": {
+          "detail": {
+            "code": "COPY_REQUIRES_EVIDENCE_REVIEW",
+            "fields": [
+              "message"
+            ]
+          }
+        },
+        "stale_copy_packet_rejected": false,
+        "accepted_copy_fields": [
+          "message"
+        ],
+        "reviewed_png_sha256": {
+          "portrait": "970a4e34db35c17007c2b509224ea00c34dcbce7593b776934e460149e98edc4",
+          "square": "ef7c37a6f31d4a8535f872d50c39e03626caf3785a6bdf40389fd8e6fa3feb90"
+        },
+        "restored_png_sha256": {
+          "portrait": "970a4e34db35c17007c2b509224ea00c34dcbce7593b776934e460149e98edc4",
+          "square": "ef7c37a6f31d4a8535f872d50c39e03626caf3785a6bdf40389fd8e6fa3feb90"
+        }
+      }
+    },
+    "elapsed_seconds": 40.9,
+    "campaign_runs": 4,
+    "automated_review_actions": 3,
+    "provider_usage_rows": 0,
+    "browser_errors": []
+  }
+}

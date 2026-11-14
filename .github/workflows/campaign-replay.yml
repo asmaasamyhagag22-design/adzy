@@ -22,8 +22,46 @@ jobs:
         run: python -m workflows.campaign_eval --output "${RUNNER_TEMP}/campaign-eval.json"
       - name: Check replay and monitor contracts
         run: python -m workflows.verify -q tests/test_campaign_lifecycle.py tests/test_campaign_copy_quality.py
+      - name: Check evidence context and the source transport
+        run: python -m workflows.verify -q tests/test_campaign_evidence_contract.py tests/test_campaign_public_transport.py
       - uses: actions/upload-artifact@v4
         if: ${{ always() && !env.ACT }}
         with:
           name: campaign-replay-result
           path: ${{ runner.temp }}/campaign-eval.json
+  campaign-journey:
+    name: Campaign journey (PostgreSQL and Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      BASEERA_NO_SPEND: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-app.txt
+      - run: python -m pip install -r requirements-app.txt
+      - run: python -m pip check
+      - run: python -m playwright install --with-deps chromium
+      - run: docker pull postgres:16-alpine
+      - name: Review, preview, approve, export and recover the Buffalo snapshot
+        env:
+          ADZY_CAMPAIGN_EDITIONS_FILE: ${{ github.workspace }}/docs/campaigns/buffalo/portfolio/edition.json
+        run: |
+          python tools/verify_public_campaign_browser.py \
+            --directory "${RUNNER_TEMP}/campaign-demo" \
+            --evidence-dir "${RUNNER_TEMP}/campaign-browser" \
+            --snapshot docs/demo/campaign-snapshots/buffalo \
+            --planner-cases docs/campaigns/buffalo/portfolio/case.json
+      - name: Verify the current ownership, concurrency and artifact fences
+        run: |
+          python -m workflows.verify -q tests/test_campaign_planner.py
+          python -m workflows.verify -q tests/test_public_campaign_package.py
+          python -m workflows.verify -q tests/test_campaign_editions.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: campaign-journey-result
+          path: ${{ runner.temp }}/campaign-browser

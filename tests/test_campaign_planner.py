@@ -8,6 +8,7 @@ import pytest
 from strategy.campaign_planner import anchored_claim
 from strategy.campaign_research import Page
 from test_app_review_graph import application
+from test_public_campaign_package import approve, fake_campaign_renderer
 from test_review_workflow import database
 
 
@@ -17,7 +18,7 @@ QUOTE = "This feature blocks known trackers while you browse the web."
 
 
 @pytest.fixture
-def planner(application):
+def planner(application, fake_campaign_renderer):
     from api.routes.v2_campaigns import get_package_loader
 
     client, headers, _, _, _, app = application
@@ -105,7 +106,7 @@ def test_source_refresh_invalidates_approved_package(planner):
     draft = request("POST", "/plan", input_body()).json()
     ready = edit(request, draft).json()
     path = "/" + draft["domain_key"]
-    assert request("POST", path + "/review", {"run_id": ready["run_id"], "decision": "approved"}).json()["approved"]
+    assert approve(request, ready, path).json()["approved"]
     pages[control["feature"]] = "<h1>Notice</h1><p>The publisher removed this page content.</p>"
     refreshed = request("POST", path + "/refresh", {"run_id": ready["run_id"]}).json()
     assert refreshed["run_id"] != ready["run_id"] and refreshed["reason"] == "EVIDENCE_GAP"
@@ -217,20 +218,20 @@ def test_named_item_does_not_inherit_a_variant_description(planner):
 
 
 def test_new_brief_during_export_fences_old_approval(planner, monkeypatch):
-    from poster import campaign_package
+    from db.campaign_v2 import Campaigns
 
     request, _, _ = planner
     draft = request("POST", "/plan", input_body()).json()
     ready = edit(request, draft).json()
     prefix = "/" + draft["domain_key"]
-    assert request("POST", prefix + "/review", {"run_id": ready["run_id"], "decision": "approved"}).json()["approved"]
+    assert approve(request, ready, prefix).json()["approved"]
 
-    def replace_while_rendering(view, root):
+    def replace_while_reading(self, domain, view):
         changed = edit(request, {**ready, "domain_key": draft["domain_key"]}, selected=1)
         assert changed.status_code == 200 and not changed.json()["approved"]
         return b"previous version bytes"
 
-    monkeypatch.setattr(campaign_package, "export_package", replace_while_rendering)
+    monkeypatch.setattr(Campaigns, "approved_archive", replace_while_reading)
     blocked = request("GET", prefix + "/package/export?run_id=" + ready["run_id"])
     assert blocked.status_code == 409 and blocked.json()["detail"]["code"] == "CAMPAIGN_CHANGED"
     current = request("GET", prefix).json()

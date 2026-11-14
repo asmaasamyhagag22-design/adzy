@@ -1,6 +1,7 @@
 """Check the published campaign boundary with local, labelled source faults."""
 from html import escape
 from pathlib import Path
+from email.message import Message
 from urllib.error import HTTPError
 from uuid import uuid4
 import json
@@ -9,11 +10,12 @@ import pytest
 
 from strategy.campaign_research import Page
 from test_app_review_graph import application
+from test_public_campaign_package import approve, fake_campaign_renderer
 from test_review_workflow import database, sdk_telemetry
 
 
 @pytest.fixture
-def edition(application, monkeypatch, tmp_path):
+def edition(application, monkeypatch, tmp_path, fake_campaign_renderer):
     from api.routes.v2_campaigns import get_package_loader
 
     client, headers, _, _, _, app = application
@@ -36,7 +38,11 @@ def edition(application, monkeypatch, tmp_path):
         if isinstance(fault.get(url), TimeoutError):
             raise fault.pop(url)
         if url in fault:
-            raise HTTPError(url, fault[url][0], "fixture", fault[url][1], None)
+            status, values = fault[url]
+            headers = Message()
+            for key, value in values.items():
+                headers[key] = value
+            raise HTTPError(url, status, "fixture", headers, None)
         if url not in bodies:
             raise OSError("No fixture for this source")
         return Page(url, bodies[url].encode(), "synthetic_fault_fixture")
@@ -96,7 +102,7 @@ def test_bound_source_fault_revises_and_withdraws_export(edition, scenario):
     ready = request("POST", path + "/brief", {
         "run_id": draft["run_id"], "audience": brief["audience"], "tone": brief["tone"], "selected": 0,
     }).json()
-    assert request("POST", path + "/review", {"run_id": ready["run_id"], "decision": "approved"}).json()["approved"]
+    assert approve(request, ready, path).json()["approved"]
     source = spec["sources"][2]["url"]
     if scenario == "changed":
         bodies[source] = bodies[source].replace(escape(spec["sources"][2]["quote"]), "Changed product description")
@@ -146,12 +152,10 @@ def test_campaign_observations_redact_publisher_and_copy(edition, monkeypatch):
     path = "/" + draft["domain_key"]
     body.pop("copy_edit")
     reviewed = request("POST", path + "/brief", body).json()
-    approval = request("POST", path + "/review", {"run_id": reviewed["run_id"], "decision": "approved"})
+    approval = approve(request, reviewed, path)
     assert approval.json()["approved"]
-    # The exporter is exercised with Chromium and the real ZIP in the offline demo.
-    monkeypatch.setattr("poster.campaign_package.export_package", lambda view, root: b"fixture-zip")
     exported = request("GET", path + "/package/export?run_id=" + reviewed["run_id"])
-    assert exported.content == b"fixture-zip"
+    assert exported.status_code == 200 and exported.content.startswith(b"PK")
     telemetry.flush()
     spans = exporter.get_finished_spans()
     assert {span.name for span in spans} == {

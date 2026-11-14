@@ -1,0 +1,40 @@
+{
+  "profile": "single-worker loopback",
+  "postgres_image": "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+  "upgrade": "candidate_migration_succeeded_and_both_crossed_schema_pairs_refused_startup",
+  "snapshot_planning": {
+    "n": 20,
+    "p50_ms": 54.135,
+    "p95_ms": 66.368,
+    "p100_ms": 115.521
+  },
+  "approved_export": {
+    "n": 20,
+    "p50_ms": 75.697,
+    "p95_ms": 89.557,
+    "p100_ms": 92.067
+  },
+  "burst_status_counts": {
+    "409": 2,
+    "503": 5,
+    "200": 1
+  },
+  "server_memory_kib": {
+    "VmHWM": 142384,
+    "VmRSS": 136364
+  },
+  "approved_zip_sha256": "6cddd188d8e38342c2fa53434aa1c1c54e79213ac79544cec00a7ec6ba52f9cb",
+  "approved_zip_bytes": 1863333,
+  "alert": {
+    "source_mode": "simulated_transport",
+    "incoming_distinct_failures": 3,
+    "alert_code": "CAMPAIGN_REPEATED_PAGE_TOO_LARGE",
+    "receiver_http": 204
+  },
+  "restore": {
+    "exact_zip": true,
+    "draft_cache_recovered": false,
+    "restart_and_read_seconds": 2.42
+  },
+  "rollback": "prior_binary_and_preupgrade_database_restored_in_new_container"
+}

@@ -1,0 +1,131 @@
+{
+  "baseline": {
+    "cases": {
+      "buffalo": {
+        "status": "EXPORTED",
+        "seconds": 32.99,
+        "public_pages": 4,
+        "plan_run_id": "673f644d-d9fd-4077-b43f-b92175786378",
+        "reviewed_run_id": "62f2441c-a2b6-4674-807d-9872cd2df9b8",
+        "direction_revision_run_id": "200b73a1-7521-4a37-b3e1-c7d1a6744c38",
+        "restored_run_id": "e18b70f6-a828-4c34-b7ff-7b2b4a82b250",
+        "restored_approval_id": "8b8848a6-ec62-4675-a9b0-eceeb1b70a3b",
+        "restored_zip_sha256": "f48a69b9ab9505078744f0154d893625d376a72ba2676754289f0625b0c8a4f7",
+        "visited_destination": null,
+        "stale_export_http": 409,
+        "rejected_copy_http": 409,
+        "unregistered_copy_response": {
+          "detail": {
+            "code": "COPY_REQUIRES_EVIDENCE_REVIEW",
+            "fields": [
+              "message"
+            ]
+          }
+        },
+        "stale_copy_packet_rejected": false,
+        "accepted_copy_fields": [
+          "message"
+        ],
+        "reviewed_png_sha256": {
+          "portrait": "970a4e34db35c17007c2b509224ea00c34dcbce7593b776934e460149e98edc4",
+          "square": "ef7c37a6f31d4a8535f872d50c39e03626caf3785a6bdf40389fd8e6fa3feb90"
+        },
+        "restored_png_sha256": {
+          "portrait": "970a4e34db35c17007c2b509224ea00c34dcbce7593b776934e460149e98edc4",
+          "square": "ef7c37a6f31d4a8535f872d50c39e03626caf3785a6bdf40389fd8e6fa3feb90"
+        }
+      }
+    },
+    "elapsed_seconds": 40.25,
+    "campaign_runs": 4,
+    "automated_review_actions": 3,
+    "provider_usage_rows": 0,
+    "browser_errors": []
+  },
+  "candidate": {
+    "cases": {
+      "buffalo": {
+        "status": "EXPORTED",
+        "seconds": 35.51,
+        "public_pages": 4,
+        "plan_run_id": "5f70ba02-14b0-4c89-bf36-9d454dfda657",
+        "reviewed_run_id": "4047053f-f31a-4b0d-bd27-1eb447d68abb",
+        "direction_revision_run_id": "1a855dc2-b94e-4035-a238-739273714260",
+        "restored_run_id": "6f1956e2-2e9a-4ffd-aea3-f1bd2662bd50",
+        "restored_approval_id": "0a29eeaf-bbb7-4acb-8fa3-110bd19f4263",
+        "restored_zip_sha256": "b22b994299aaf6ba98b64827fd100130f9d47596c5224a0db55f612b0a463145",
+        "visited_destination": null,
+        "stale_export_http": 409,
+        "rejected_copy_http": 409,
+        "unregistered_copy_response": {
+          "detail": {
+            "code": "COPY_REQUIRES_EVIDENCE_REVIEW",
+            "fields": [
+              "message"
+            ]
+          }
+        },
+        "stale_copy_packet_rejected": false,
+        "accepted_copy_fields": [
+          "message"
+        ],
+        "reviewed_png_sha256": {
+          "portrait": "970a4e34db35c17007c2b509224ea00c34dcbce7593b776934e460149e98edc4",
+          "square": "ef7c37a6f31d4a8535f872d50c39e03626caf3785a6bdf40389fd8e6fa3feb90"
+        },
+        "restored_png_sha256": {
+          "portrait": "970a4e34db35c17007c2b509224ea00c34dcbce7593b776934e460149e98edc4",
+          "square": "ef7c37a6f31d4a8535f872d50c39e03626caf3785a6bdf40389fd8e6fa3feb90"
+        }
+      }
+    },
+    "elapsed_seconds": 41.99,
+    "campaign_runs": 4,
+    "automated_review_actions": 3,
+    "provider_usage_rows": 0,
+    "browser_errors": []
+  },
+  "final_clean_source": {
+    "cases": {
+      "buffalo": {
+        "status": "EXPORTED",
+        "seconds": 32.31,
+        "public_pages": 4,
+        "plan_run_id": "f89b57e6-60b5-4a68-9b6a-0b07432507f3",
+        "reviewed_run_id": "6788ce18-160c-41c0-a20c-1b93a5d6ed5c",
+        "direction_revision_run_id": "14088d9d-e578-4349-aae7-e0102baecf74",
+        "restored_run_id": "2c08f1ec-8b38-434f-b0d3-81569c73d491",
+        "restored_approval_id": "eb74d00c-c4ca-4902-9ed2-452b12619cec",
+        "restored_zip_sha256": "f32fed53d691dd24d09b55df31af3d2d15654a292bcf0ea6f6e4ef5fdf0daf8a",
+        "visited_destination": null,
+        "stale_export_http": 409,
+        "rejected_copy_http": 409,
+        "unregistered_copy_response": {
+          "detail": {
+            "code": "COPY_REQUIRES_EVIDENCE_REVIEW",
+            "fields": [
+              "message"
+            ]
+          }
+        },
+        "stale_copy_packet_rejected": false,
+        "accepted_copy_fields": [
+          "message"
+        ],
+        "reviewed_png_sha256": {
+          "portrait": "970a4e34db35c17007c2b509224ea00c34dcbce7593b776934e460149e98edc4",
+          "square": "ef7c37a6f31d4a8535f872d50c39e03626caf3785a6bdf40389fd8e6fa3feb90"
+        },
+        "restored_png_sha256": {
+          "portrait": "970a4e34db35c17007c2b509224ea00c34dcbce7593b776934e460149e98edc4",
+          "square": "ef7c37a6f31d4a8535f872d50c39e03626caf3785a6bdf40389fd8e6fa3feb90"
+        }
+      }
+    },
+    "elapsed_seconds": 37.75,
+    "campaign_runs": 4,
+    "automated_review_actions": 3,
+    "provider_usage_rows": 0,
+    "browser_errors": []
+  }
+}

@@ -91,9 +91,17 @@ class LocalCampaign:
         }, expected=expected).json()
 
     def approve(self, domain, draft):
-        approved = self.api("POST", f"/{domain}/review",
-                            body={"run_id": draft["run_id"], "decision": "approved"}).json()
+        run_id = draft["run_id"]
+        previews = {}
+        for size in ("portrait", "square"):
+            response = self.api("GET", f"/{domain}/package/preview?run_id={run_id}&size={size}")
+            previews[size] = sha256(response.content).hexdigest()
+            assert previews[size] == response.headers["X-Poster-SHA256"]
+        approved = self.api("POST", f"/{domain}/review", body={
+            "run_id": run_id, "decision": "approved", "artifact_sha256": previews,
+        }).json()
         assert approved["approved"]
+        assert approved["approved_artifacts"]["poster_sha256"] == previews
         return approved
 
     def export(self, domain, approved):
@@ -102,6 +110,7 @@ class LocalCampaign:
         preview = {size: self.api("GET", f"{prefix}/preview?run_id={run_id}&size={size}").content
                    for size in ("square", "portrait")}
         bundle = self.api("GET", f"{prefix}/export?run_id={run_id}").content
+        assert approved["approved_artifacts"]["archive_sha256"] == sha256(bundle).hexdigest()
         with ZipFile(BytesIO(bundle)) as archive:
             saved = json.loads(archive.read("campaign.json"))
             assert saved["proposal"] == approved["proposal"]

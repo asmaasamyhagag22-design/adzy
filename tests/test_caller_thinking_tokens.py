@@ -72,3 +72,32 @@ def test_cost_includes_thinking_tokens():
 def test_real_finish_reason_is_read_not_hardcoded_stop():
     _parsed, usage = _caller()("sys", "user", _Resp, group_name="t")
     assert usage.finish_reason == "MAX_TOKENS"     # was always "stop" before P-74
+
+
+def test_incomplete_provider_usage_retains_known_counts_without_guessing_cost(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(_FakeResponse, "usage_metadata", SimpleNamespace(prompt_token_count=25))
+    parsed, usage = _caller()("sys", "user", _Resp, group_name="partial")
+    assert parsed.answer == "hi"
+    assert usage.input_tokens == 25
+    assert usage.usage_available is False and usage.cost_usd is None
+
+
+def test_completion_after_ambiguous_retry_keeps_total_unknown(monkeypatch):
+    attempts = []
+
+    def generate(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise TimeoutError("response lost")
+        return _FakeResponse()
+
+    caller = _caller()
+    caller.max_retries = 1
+    monkeypatch.setattr(caller._client.models, "generate_content", generate)
+    monkeypatch.setattr("business_profile.llm.caller.time.sleep", lambda _: None)
+    parsed, usage = caller("sys", "user", _Resp, group_name="ambiguous")
+    assert len(attempts) == 2 and parsed.answer == "hi"
+    assert usage.input_tokens == 40000 and usage.usage_available is True
+    assert usage.cost_usd is None

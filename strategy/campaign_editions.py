@@ -64,20 +64,25 @@ def capture_edition_source(url, entry, spec, load, clock, trace, deadline, reaso
                 step["observed_values"] = sorted(values)[:3]
                 raise ResearchGap("SOURCE_FIELD_CHANGED" if values else "SOURCE_FIELD_MISSING")
             step["outcome"] = "QUOTE_OBSERVED"
+            visible_body = " ".join(soup.body.get_text(" ", strip=True).split()) if soup.body else ""
             return {
                 "page_url": page.url, "capture_kind": page.source_kind, "field": spec["field"],
                 "captured_at": page.captured_at or clock().isoformat(), "body_sha256": sha256(page.body).hexdigest(),
-                "text_sha256": digest([spec["field"], spec["quote"], spec.get("title")]), "quote": spec["quote"],
-                "context": spec["quote"], "source_title": title,
+                "text_sha256": digest([spec["field"], spec["quote"], title, visible_body]),
+                "quote": spec["quote"], "context": spec["quote"], "source_title": title,
+                "context_extent": "CURATED_FIELD_ONLY",
                 "scope": spec["scope"], "outcome": "QUOTE_OBSERVED",
             }
         except HTTPError as exc:
             step["http_status"] = exc.code
-            location = exc.headers.get("Location") if exc.headers else None
+            locations = exc.headers.get_all("Location", ()) if exc.headers else ()
             exc.close()
-            if 300 <= exc.code < 400 and location:
+            if exc.code in {301, 302, 303, 307, 308} and len(locations) == 1:
                 step["outcome"] = "SOURCE_REDIRECT"
-                target = urljoin(url, location)
+                try:
+                    target = urljoin(url, locations[0])
+                except ValueError:
+                    target = ""
                 if not valid_source_url(target) or not same_source(target, entry):
                     step["outcome"] = "SOURCE_REDIRECT_OUT_OF_SCOPE"
                     break

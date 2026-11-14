@@ -61,15 +61,17 @@ def case_source(case, *, live=False):
         yield load, clock, "publisher_replay"
         return
 
-    def open_response(request, **kwargs):
-        if request.full_url != case["input"]["url"]:
+    def open_response(url, **kwargs):
+        if url != case["input"]["url"]:
             raise AssertionError("Unexpected URL in simulated transport")
         if fault == "socket_timeout":
             raise URLError(TimeoutError("simulated socket timeout"))
         if fault != "oversize_html":
             raise ValueError("Unknown simulated transport")
         reply = BytesIO(b"<html>" + b" " * 2_000_000 + b"</html>")
+        reply.status = 200
         reply.headers = Message()
+        reply.length = None
         reply.headers["Content-Type"] = "text/html"
         return reply
 
@@ -78,7 +80,7 @@ def case_source(case, *, live=False):
 
     simulated.campaign_source_mode = "simulated_transport"
     simulated.campaign_snapshot_id = load.campaign_snapshot_id
-    with patch("strategy.campaign_research.open_public_url", open_response):
+    with patch("strategy.campaign_research.open_campaign_url", open_response):
         yield simulated, clock, "simulated_transport"
 
 
@@ -301,10 +303,18 @@ def main():
         if (not args.live or not case.get("simulated_transport")) and (not args.case or case["id"] in args.case)
     ] for release in (("stable",) if args.live else ("stable", "candidate"))}
     gate = None if args.live else release_decision(results["stable"], results["candidate"])
+    context = None
+    if gate is not None:
+        from workflows.campaign_context_eval import evaluate_context
+        context = evaluate_context(review_input)
+        if context["blockers"]:
+            gate["blockers"].extend(context["blockers"])
+            gate["decision"] = "KEEP_STABLE"
     telemetry.flush()
     receipt = {"schema": "adzy.campaign-eval-result@1", "eval_set_id": dataset_id,
                "started_at": recorded_at, "mode": "public_http" if args.live else "offline_replay",
-               "results": results, "gate": gate, "langfuse_spans": span_receipt(exporter)}
+               "results": results, "context_regression": context, "gate": gate,
+               "langfuse_spans": span_receipt(exporter)}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if gate:

@@ -42,7 +42,7 @@ class Usage:
     input_tokens: int = 0
     output_tokens: int = 0
     thoughts_tokens: int = 0
-    cost_usd: float = 0.0
+    cost_usd: float | None = None
     duration_ms: int = 0
     model: str = ""
     finish_reason: Optional[str] = None
@@ -51,11 +51,7 @@ class Usage:
     resolved_model_version: Optional[str] = None
 
 
-# Pricing per 1M tokens (input, output). Update if pricing changes.
-# Keep this table in sync with whatever models you actually call —
-# an unknown model returns a cost of 0.0 AND logs a warning (see below),
-# so a silent $0.00 across the whole run is the signal that this table
-# is stale, not that the calls were free.
+# Estimated prices per million tokens (input, output).
 _PRICING: dict[str, tuple[float, float]] = {
     "gpt-4o-mini": (0.150, 0.600),       # input, output
     "gpt-4o-mini-2024-07-18": (0.150, 0.600),
@@ -76,32 +72,22 @@ _PRICING: dict[str, tuple[float, float]] = {
 _WARNED_UNKNOWN_MODELS: set[str] = set()
 
 
-def _cost_for(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Return USD cost for a call. Matches model by prefix to handle date
-    suffixes (e.g. 'gpt-4o-mini-2024-07-18' matches 'gpt-4o-mini').
-
-    If the model isn't in the pricing table, returns 0.0 but logs a
-    WARNING the first time that model is seen. A silent $0.00 cost
-    across an entire run almost always means the pricing table is stale
-    (e.g. after switching to a new model), NOT that the calls were free.
-    This was a real foot-gun: switching models made every cost report,
-    SSE payload, and benchmark cost field read $0 with no indication.
-    """
-    for key, (in_price, out_price) in _PRICING.items():
-        if model.startswith(key):
-            return (input_tokens / 1_000_000) * in_price + \
-                   (output_tokens / 1_000_000) * out_price
-
-    # Unknown model — warn once, then return 0.0 as a clearly-uncosted value.
+def _cost_for(model: str, input_tokens: int, output_tokens: int) -> float | None:
+    if model in _PRICING:
+        in_price, out_price = _PRICING[model]
+        return (input_tokens * in_price + output_tokens * out_price) / 1_000_000
     if model not in _WARNED_UNKNOWN_MODELS:
         _WARNED_UNKNOWN_MODELS.add(model)
-        logger.warning(
-            "No pricing entry for model %r — cost will report $0.00 for all "
-            "calls with this model. Add it to _PRICING in caller.py to get "
-            "accurate cost tracking. (input=%d output=%d tokens this call)",
-            model, input_tokens, output_tokens,
-        )
-    return 0.0
+        logger.warning("No pricing entry for model %r. Estimate unavailable.", model)
+    return None
+
+
+def token_count(value) -> int | None:
+    return value if type(value) is int and value >= 0 else None
+
+
+def format_cost(cost_usd: float | None) -> str:
+    return "unknown" if cost_usd is None else f"${cost_usd:.4f}"
 
 
 # ---------------------------------------------------------------------
@@ -158,7 +144,7 @@ class OpenAICaller:
                 raise RuntimeError(
                     "The `openai` package is required. Install with: pip install openai"
                 ) from e
-            self._client = OpenAI(api_key=self._api_key, timeout=self.timeout_s)
+            self._client = OpenAI(api_key=self._api_key, timeout=self.timeout_s, max_retries=0)
         return self._client
 
     def __call__(
@@ -200,17 +186,18 @@ class OpenAICaller:
                     output_tokens=u.completion_tokens if u else 0,
                     cost_usd=_cost_for(
                         self.model,
-                        u.prompt_tokens if u else 0,
-                        u.completion_tokens if u else 0,
-                    ),
+                        u.prompt_tokens,
+                        u.completion_tokens,
+                    ) if u is not None and attempt == 0 else None,
+                    usage_available=u is not None,
                     duration_ms=int((time.monotonic() - started) * 1000),
                     model=self.model,
                     finish_reason=completion.choices[0].finish_reason,
                 )
                 logger.info(
-                    "LLM call ok group=%s model=%s in=%d out=%d cost=$%.4f ms=%d",
+                    "LLM call ok group=%s model=%s in=%d out=%d cost=%s ms=%d",
                     group_name, self.model, usage.input_tokens, usage.output_tokens,
-                    usage.cost_usd, usage.duration_ms,
+                    format_cost(usage.cost_usd), usage.duration_ms,
                 )
                 return parsed, usage
             except Exception as e:
@@ -346,12 +333,14 @@ class GeminiCaller:
                     parsed = response_model.model_validate(parsed)
 
                 um = getattr(resp, "usage_metadata", None)
-                in_tok = getattr(um, "prompt_token_count", 0) or 0
-                out_tok = getattr(um, "candidates_token_count", 0) or 0
+                in_tok = token_count(getattr(um, "prompt_token_count", None))
+                out_tok = token_count(getattr(um, "candidates_token_count", None))
                 # P-01: thinking/reasoning tokens are billed at the OUTPUT rate but are NOT in
                 # candidates_token_count. Count them in cost (both output-rate) or every 2.5-model
                 # estimate is understated ~3.5–6x. Surface them separately for telemetry honesty.
-                thoughts_tok = getattr(um, "thoughts_token_count", 0) or 0
+                raw_thoughts = getattr(um, "thoughts_token_count", None)
+                thoughts_tok = token_count(raw_thoughts) if raw_thoughts is not None else 0
+                has_counts = in_tok is not None and out_tok is not None and thoughts_tok is not None
                 # P-74: read the REAL finish reason (MAX_TOKENS / SAFETY / RECITATION), not a
                 # hardcoded "stop" — a truncated or safety-blocked completion used to look clean.
                 try:
@@ -360,22 +349,30 @@ class GeminiCaller:
                     finish_reason = getattr(_fr, "name", None) or (str(_fr) if _fr is not None else "stop")
                 except Exception:  # noqa: BLE001
                     finish_reason = "stop"
+                estimate = None
+                if has_counts and attempt == 0:
+                    billed_output = out_tok + thoughts_tok
+                    if self.pricing_per_million is None:
+                        estimate = _cost_for(self.model, in_tok, billed_output)
+                    else:
+                        input_rate, output_rate = self.pricing_per_million
+                        estimate = (in_tok * input_rate + billed_output * output_rate) / 1_000_000
                 usage = Usage(
-                    input_tokens=in_tok,
-                    output_tokens=out_tok,
-                    thoughts_tokens=thoughts_tok,
-                    cost_usd=((in_tok * self.pricing_per_million[0] + (out_tok + thoughts_tok) * self.pricing_per_million[1]) / 1_000_000
-                              if self.pricing_per_million is not None else _cost_for(self.model, in_tok, out_tok + thoughts_tok)),
+                    input_tokens=in_tok or 0,
+                    output_tokens=out_tok or 0,
+                    thoughts_tokens=thoughts_tok or 0,
+                    cost_usd=estimate,
                     duration_ms=int((time.monotonic() - started) * 1000),
                     model=self.model,
                     finish_reason=finish_reason,
-                    usage_available=um is not None,
+                    usage_available=has_counts,
                     provider_response_id=getattr(resp, 'response_id', None),
                     resolved_model_version=getattr(resp, 'model_version', None),
                 )
                 logger.info(
-                    "Gemini call ok group=%s model=%s in=%d out=%d think=%d cost=$%.4f ms=%d fr=%s",
-                    group_name, self.model, in_tok, out_tok, thoughts_tok, usage.cost_usd,
+                    "Gemini call ok group=%s model=%s in=%d out=%d think=%d cost=%s ms=%d fr=%s",
+                    group_name, self.model, usage.input_tokens, usage.output_tokens, usage.thoughts_tokens,
+                    format_cost(usage.cost_usd),
                     usage.duration_ms, finish_reason,
                 )
                 return parsed, usage

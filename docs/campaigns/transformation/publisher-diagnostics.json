@@ -1,0 +1,869 @@
+{
+  "provenance": "Operator-selected source diagnostics, captured after initial context tuning and before the final copy tweaks. Some changes were informed by these results. No independent editorial labels.",
+  "initial_fetch_results": [
+    {
+      "id": "fairphone-repair",
+      "brand": "Fairphone",
+      "category": "consumer electronics",
+      "url": "https://support.fairphone.com/hc/en-us/articles/18744611991825-Fairphone-5-Replace-a-spare-part",
+      "objective": "Increase visits to the Fairphone 5 spare part replacement guide",
+      "language": "en",
+      "failure": "HTTPError",
+      "detail": "HTTP Error 403: Forbidden"
+    },
+    {
+      "id": "almarai-lactose",
+      "brand": "Almarai",
+      "category": "food and beverages",
+      "url": "https://www.almarai.com/ar/brands/almarai/liquid-dairy/lactofree/lactofree-milk",
+      "objective": "زيادة زيارات صفحة شرح حليب خالي من اللاكتوز",
+      "language": "ar",
+      "failure": "URLError",
+      "detail": "<urlopen error The read operation timed out>"
+    }
+  ],
+  "before": [
+    {
+      "id": "fairphone-repair",
+      "brand": "Fairphone",
+      "category": "consumer electronics",
+      "url": "https://www.fairphone.com/repairs",
+      "objective": "Increase visits to the Fairphone repair explanation",
+      "language": "en",
+      "file": "fairphone-repairs.html",
+      "sha256": "5383a2cf58515eb4b8348d692b98fdcfa77470782b3b29bb3b5edd595bdd381d",
+      "captured_at": "2026-11-14T17:59:01.525865+00:00",
+      "status": "READY",
+      "gap": null,
+      "evidence": [
+        {
+          "page_url": "https://www.fairphone.com/repairs",
+          "capture_kind": "publisher_snapshot",
+          "captured_at": "2026-11-14T17:59:01.525865+00:00",
+          "body_sha256": "5383a2cf58515eb4b8348d692b98fdcfa77470782b3b29bb3b5edd595bdd381d",
+          "text_sha256": "6dd43d5f43c3ed4acd0966ceb4da81d08218c9cfb421282c670ec9cdb17043d7",
+          "title": "Here’s how you can repair your Fairphone device yourself.",
+          "label": "Do it yourself (DIY) repairs",
+          "quote": "What you’ll need to repair at home:",
+          "context": "What you’ll need to repair at home:",
+          "score": 3,
+          "specificity": 0.071,
+          "scope": "Do it yourself (DIY) repairs",
+          "outcome": "QUOTE_OBSERVED",
+          "constraints": {
+            "basis": "FULL_SOURCE_CONTEXT",
+            "page_path": "/repairs",
+            "price": null,
+            "branch": null,
+            "valid_until": null,
+            "market": "UNCONFIRMED"
+          }
+        }
+      ],
+      "package": {
+        "brand_name": "Fairphone",
+        "language": "en",
+        "direction": "ltr",
+        "source_url": "https://www.fairphone.com/repairs",
+        "source_evidence_index": 0,
+        "factual_review": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+        "copy": {
+          "headline": "Start with the feature",
+          "message": "What you’ll need to repair at home:",
+          "cta": "Read the explanation"
+        },
+        "theme": "cobalt",
+        "caption": "Start with the feature — What you’ll need to repair at home:. Read the explanation.",
+        "storyboard": [
+          {
+            "seconds": "0–3",
+            "visual": "Reveal the campaign prompt over a simple geometric motif.",
+            "line": "Start with the feature"
+          },
+          {
+            "seconds": "3–8",
+            "visual": "Reveal the topic label and hold the background still.",
+            "line": "What you’ll need to repair at home:"
+          },
+          {
+            "seconds": "8–12",
+            "visual": "End on the brand name and exact call to action.",
+            "line": "Read the explanation"
+          }
+        ],
+        "poster_layout": "source-campaign@1"
+      },
+      "manual_edits": 0,
+      "brand_specific_settings": 0,
+      "supplied_assets": 0,
+      "provider_calls": 0,
+      "visual_checks": [
+        {
+          "case": "fairphone-repair",
+          "size": "portrait",
+          "width": 1080,
+          "height": 1350,
+          "sha256": "458e67e37cb1f1d62abd84f4b0c484c7fe48349ae02faeacfadaf2384ef1fca4",
+          "geometry": [
+            {
+              "field": "brand",
+              "x": 76,
+              "y": 64,
+              "right": 1004,
+              "bottom": 136,
+              "size": 40,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "motif",
+              "x": 76,
+              "y": 166,
+              "right": 1004,
+              "bottom": 856.375,
+              "size": 16,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "H1",
+              "x": 76,
+              "y": 886.375,
+              "right": 1004,
+              "bottom": 1108.125,
+              "size": 88,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "message",
+              "x": 76,
+              "y": 1126.125,
+              "right": 1004,
+              "bottom": 1190.359375,
+              "size": 44,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "cta",
+              "x": 76,
+              "y": 1208.359375,
+              "right": 519,
+              "bottom": 1286,
+              "size": 37,
+              "color": "rgb(19, 13, 54)",
+              "background": "rgb(255, 201, 131)",
+              "overflow": false
+            }
+          ]
+        },
+        {
+          "case": "fairphone-repair",
+          "size": "square",
+          "width": 1080,
+          "height": 1080,
+          "sha256": "76733a0f360d1dc1ad0a71400339c4b49fd6ccfa888a6869d0e4d076a4506d90",
+          "geometry": [
+            {
+              "field": "brand",
+              "x": 76,
+              "y": 64,
+              "right": 1004,
+              "bottom": 136,
+              "size": 40,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "motif",
+              "x": 76,
+              "y": 166,
+              "right": 1004,
+              "bottom": 586.375,
+              "size": 16,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "H1",
+              "x": 76,
+              "y": 616.375,
+              "right": 1004,
+              "bottom": 838.125,
+              "size": 88,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "message",
+              "x": 76,
+              "y": 856.125,
+              "right": 1004,
+              "bottom": 920.359375,
+              "size": 44,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "cta",
+              "x": 76,
+              "y": 938.359375,
+              "right": 519,
+              "bottom": 1016,
+              "size": 37,
+              "color": "rgb(19, 13, 54)",
+              "background": "rgb(255, 201, 131)",
+              "overflow": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "almarai-lactose",
+      "brand": "Almarai",
+      "category": "food and beverages",
+      "url": "https://www.almarai.com/ar/brands/almarai/liquid-dairy/lactofree/lactofree-milk",
+      "objective": "زيادة زيارات صفحة شرح حليب خالي من اللاكتوز",
+      "language": "ar",
+      "file": "almarai-direct.html",
+      "sha256": "a26b4fdaecab2cd5d66ffacdea10b07ce9cc71527944d8a3a101a0e1b1501f30",
+      "captured_at": "2026-11-14T17:59:01.525865+00:00",
+      "status": "READY",
+      "gap": null,
+      "evidence": [
+        {
+          "page_url": "https://www.almarai.com/ar/brands/almarai/liquid-dairy/lactofree/lactofree-milk",
+          "capture_kind": "publisher_snapshot",
+          "captured_at": "2026-11-14T17:59:01.525865+00:00",
+          "body_sha256": "a26b4fdaecab2cd5d66ffacdea10b07ce9cc71527944d8a3a101a0e1b1501f30",
+          "text_sha256": "8c5543c10bb78d243d6b26f214d65c9da2fdf5966227b7f9350715465d207d44",
+          "title": "حليب لاكتوفري خالٍ من اللاكتوز من المراعي | المراعي",
+          "label": "حليب خالي من اللاكتوز",
+          "quote": "يوفر لك حليب المراعي الخالي من اللاكتوز العناصر الغذائية الأساسية مثل البروتينات والفيتامينات والمعادن والدهون.",
+          "context": "يوفر لك حليب المراعي الخالي من اللاكتوز العناصر الغذائية الأساسية مثل البروتينات والفيتامينات والمعادن والدهون.",
+          "score": 8,
+          "specificity": 2.0,
+          "scope": "حليب خالي من اللاكتوز",
+          "outcome": "QUOTE_OBSERVED",
+          "constraints": {
+            "basis": "FULL_SOURCE_CONTEXT",
+            "page_path": "/ar/brands/almarai/liquid-dairy/lactofree/lactofree-milk",
+            "price": null,
+            "branch": null,
+            "valid_until": null,
+            "market": "UNCONFIRMED"
+          }
+        }
+      ],
+      "package": {
+        "brand_name": "Almarai",
+        "language": "ar",
+        "direction": "rtl",
+        "source_url": "https://www.almarai.com/ar/brands/almarai/liquid-dairy/lactofree/lactofree-milk",
+        "source_evidence_index": 0,
+        "factual_review": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+        "copy": {
+          "headline": "حليب خالي من اللاكتوز",
+          "message": "الدليل والشرح من موقع البراند.",
+          "cta": "اقرأ الشرح"
+        },
+        "theme": "cobalt",
+        "caption": "حليب خالي من اللاكتوز · الدليل والشرح من موقع البراند. اقرأ الشرح.",
+        "storyboard": [
+          {
+            "seconds": "0–3",
+            "visual": "يظهر سؤال الحملة فوق شكل هندسي بسيط.",
+            "line": "حليب خالي من اللاكتوز"
+          },
+          {
+            "seconds": "3–8",
+            "visual": "يظهر اسم الميزة وتظل الخلفية ثابتة.",
+            "line": "الدليل والشرح من موقع البراند."
+          },
+          {
+            "seconds": "8–12",
+            "visual": "تظهر بطاقة باسم البراند والدعوة.",
+            "line": "اقرأ الشرح"
+          }
+        ],
+        "poster_layout": "source-campaign@1"
+      },
+      "manual_edits": 0,
+      "brand_specific_settings": 0,
+      "supplied_assets": 0,
+      "provider_calls": 0,
+      "visual_checks": [
+        {
+          "case": "almarai-lactose",
+          "size": "portrait",
+          "width": 1080,
+          "height": 1350,
+          "sha256": "d964ec97b277deda7886b3bafb514eaa42df7ab54fd0da2ddee0899cf4b69865",
+          "geometry": [
+            {
+              "field": "brand",
+              "x": 76,
+              "y": 64,
+              "right": 1004,
+              "bottom": 136,
+              "size": 40,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "motif",
+              "x": 76,
+              "y": 166,
+              "right": 1004,
+              "bottom": 967.25,
+              "size": 16,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "H1",
+              "x": 76,
+              "y": 997.25,
+              "right": 1004,
+              "bottom": 1108.125,
+              "size": 88,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "message",
+              "x": 76,
+              "y": 1126.125,
+              "right": 1004,
+              "bottom": 1190.359375,
+              "size": 44,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "cta",
+              "x": 785,
+              "y": 1208.359375,
+              "right": 1004,
+              "bottom": 1286,
+              "size": 37,
+              "color": "rgb(19, 13, 54)",
+              "background": "rgb(255, 201, 131)",
+              "overflow": false
+            }
+          ]
+        },
+        {
+          "case": "almarai-lactose",
+          "size": "square",
+          "width": 1080,
+          "height": 1080,
+          "sha256": "975b9d3fbec9dca0347afbe6763416a7cb9dc9148feb0190dd55746691ea2771",
+          "geometry": [
+            {
+              "field": "brand",
+              "x": 76,
+              "y": 64,
+              "right": 1004,
+              "bottom": 136,
+              "size": 40,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "motif",
+              "x": 76,
+              "y": 166,
+              "right": 1004,
+              "bottom": 697.25,
+              "size": 16,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "H1",
+              "x": 76,
+              "y": 727.25,
+              "right": 1004,
+              "bottom": 838.125,
+              "size": 88,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "message",
+              "x": 76,
+              "y": 856.125,
+              "right": 1004,
+              "bottom": 920.359375,
+              "size": 44,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "cta",
+              "x": 785,
+              "y": 938.359375,
+              "right": 1004,
+              "bottom": 1016,
+              "size": 37,
+              "color": "rgb(19, 13, 54)",
+              "background": "rgb(255, 201, 131)",
+              "overflow": false
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "after": [
+    {
+      "id": "fairphone-repair",
+      "brand": "Fairphone",
+      "category": "consumer electronics",
+      "url": "https://www.fairphone.com/repairs",
+      "objective": "Increase visits to the Fairphone repair explanation",
+      "language": "en",
+      "file": "fairphone-repairs.html",
+      "sha256": "5383a2cf58515eb4b8348d692b98fdcfa77470782b3b29bb3b5edd595bdd381d",
+      "captured_at": "2026-11-14T17:59:01.525865+00:00",
+      "status": "READY",
+      "gap": null,
+      "evidence": [
+        {
+          "page_url": "https://www.fairphone.com/repairs",
+          "capture_kind": "publisher_snapshot",
+          "captured_at": "2026-11-14T17:59:01.525865+00:00",
+          "body_sha256": "5383a2cf58515eb4b8348d692b98fdcfa77470782b3b29bb3b5edd595bdd381d",
+          "text_sha256": "6dd43d5f43c3ed4acd0966ceb4da81d08218c9cfb421282c670ec9cdb17043d7",
+          "title": "Here’s how you can repair your Fairphone device yourself.",
+          "label": "Do it yourself (DIY) repairs",
+          "quote": "We recommend diagnosing the issue first, as some repairs are covered by your warranty.",
+          "context": "We recommend diagnosing the issue first, as some repairs are covered by your warranty.",
+          "score": 3,
+          "specificity": 0.071,
+          "scope": "Do it yourself (DIY) repairs",
+          "outcome": "QUOTE_OBSERVED",
+          "constraints": {
+            "basis": "BOUNDED_SECTION_NEIGHBORHOOD",
+            "page_path": "/repairs",
+            "price": null,
+            "branch": null,
+            "valid_until": null,
+            "market": "UNCONFIRMED"
+          }
+        }
+      ],
+      "package": {
+        "brand_name": "Fairphone",
+        "language": "en",
+        "direction": "ltr",
+        "source_url": "https://www.fairphone.com/repairs",
+        "source_evidence_index": 0,
+        "factual_review": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+        "copy": {
+          "headline": "Start with the feature",
+          "message": "We recommend diagnosing the issue first, as some repairs are covered by your warranty.",
+          "cta": "Read the explanation"
+        },
+        "theme": "cobalt",
+        "caption": "Start with the feature — We recommend diagnosing the issue first, as some repairs are covered by your warranty. Read the explanation.",
+        "storyboard": [
+          {
+            "seconds": "0–3",
+            "visual": "Reveal the campaign prompt over a simple geometric motif.",
+            "line": "Start with the feature"
+          },
+          {
+            "seconds": "3–8",
+            "visual": "Reveal the topic label and hold the background still.",
+            "line": "We recommend diagnosing the issue first, as some repairs are covered by your warranty."
+          },
+          {
+            "seconds": "8–12",
+            "visual": "End on the brand name and exact call to action.",
+            "line": "Read the explanation"
+          }
+        ],
+        "poster_layout": "source-campaign@1"
+      },
+      "manual_edits": 0,
+      "brand_specific_settings": 0,
+      "supplied_assets": 0,
+      "provider_calls": 0,
+      "visual_checks": [
+        {
+          "case": "fairphone-repair",
+          "size": "portrait",
+          "width": 1080,
+          "height": 1350,
+          "sha256": "d812fa7c31695f722a8990500af4a118f07ca826a383de73cec52256ec3a1fae",
+          "geometry": [
+            {
+              "field": "brand",
+              "x": 76,
+              "y": 64,
+              "right": 1004,
+              "bottom": 136,
+              "size": 40,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "motif",
+              "x": 76,
+              "y": 166,
+              "right": 1004,
+              "bottom": 792.140625,
+              "size": 16,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "H1",
+              "x": 76,
+              "y": 822.140625,
+              "right": 1004,
+              "bottom": 1043.890625,
+              "size": 88,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "message",
+              "x": 76,
+              "y": 1061.890625,
+              "right": 1004,
+              "bottom": 1190.359375,
+              "size": 44,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "cta",
+              "x": 76,
+              "y": 1208.359375,
+              "right": 519,
+              "bottom": 1286,
+              "size": 37,
+              "color": "rgb(19, 13, 54)",
+              "background": "rgb(255, 201, 131)",
+              "overflow": false
+            }
+          ]
+        },
+        {
+          "case": "fairphone-repair",
+          "size": "square",
+          "width": 1080,
+          "height": 1080,
+          "sha256": "2564367c8c9f4475bfc363dae0147b179c9e835dc321b71c1b813f1f4a8b159a",
+          "geometry": [
+            {
+              "field": "brand",
+              "x": 76,
+              "y": 64,
+              "right": 1004,
+              "bottom": 136,
+              "size": 40,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "motif",
+              "x": 76,
+              "y": 166,
+              "right": 1004,
+              "bottom": 522.140625,
+              "size": 16,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "H1",
+              "x": 76,
+              "y": 552.140625,
+              "right": 1004,
+              "bottom": 773.890625,
+              "size": 88,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "message",
+              "x": 76,
+              "y": 791.890625,
+              "right": 1004,
+              "bottom": 920.359375,
+              "size": 44,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "cta",
+              "x": 76,
+              "y": 938.359375,
+              "right": 519,
+              "bottom": 1016,
+              "size": 37,
+              "color": "rgb(19, 13, 54)",
+              "background": "rgb(255, 201, 131)",
+              "overflow": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "almarai-lactose",
+      "brand": "Almarai",
+      "category": "food and beverages",
+      "url": "https://www.almarai.com/ar/brands/almarai/liquid-dairy/lactofree/lactofree-milk",
+      "objective": "زيادة زيارات صفحة شرح حليب خالي من اللاكتوز",
+      "language": "ar",
+      "file": "almarai-direct.html",
+      "sha256": "a26b4fdaecab2cd5d66ffacdea10b07ce9cc71527944d8a3a101a0e1b1501f30",
+      "captured_at": "2026-11-14T17:59:01.525865+00:00",
+      "status": "READY",
+      "gap": null,
+      "evidence": [
+        {
+          "page_url": "https://www.almarai.com/ar/brands/almarai/liquid-dairy/lactofree/lactofree-milk",
+          "capture_kind": "publisher_snapshot",
+          "captured_at": "2026-11-14T17:59:01.525865+00:00",
+          "body_sha256": "a26b4fdaecab2cd5d66ffacdea10b07ce9cc71527944d8a3a101a0e1b1501f30",
+          "text_sha256": "8c5543c10bb78d243d6b26f214d65c9da2fdf5966227b7f9350715465d207d44",
+          "title": "حليب لاكتوفري خالٍ من اللاكتوز من المراعي | المراعي",
+          "label": "حليب خالي من اللاكتوز",
+          "quote": "يوفر لك حليب المراعي الخالي من اللاكتوز العناصر الغذائية الأساسية مثل البروتينات والفيتامينات والمعادن والدهون.",
+          "context": "يوفر لك حليب المراعي الخالي من اللاكتوز العناصر الغذائية الأساسية مثل البروتينات والفيتامينات والمعادن والدهون.",
+          "score": 8,
+          "specificity": 2.0,
+          "scope": "حليب خالي من اللاكتوز",
+          "outcome": "QUOTE_OBSERVED",
+          "constraints": {
+            "basis": "BOUNDED_SECTION_NEIGHBORHOOD",
+            "page_path": "/ar/brands/almarai/liquid-dairy/lactofree/lactofree-milk",
+            "price": null,
+            "branch": null,
+            "valid_until": null,
+            "market": "UNCONFIRMED"
+          }
+        }
+      ],
+      "package": {
+        "brand_name": "Almarai",
+        "language": "ar",
+        "direction": "rtl",
+        "source_url": "https://www.almarai.com/ar/brands/almarai/liquid-dairy/lactofree/lactofree-milk",
+        "source_evidence_index": 0,
+        "factual_review": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+        "copy": {
+          "headline": "حليب خالي من اللاكتوز",
+          "message": "اقرأ عن «حليب خالي من اللاكتوز» لدى الناشر.",
+          "cta": "اقرأ الشرح"
+        },
+        "theme": "cobalt",
+        "caption": "حليب خالي من اللاكتوز · اقرأ عن «حليب خالي من اللاكتوز» لدى الناشر. اقرأ الشرح.",
+        "storyboard": [
+          {
+            "seconds": "0–3",
+            "visual": "يظهر سؤال الحملة فوق شكل هندسي بسيط.",
+            "line": "حليب خالي من اللاكتوز"
+          },
+          {
+            "seconds": "3–8",
+            "visual": "يظهر اسم الميزة وتظل الخلفية ثابتة.",
+            "line": "اقرأ عن «حليب خالي من اللاكتوز» لدى الناشر."
+          },
+          {
+            "seconds": "8–12",
+            "visual": "تظهر بطاقة باسم البراند والدعوة.",
+            "line": "اقرأ الشرح"
+          }
+        ],
+        "poster_layout": "source-campaign@1"
+      },
+      "manual_edits": 0,
+      "brand_specific_settings": 0,
+      "supplied_assets": 0,
+      "provider_calls": 0,
+      "visual_checks": [
+        {
+          "case": "almarai-lactose",
+          "size": "portrait",
+          "width": 1080,
+          "height": 1350,
+          "sha256": "180c46613fa7bce11a4d68d5da42864f70152d81d95e37b13796c95adaa44b31",
+          "geometry": [
+            {
+              "field": "brand",
+              "x": 76,
+              "y": 64,
+              "right": 1004,
+              "bottom": 136,
+              "size": 40,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "motif",
+              "x": 76,
+              "y": 166,
+              "right": 1004,
+              "bottom": 967.25,
+              "size": 16,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "H1",
+              "x": 76,
+              "y": 997.25,
+              "right": 1004,
+              "bottom": 1108.125,
+              "size": 88,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "message",
+              "x": 76,
+              "y": 1126.125,
+              "right": 1004,
+              "bottom": 1190.359375,
+              "size": 44,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "cta",
+              "x": 785,
+              "y": 1208.359375,
+              "right": 1004,
+              "bottom": 1286,
+              "size": 37,
+              "color": "rgb(19, 13, 54)",
+              "background": "rgb(255, 201, 131)",
+              "overflow": false
+            }
+          ]
+        },
+        {
+          "case": "almarai-lactose",
+          "size": "square",
+          "width": 1080,
+          "height": 1080,
+          "sha256": "097114c2276ab6685ddee79f90065c0eaccbd2fe64be9e16771d87509a52a551",
+          "geometry": [
+            {
+              "field": "brand",
+              "x": 76,
+              "y": 64,
+              "right": 1004,
+              "bottom": 136,
+              "size": 40,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "motif",
+              "x": 76,
+              "y": 166,
+              "right": 1004,
+              "bottom": 697.25,
+              "size": 16,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "H1",
+              "x": 76,
+              "y": 727.25,
+              "right": 1004,
+              "bottom": 838.125,
+              "size": 88,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "message",
+              "x": 76,
+              "y": 856.125,
+              "right": 1004,
+              "bottom": 920.359375,
+              "size": 44,
+              "color": "rgb(255, 247, 239)",
+              "background": "rgba(0, 0, 0, 0)",
+              "overflow": false
+            },
+            {
+              "field": "cta",
+              "x": 785,
+              "y": 938.359375,
+              "right": 1004,
+              "bottom": 1016,
+              "size": 37,
+              "color": "rgb(19, 13, 54)",
+              "background": "rgb(255, 201, 131)",
+              "overflow": false
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "candidate_direct_retrieval": [
+    {
+      "url": "https://www.fairphone.com/repairs",
+      "outcome": "SOURCE_READ",
+      "size": 150721,
+      "body_sha256": "6ddb7e00b9c332c36d8ed26bf5aff1bdaeb2ffe02997a4d325edabe34a394ccd"
+    },
+    {
+      "url": "https://www.almarai.com/ar/brands/almarai/liquid-dairy/lactofree/lactofree-milk",
+      "outcome": "SOURCE_READ",
+      "size": 119581,
+      "body_sha256": "a26b4fdaecab2cd5d66ffacdea10b07ce9cc71527944d8a3a101a0e1b1501f30"
+    },
+    {
+      "url": "https://support.fairphone.com/hc/en-us/articles/18744611991825-Fairphone-5-Replace-a-spare-part",
+      "outcome": "SOURCE_READ",
+      "size": 55076,
+      "body_sha256": "4620b37eaecdae4fa40f13a1da88daa88342d9dfa83714b6aebbd23604589569"
+    }
+  ]
+}

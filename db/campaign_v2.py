@@ -1,9 +1,11 @@
 """Owner-bound V2 decisions on the existing Run and Approval tables."""
 from dataclasses import dataclass
+from hashlib import sha256
 from uuid import UUID
 
 from db.errors import ArchivedBrand, ForeignOwner, NotVisible
 from db.records import RunRecord
+from strategy.campaign_artifacts import PosterHashes, PreparedCampaignBundle
 from strategy.campaign_package import check as check_package, recheck_at
 from strategy.campaign_v2 import CampaignConflict, CampaignNotFound, inactive_reason
 
@@ -100,11 +102,16 @@ class Campaigns:
         evaluate = check_package if package else inactive_reason
         reason = ("PROFILE_CHANGED" if run.input_profile_id != brand.current_profile_id
                   else evaluate(run.output, checked_at))
+        manifest = approval.artifact_manifest if approval else None
+        decision = approval.decision if approval else None
+        bound = manifest is not None and manifest.get("proposal_sha256") == run.output.get("sha256")
         return {"run_id": str(run.id), "profile_snapshot_id": str(run.input_profile_id),
                 "proposal": run.output, "reason": reason, "checked_at": checked_at.isoformat(),
                 **({"recheck_at": recheck_at(run.output).isoformat()} if package and reason in (None, "BRIEF_REVIEW_REQUIRED") else {}),
-                "decision": approval.decision if approval else None,
-                "approved": not reason and approval is not None and approval.decision == "approved",
+                **({"approved_artifacts": manifest if bound else None,
+                    "artifact_review_required": decision == "approved" and not bound} if package else {}),
+                "decision": decision,
+                "approved": not reason and decision == "approved" and (not package or bound),
                 "approval_id": str(approval.id) if approval else None}
 
     def write(self, domain, snapshot, result, *, revision=False):
@@ -130,7 +137,8 @@ class Campaigns:
         )
         return self._view(uow, brand, run)
 
-    def decide(self, domain, run_id, decision):
+    def decide(self, domain, run_id, decision, *, artifact_hashes: PosterHashes | None = None,
+               bundle: PreparedCampaignBundle | None = None):
         with self.factory() as uow:
             brand = self._brand(uow, domain, lock=True)
             run = self._latest(uow, brand)
@@ -139,11 +147,39 @@ class Campaigns:
             view = self._view(uow, brand, run)
             if view["reason"]:
                 raise CampaignConflict(view["reason"])
-            if view["decision"] != decision:
+            approving_package = run.output.get("kind") == "SOURCE_CAMPAIGN" and decision == "approved"
+            decision_args = {}
+            if approving_package:
+                if not artifact_hashes:
+                    raise CampaignConflict("POSTER_PREVIEWS_REQUIRED")
+                if view["approved"]:
+                    if artifact_hashes != view["approved_artifacts"]["poster_sha256"]:
+                        raise CampaignConflict("POSTER_PREVIEW_CHANGED")
+                    return view
+                if (bundle is None or bundle.run_id != run.id or bundle.profile_snapshot_id != brand.current_profile_id
+                        or bundle.manifest["proposal_sha256"] != run.output["sha256"]):
+                    raise CampaignConflict("POSTER_PREVIEWS_REQUIRED")
+                if bundle.previous_approval_id != view["approval_id"]:
+                    raise CampaignConflict("CAMPAIGN_REVIEW_CHANGED")
+                if artifact_hashes != bundle.manifest["poster_sha256"]:
+                    raise CampaignConflict("POSTER_PREVIEW_CHANGED")
+                decision_args = {"approval_id": bundle.approval_id, "artifact_manifest": bundle.manifest,
+                                 "artifact_archive": bundle.archive}
+            if view["decision"] != decision or approving_package:
                 uow.approvals.create_live(brand_id=brand.id, run_id=run.id, actor_id=self.actor,
-                                          subject_kind="campaign", decision=decision)
+                                          subject_kind="campaign", decision=decision, **decision_args)
                 view = self._view(uow, brand, run)
                 if view["reason"]:
                     raise CampaignConflict(view["reason"])
                 uow.commit()
             return view
+
+    def approved_archive(self, domain, view):
+        with self.factory() as uow:
+            brand = self._brand(uow, domain)
+            data = uow.approvals.campaign_archive(
+                brand_id=brand.id, run_id=UUID(view["run_id"]), approval_id=UUID(view["approval_id"]),
+            )
+        if data is None or sha256(data).hexdigest() != view["approved_artifacts"].get("archive_sha256"):
+            raise CampaignConflict("APPROVED_ARTIFACT_CORRUPT")
+        return data

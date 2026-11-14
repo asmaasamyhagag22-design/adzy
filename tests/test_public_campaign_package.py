@@ -1,8 +1,11 @@
 """Isolated faults on the campaign HTTP and compositor boundaries."""
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+from io import BytesIO
 import json
 from pathlib import Path
 from uuid import uuid4
+from zipfile import ZipFile
 
 import pytest
 
@@ -16,7 +19,20 @@ CASE = Path(__file__).resolve().parents[1] / "docs/campaigns/firefox/brief.json"
 
 
 @pytest.fixture
-def campaign(application):
+def fake_campaign_renderer(tmp_path, monkeypatch):
+    from poster import campaign_package
+
+    monkeypatch.setenv("BASEERA_WEBAPP_DIR", str(tmp_path / "webapp"))
+
+    def render(package, size, _path):
+        image = f"{size}:{package['copy']['headline']}".encode()
+        return image, {"sha256": sha256(image).hexdigest()}
+
+    monkeypatch.setattr(campaign_package, "render_poster", render)
+
+
+@pytest.fixture
+def campaign(application, fake_campaign_renderer):
     from api.routes.v2_campaigns import get_clock, get_package_loader
 
     client, headers, service, _, data, app = application
@@ -51,8 +67,23 @@ def create(request, spec, expected=None):
     return response.json()
 
 
-def approve(request, view):
-    return request("POST", "/review", {"run_id": view["run_id"], "decision": "approved"})
+def review_body(view):
+    return {"run_id": view["run_id"], "decision": "approved"}
+
+
+def preview_hashes(request, view, prefix=""):
+    hashes = {}
+    for size in ("portrait", "square"):
+        response = request("GET", f"{prefix}/package/preview?size={size}&run_id={view['run_id']}")
+        assert response.status_code == 200, response.text
+        hashes[size] = sha256(response.content).hexdigest()
+        assert hashes[size] == response.headers["X-Poster-SHA256"]
+    return hashes
+
+
+def approve(request, view, prefix="", *, hashes=None):
+    hashes = hashes if hashes is not None else preview_hashes(request, view, prefix)
+    return request("POST", prefix + "/review", {**review_body(view), "artifact_sha256": hashes})
 
 
 @pytest.mark.parametrize("failure", ["source_changed", "source_unavailable"])
@@ -77,40 +108,41 @@ def test_evidence_change_hides_prior_export_and_requires_fresh_approval(campaign
         "SOURCE_UNAVAILABLE" if failure == "source_unavailable" else "QUOTE_NOT_FOUND"
     )
     assert request("GET", prior).status_code == 409
-    assert approve(request, revised).status_code == 409
+    assert request("POST", "/review", review_body(revised)).status_code == 409
 
 
 def test_expiry_and_concurrent_approval_invalidate_export(campaign, monkeypatch):
-    from poster import campaign_package
+    from db.campaign_v2 import Campaigns
 
     request, spec, _, control, _ = campaign
     first = create(request, spec)
-    assert approve(request, first).json()["approved"]
+    hashes = preview_hashes(request, first)
+    assert approve(request, first, hashes=hashes).json()["approved"]
 
-    def reject_during_render(view, root):
+    def reject_during_read(self, domain, view):
         reject = request("POST", "/review", {"run_id": view["run_id"], "decision": "rejected"})
         assert reject.status_code == 200 and not reject.json()["approved"]
         return b"should never be delivered"
 
-    monkeypatch.setattr(campaign_package, "export_package", reject_during_render)
+    monkeypatch.setattr(Campaigns, "approved_archive", reject_during_read)
     path = "/package/export?run_id=" + first["run_id"]
     blocked = request("GET", path)
     assert blocked.status_code == 409
     assert blocked.json()["detail"]["code"] == "CURRENT_PACKAGE_APPROVAL_REQUIRED"
-    assert approve(request, first).json()["approved"]
+    assert approve(request, first, hashes=hashes).json()["approved"]
 
-    def reapprove_during_render(view, root):
-        reject_during_render(view, root)
-        assert approve(request, first).json()["approval_id"] != view["approval_id"]
+    def reapprove_during_read(self, domain, view):
+        reject_during_read(self, domain, view)
+        assert approve(request, first, hashes=hashes).json()["approval_id"] != view["approval_id"]
         return b"should never be delivered"
 
-    monkeypatch.setattr(campaign_package, "export_package", reapprove_during_render)
+    monkeypatch.setattr(Campaigns, "approved_archive", reapprove_during_read)
     blocked = request("GET", path)
     assert blocked.status_code == 409
     assert blocked.json()["detail"]["code"] == "CURRENT_PACKAGE_APPROVAL_REQUIRED"
     control["time"] += timedelta(days=7)
     assert request("GET").json()["reason"] == "SOURCE_RECHECK_REQUIRED"
-    assert approve(request, first).status_code == 409
+    assert approve(request, first, hashes=hashes).status_code == 409
     refreshed = request("POST", "/refresh", {"run_id": first["run_id"]}).json()
     assert refreshed["run_id"] != first["run_id"] and not refreshed["approved"]
     assert approve(request, refreshed).json()["approved"]
@@ -160,6 +192,7 @@ package["direction"] = "ltr"
 image, report = render_poster(package, "square", Path(sys.argv[2]) / "square.png")
 assert image.startswith(bytes.fromhex("89504e470d0a1a0a"))
 assert report["geometry"][-1]["bottom"] <= 1020
+assert report["renderer"]["chromium"] and len(report["renderer"]["html_sha256"]) == 64
 """
     subprocess.run([sys.executable, "-c", script, str(CASE), str(tmp_path)], check=True,
                    cwd=CASE.parents[3], timeout=20)
@@ -208,14 +241,124 @@ def test_cached_bytes_survive_renderer_change_and_detect_corruption(monkeypatch,
     assert campaign_package.preview_poster(view, "square", tmp_path) == b"first-render"
     assert campaign_package.preview_poster(view, "square", tmp_path) == b"first-render"
     assert calls == ["square"]
-    view.update(approval_id=str(uuid4()), profile_snapshot_id=str(uuid4()))
-    first_archive = campaign_package.export_package(view, tmp_path)
-    assert campaign_package.export_package(view, tmp_path) == first_archive
+    view.update(approval_id=None, profile_snapshot_id=str(uuid4()))
+    expected = {size: sha256(b"first-render").hexdigest() for size in ("portrait", "square")}
+    with pytest.raises(campaign_package.PosterLayoutError, match="POSTER_PREVIEWS_REQUIRED"):
+        campaign_package.prepare_approval(view, tmp_path, expected)
+    assert campaign_package.preview_poster(view, "portrait", tmp_path) == b"first-render"
+    prepared = campaign_package.prepare_approval(view, tmp_path, expected)
+    assert campaign_package.approved_preview(prepared.archive, "square") == b"first-render"
     assert calls == ["square", "portrait"]
-    (tmp_path / run_id / proposal_sha / "square.zip").write_bytes(b"invalid")
+    campaign_package.poster_path(view, "square", tmp_path).write_bytes(b"invalid")
     with pytest.raises(campaign_package.PosterLayoutError, match="POSTER_ARTIFACT_CORRUPT"):
         campaign_package.preview_poster(view, "square", tmp_path)
     assert calls == ["square", "portrait"]
+
+
+def test_both_preview_hashes_are_required_and_bound_to_saved_zip(campaign):
+    request, spec, _, _, _ = campaign
+    draft = create(request, spec)
+    before_previews = request("POST", "/review", review_body(draft))
+    assert before_previews.status_code == 409
+    assert before_previews.json()["detail"]["code"] == "POSTER_PREVIEWS_REQUIRED"
+    invented_hashes = {"portrait": "0" * 64, "square": "1" * 64}
+    missing = approve(request, draft, hashes=invented_hashes)
+    assert missing.status_code == 409 and missing.json()["detail"]["code"] == "POSTER_PREVIEWS_REQUIRED"
+
+    hashes = preview_hashes(request, draft)
+    mismatch = approve(request, draft, hashes=invented_hashes)
+    assert mismatch.status_code == 409 and mismatch.json()["detail"]["code"] == "POSTER_PREVIEW_CHANGED"
+    approved = approve(request, draft, hashes=hashes).json()
+    duplicate = approve(request, draft, hashes=hashes).json()
+    assert duplicate["approval_id"] == approved["approval_id"]
+    data = request("GET", "/package/export?run_id=" + draft["run_id"]).content
+    with ZipFile(BytesIO(data)) as bundle:
+        receipt = json.loads(bundle.read("campaign.json"))
+        assert {size: sha256(bundle.read(f"poster-{size}.png")).hexdigest() for size in hashes} == hashes
+    manifest = approved["approved_artifacts"]
+    assert receipt["approval_id"] == approved["approval_id"]
+    assert receipt["approved_artifacts"]["poster_sha256"] == manifest["poster_sha256"] == hashes
+    assert manifest["archive_sha256"] == sha256(data).hexdigest()
+
+
+def test_approval_survives_cache_loss_and_rejects_corrupt_saved_bytes(campaign, monkeypatch):
+    from shutil import rmtree
+    from uuid import UUID
+
+    from api.user_auth import webapp_dir
+    from db.models import Approval
+
+    request, spec, _, _, service = campaign
+    draft = create(request, spec)
+    hashes = preview_hashes(request, draft)
+    approval = approve(request, draft, hashes=hashes).json()
+    export = "/package/export?run_id=" + draft["run_id"]
+    initial = request("GET", export)
+    assert initial.status_code == 200
+
+    rmtree(webapp_dir() / "campaign-posters")
+
+    def unexpected_render(*args, **kwargs):
+        pytest.fail("Approved bytes must never be rendered again")
+
+    monkeypatch.setattr("poster.campaign_package.render_poster", unexpected_render)
+    assert preview_hashes(request, draft) == hashes
+    restored = request("GET", export)
+    assert restored.content == initial.content
+    assert approve(request, draft, hashes=hashes).json()["approval_id"] == approval["approval_id"]
+
+    with service._uow_factory() as uow:
+        row = uow.session.get(Approval, UUID(approval["approval_id"]))
+        row.artifact_archive = initial.content[:-1] + bytes([initial.content[-1] ^ 1])
+        uow.commit()
+    for endpoint in (export, "/package/preview?size=square&run_id=" + draft["run_id"]):
+        blocked = request("GET", endpoint)
+        assert blocked.status_code == 409
+        assert blocked.json()["detail"]["code"] == "APPROVED_ARTIFACT_CORRUPT"
+
+
+def test_historical_approval_needs_fresh_preview_and_keeps_the_original_record(campaign):
+    from uuid import UUID
+
+    from db.models import Approval, Run
+
+    request, spec, _, _, service = campaign
+    draft = create(request, spec)
+    run_id = UUID(draft["run_id"])
+    with service._uow_factory() as uow:
+        run = uow.session.get(Run, run_id)
+        original = uow.approvals.create_live(
+            brand_id=run.brand_id, run_id=run_id, actor_id=run.created_by_user_id, subject_kind="campaign",
+        )
+        uow.commit()
+    status = request("GET").json()
+    assert not status["approved"] and status["artifact_review_required"]
+    assert status["decision"] == "approved"
+    assert request("GET", "/package/export?run_id=" + draft["run_id"]).status_code == 409
+    current = approve(request, draft).json()
+    assert current["approved"] and current["approval_id"] != str(original.id)
+    with service._uow_factory() as uow:
+        assert uow.session.get(Approval, original.id).artifact_manifest is None
+
+
+def test_rejection_during_new_approval_preparation_is_not_overwritten(campaign, monkeypatch):
+    from poster import campaign_package
+
+    request, spec, _, _, _ = campaign
+    draft = create(request, spec)
+    hashes = preview_hashes(request, draft)
+    prepare = campaign_package.prepare_approval
+
+    def reject_before_commit(*args):
+        candidate = prepare(*args)
+        response = request("POST", "/review", {"run_id": draft["run_id"], "decision": "rejected"})
+        assert response.status_code == 200
+        return candidate
+
+    monkeypatch.setattr(campaign_package, "prepare_approval", reject_before_commit)
+    late = approve(request, draft, hashes=hashes)
+    assert late.status_code == 409 and late.json()["detail"]["code"] == "CAMPAIGN_REVIEW_CHANGED"
+    assert request("GET").json()["decision"] == "rejected"
 
 
 def test_scene_export_rejects_bytes_that_differ_from_the_brief(monkeypatch, tmp_path):

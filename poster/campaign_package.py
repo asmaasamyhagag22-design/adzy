@@ -8,14 +8,18 @@ import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from uuid import UUID, uuid4
 from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile, ZipInfo
 
 from poster.campaign_catalog import CATALOG_CSS, INGREDIENT_CSS, INGREDIENT_DRAWINGS, INGREDIENT_LAYOUTS, catalog_cards
 from poster.campaign_scene import measure_scene, scene_html
 from poster.render_playwright import render_html_to_png
+from strategy.campaign_artifacts import MAX_CAMPAIGN_ARCHIVE_BYTES, PosterHashes, PreparedCampaignBundle
+from strategy.campaign_package import digest
 
 
 SIZES = {"portrait": (1080, 1350), "square": (1080, 1080)}
+DRAFT_CACHE_VERSION = "preview-v2"
 THEMES = {
     "ember": ("#321517", "#fff4dc", "#ffbb5e", "#8d3834", "#fc8057"),
     "cobalt": ("#130d36", "#fff7ef", "#ffc983", "#5829a5", "#bc91ff"),
@@ -193,6 +197,7 @@ def render_poster(package, label, path):
             raise PosterLayoutError("POSTER_LAYOUT_UNAVAILABLE")
     width, height = SIZES[label]
     geometry = []
+    runtime = {}
     try:
         if scene:
             fonts = tuple(font_data(name) for name in (
@@ -205,19 +210,27 @@ def render_poster(package, label, path):
     except (ValueError, KeyError, FileNotFoundError) as exc:
         raise PosterLayoutError("POSTER_SCENE_UNAVAILABLE") from exc
     validate = measure_scene if scene else layout_poster
+
+    def capture_layout(page):
+        geometry.extend(validate(page, width, height))
+        runtime["chromium"] = page.context.browser.version
+
     try:
         render_html_to_png(html, path, width=width, height=height, scale=1, offline=True,
-                           validate=lambda page: geometry.extend(validate(page, width, height)))
+                           validate=capture_layout)
     except ValueError as exc:
         raise PosterLayoutError(str(exc)) from exc
     image = path.read_bytes()
     return image, {"width": width, "height": height, "sha256": sha256(image).hexdigest(),
-                   "geometry": geometry}
+                   "geometry": geometry, "renderer": {**runtime, "html_sha256": sha256(html.encode()).hexdigest()}}
 
 
 def read_poster(path):
     try:
         with ZipFile(path) as asset:
+            if (asset.getinfo("poster.png").file_size > MAX_CAMPAIGN_ARCHIVE_BYTES or
+                    asset.getinfo("measurements.json").file_size > 1024 * 1024):
+                raise ValueError("Poster archive exceeds its size limit")
             image = asset.read("poster.png")
             measurements = json.loads(asset.read("measurements.json"))
         if sha256(image).hexdigest() != measurements["sha256"]:
@@ -227,18 +240,22 @@ def read_poster(path):
     return image, measurements
 
 
-def stored_poster(view, size, root):
+def poster_path(view, size, root):
     result = view["proposal"]
-    directory = root / view["run_id"] / result["sha256"]
+    return root / DRAFT_CACHE_VERSION / view["run_id"] / result["sha256"] / f"{size}.zip"
+
+
+def stored_poster(view, size, root):
+    path = poster_path(view, size, root)
+    directory = path.parent
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{size}.zip"
     try:
         return read_poster(path)
     except FileNotFoundError:
         pass
     with TemporaryDirectory(prefix="render-", dir=directory) as work:
         work = Path(work)
-        image, measurements = render_poster(result["package"], size, work / "poster.png")
+        image, measurements = render_poster(view["proposal"]["package"], size, work / "poster.png")
         candidate = work / "asset.zip"
         with ZipFile(candidate, "w") as asset:
             asset.writestr("poster.png", image)
@@ -256,19 +273,51 @@ def preview_poster(view, size, root):
     return image
 
 
-def export_package(view, root):
+def prepare_approval(view, root, expected: PosterHashes) -> PreparedCampaignBundle:
+    assets = {}
+    try:
+        for label in SIZES:
+            assets[label] = read_poster(poster_path(view, label, root))
+    except FileNotFoundError as exc:
+        raise PosterLayoutError("POSTER_PREVIEWS_REQUIRED") from exc
+    poster_hashes = {label: report["sha256"] for label, (_, report) in assets.items()}
+    if poster_hashes != expected:
+        raise PosterLayoutError("POSTER_PREVIEW_CHANGED")
+    if sum(len(image) for image, _ in assets.values()) >= MAX_CAMPAIGN_ARCHIVE_BYTES:
+        raise PosterLayoutError("CAMPAIGN_ARCHIVE_TOO_LARGE")
+    manifest = {
+        "version": 1,
+        "proposal_sha256": view["proposal"]["sha256"],
+        "poster_sha256": poster_hashes,
+        "measurements_sha256": {label: digest(report) for label, (_, report) in assets.items()},
+    }
+    approval_id = uuid4()
     result = view["proposal"]
     archive = BytesIO()
-    report = {}
     with ZipFile(archive, "w") as zip_file:
-        for label in SIZES:
-            image, report[label] = stored_poster(view, label, root)
+        for label, (image, _) in assets.items():
             zip_file.writestr(ZipInfo(f"poster-{label}.png"), image)
         zip_file.writestr(ZipInfo("campaign.json"), json.dumps(
-            {"run_id": view["run_id"], "approval_id": view["approval_id"],
+            {"run_id": view["run_id"], "approval_id": str(approval_id),
              "profile_snapshot_id": view["profile_snapshot_id"], "proposal": result,
-             "poster_measurements": report, "review_status": "LOCAL_REVIEW",
+             "poster_measurements": {label: report for label, (_, report) in assets.items()},
+             "approved_artifacts": manifest, "review_status": "LOCAL_REVIEW",
              **({"video": "SCRIPT_AND_STORYBOARD_ONLY"} if result["package"].get("storyboard") else {})},
             indent=2, ensure_ascii=False, sort_keys=True,
         ), compress_type=ZIP_DEFLATED)
-    return archive.getvalue()
+    data = archive.getvalue()
+    if len(data) > MAX_CAMPAIGN_ARCHIVE_BYTES:
+        raise PosterLayoutError("CAMPAIGN_ARCHIVE_TOO_LARGE")
+    return PreparedCampaignBundle(
+        run_id=UUID(view["run_id"]), profile_snapshot_id=UUID(view["profile_snapshot_id"]),
+        previous_approval_id=view["approval_id"], approval_id=approval_id,
+        manifest={**manifest, "archive_sha256": sha256(data).hexdigest()}, archive=data,
+    )
+
+
+def approved_preview(archive, size):
+    try:
+        with ZipFile(BytesIO(archive)) as bundle:
+            return bundle.read(f"poster-{size}.png")
+    except (BadZipFile, KeyError) as exc:
+        raise PosterLayoutError("APPROVED_ARTIFACT_CORRUPT") from exc

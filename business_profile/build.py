@@ -24,6 +24,7 @@ Typical usage:
     )
 """
 from __future__ import annotations
+from business_profile.llm.caller import format_cost
 
 import hashlib
 import json
@@ -225,8 +226,8 @@ def build_profile(
                  tokens_out=llm_result.total_output_tokens,
                  note=f"{llm_result.total_calls}/4 calls ok")
     logger.info(
-        "LLM extraction: %d/4 calls ok, $%.4f, %d input + %d output tokens",
-        llm_result.total_calls, llm_result.total_cost_usd,
+        "LLM extraction: %d/4 calls ok, cost=%s, %d input + %d output tokens",
+        llm_result.total_calls, format_cost(llm_result.total_cost_usd),
         llm_result.total_input_tokens, llm_result.total_output_tokens,
     )
 

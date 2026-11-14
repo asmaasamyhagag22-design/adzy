@@ -52,7 +52,7 @@ class Writing:
 def writing_for(fact, action, language):
     quote = fact["quote"]
     context = fact.get("context", quote)
-    if re.search(r"\b(?:only|except|until|some regions|eligible|when enabled|if enabled|does not|no longer)\b|[$€£]", context, re.I):
+    if fact.get("anchor", {}).get("qualifications") or re.search(r"\b(?:only|except|until|some regions|eligible|when enabled|if enabled|does not|no longer)\b|[$€£]", context, re.I):
         return None
     ar = language.split("-")[0] == "ar"
     if re.fullmatch(r"[\w® .-]{2,48} blocks thousands of known trackers (?:before they can follow you around the web|while you browse(?: the web)?)\.", quote, re.I) and not re.search(

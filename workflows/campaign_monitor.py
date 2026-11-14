@@ -2,9 +2,13 @@
 import argparse
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 import json
 from math import ceil
 from pathlib import Path
+from urllib.parse import urlsplit
+
+import httpx
 
 from workflows.campaign_telemetry import LOG_PREFIX, MODES, STAGES, TIMEOUTS
 
@@ -62,14 +66,31 @@ def report(rows, *, end):
                            "threshold": SIZE_ALERT_MIN_RUNS, "runs": len(oversized), "trace_ids": oversized})
     return {
         "schema": "adzy.campaign-monitor@1", "start": start.isoformat(), "end": end.isoformat(),
+        "telemetry_state": "OBSERVED" if groups else "NO_EVENTS_IN_WINDOW",
         "minimum_latency_samples": MIN_LATENCY_SAMPLES, "metrics": metrics, "alerts": alerts,
     }
+
+
+def deliver_alerts(alerts, receiver):
+    target = urlsplit(receiver)
+    if (target.scheme != "http" or target.hostname != "127.0.0.1" or target.username is not None
+            or target.port is None or target.query or target.fragment):
+        raise ValueError("alert receiver must be an explicit loopback HTTP URL")
+    receipts = []
+    with httpx.Client(timeout=3, trust_env=False, follow_redirects=False) as client:
+        for alert in alerts:
+            identity = sha256(json.dumps(alert, sort_keys=True).encode()).hexdigest()
+            response = client.post(receiver, json=alert, headers={"Idempotency-Key": identity})
+            response.raise_for_status()
+            receipts.append({"id": identity, "http_status": response.status_code})
+    return receipts
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=Path, nargs="+")
     parser.add_argument("--end", type=datetime.fromisoformat, help="ISO 8601 timestamp for a historical window")
+    parser.add_argument("--local-receiver", help="Deliver alerts to a loopback HTTP receiver")
     args = parser.parse_args()
     end = args.end or datetime.now(timezone.utc)
     if end.utcoffset() is None:
@@ -78,7 +99,13 @@ def main():
     for path in args.log:
         with path.open(encoding="utf-8") as source:
             rows.extend(events(source))
-    print(json.dumps(report(rows, end=end), indent=2))
+    result = report(rows, end=end)
+    if args.local_receiver:
+        try:
+            result["delivery"] = deliver_alerts(result["alerts"], args.local_receiver)
+        except (ValueError, httpx.HTTPError) as exc:
+            parser.exit(1, f"Alert delivery failed ({type(exc).__name__})\n")
+    print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":

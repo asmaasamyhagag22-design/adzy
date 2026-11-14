@@ -209,8 +209,15 @@ def test_cost_for_dated_model():
     assert cost == pytest_approx(0.00015 + 0.0003)
 
 
-def test_cost_for_unknown_model_returns_zero():
-    assert _cost_for("some-other-model", 1000, 500) == 0.0
+def test_unpriced_models_keep_usage_and_leave_aggregate_unknown():
+    for name in ("some-other-model", "gemini-2.5-flash-image"):
+        result = run_llm_extraction(_small_pack(), MockCaller(
+            _staged_responses(), model=name, input_tokens=1000, output_tokens=300,
+        ))
+        assert result.total_cost_usd is None
+        assert result.total_calls == 4 and result.total_failed == 0
+        assert result.total_input_tokens == 4000 and result.total_output_tokens == 1200
+        assert all(group.usage.cost_usd is None for group in result.all_groups)
 
 
 def test_default_caller_models_are_in_the_pricing_table(monkeypatch):
@@ -508,6 +515,7 @@ def test_run_llm_extraction_partial_failure_continues():
     result = run_llm_extraction(pack, mock)
     assert result.total_calls == 3  # 3 succeeded
     assert result.total_failed == 1
+    assert result.total_cost_usd is None
     assert result.identity.ok
     assert not result.offerings.ok
     assert "simulated failure" in (result.offerings.error or "")

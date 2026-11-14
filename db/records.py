@@ -125,6 +125,7 @@ class ApprovalRecord:
     imported_at: datetime | None
     subject_kind: str = "swot"
     note: str | None = None
+    artifact_manifest: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

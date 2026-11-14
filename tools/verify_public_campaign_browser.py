@@ -24,11 +24,17 @@ def unpack(download, destination, state):
         report = json.loads(archive.read("campaign.json"))
         assert report["run_id"] == state["run_id"] and report["approval_id"] == state["approval_id"]
         assert report["proposal"]["sha256"] == state["proposal"]["sha256"]
+        bound = state["approved_artifacts"]
+        assert bound["archive_sha256"] == sha256(archive_bytes).hexdigest()
+        assert report["approved_artifacts"] == {key: value for key, value in bound.items() if key != "archive_sha256"}
         for label, height in (("portrait", 1350), ("square", 1080)):
             name = f"poster-{label}.png"
             image = archive.read(name)
             assert Image.open(io.BytesIO(image)).size == (1080, height)
             assert sha256(image).hexdigest() == report["poster_measurements"][label]["sha256"]
+            assert sha256(image).hexdigest() == report["approved_artifacts"]["poster_sha256"][label]
+            renderer = report["poster_measurements"][label]["renderer"]
+            assert renderer["chromium"] and len(renderer["html_sha256"]) == 64
             (destination / name).write_bytes(image)
     (destination / "campaign.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     (destination / "campaign.zip").write_bytes(archive_bytes)
@@ -278,24 +284,33 @@ def main():
                             visited_destination = {"url": destination.url,
                                                    "visible_text": case.get("destination_visible_text", [])}
                             destination.close()
-                    previews = {}
-                    for size in ("portrait", "square"):
-                        with page.expect_response(lambda response: response.url.endswith("&size=" + size)) as preview:
-                            page.locator(f"[data-v2-preview='{size}']").click()
-                        assert preview.value.ok, preview.value.text()
-                        poster = page.locator("#v2-poster-preview img").and_(page.get_by_alt_text(
-                            "البوستر الطولي" if size == "portrait" else "البوستر المربّع", exact=True,
-                        ))
-                        expect(poster).to_be_visible()
-                        url = poster.get_attribute("src")
-                        assert url.startswith("data:image/png;base64,")
-                        previews[size] = sha256(b64decode(url.split(",", 1)[1])).hexdigest()
-                        if initial["proposal"].get("planner", {}).get("edition"):
-                            page.set_viewport_size({"width": 390, "height": 844})
-                            assert page.evaluate("document.documentElement.scrollWidth") <= 390
-                            poster.screenshot(path=str(target / f"recommended-{size}-mobile.png"))
-                            page.set_viewport_size({"width": 1440, "height": 1000})
-                    page.click("#v2-approve")
+                    def preview_and_approve(*, capture_mobile=False):
+                        approve = page.locator("#v2-approve")
+                        previews = {}
+                        for size, alternate_text in (("portrait", "البوستر الطولي"), ("square", "البوستر المربّع")):
+                            expect(approve).to_be_disabled()
+                            with page.expect_response(lambda response: response.url.endswith("&size=" + size)) as preview:
+                                page.locator(f"[data-v2-preview='{size}']").click()
+                            assert preview.value.ok, preview.value.text()
+                            poster = page.get_by_alt_text(alternate_text, exact=True)
+                            expect(poster).to_be_visible()
+                            url = poster.get_attribute("src")
+                            assert url.startswith("data:image/png;base64,")
+                            previews[size] = sha256(b64decode(url.split(",", 1)[1])).hexdigest()
+                            assert previews[size] == preview.value.header_value("x-poster-sha256")
+                            if capture_mobile:
+                                page.set_viewport_size({"width": 390, "height": 844})
+                                assert page.evaluate("document.documentElement.scrollWidth") <= 390
+                                poster.screenshot(path=str(target / f"recommended-{size}-mobile.png"))
+                                page.set_viewport_size({"width": 1440, "height": 1000})
+                        with page.expect_response(lambda response: response.url.endswith(api_path + "/review")) as decision:
+                            approve.click()
+                        assert decision.value.ok, decision.value.text()
+                        assert decision.value.request.post_data_json["artifact_sha256"] == previews
+                        assert decision.value.json()["approved_artifacts"]["poster_sha256"] == previews
+                        return previews
+
+                    previews = preview_and_approve(capture_mobile=bool(initial["proposal"].get("planner", {}).get("edition")))
 
                     def download(dest):
                         dest.mkdir(exist_ok=True)
@@ -328,13 +343,15 @@ def main():
                             assert alternate_destination == case["alternate_destination"]
                         else:
                             assert alternate_destination != case["destination"]
-                        page.click("#v2-approve")
+                        alternative_previews = preview_and_approve()
                         alternative_hashes = download(target / "alternative")
+                        assert alternative_hashes == alternative_previews
                         assert all(alternative_hashes[k] != initial_hashes[k] for k in alternative_hashes)
                         page.locator(f"[data-v2-direction='{initial["proposal"]["brief"]["selected"]}']").click()
                         expect(page.locator("#v2-approve")).to_be_visible()
-                    page.click("#v2-approve")
+                    final_previews = preview_and_approve()
                     hashes = download(target)
+                    assert hashes == final_previews
                     if plans is not None and case.get("restore_recommended"):
                         assert hashes == initial_hashes
                     else:

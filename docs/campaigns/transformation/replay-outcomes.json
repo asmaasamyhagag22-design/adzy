@@ -1,0 +1,4655 @@
+{
+  "baseline": {
+    "schema": "adzy.campaign-eval-result@1",
+    "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+    "started_at": "2026-11-14T17:50:09.913783+00:00",
+    "mode": "offline_replay",
+    "results": {
+      "stable": [
+        {
+          "case_id": "buffalo-menu",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "15d58cf5bd70ccd824cd582327e5022e1c3ec0db8c4f411e61a167e4cd792f81",
+            "edition_file_id": "53b896dddbc9f6d09b5004c5f70614ad60d4ebd0a344926babf5002a3ed7ae07"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "editorial-campaign@1",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": "6a3f45863d9676554efce1f8eb3e1b340bfd45e66cebfb136a0d9948ad148582",
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "da303a59b4176224c4201a513ba194e7",
+          "elapsed_ms": 33.246,
+          "fetch": [
+            "QUOTE_OBSERVED",
+            "QUOTE_OBSERVED",
+            "QUOTE_OBSERVED",
+            "QUOTE_OBSERVED"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "عنوان صفحة المنيو الرسمية",
+              "quote": "قائمة بافلو برجر",
+              "page_url": "https://buffaloburger.com/menu",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "82439b02324bf88df9dcc0047fcbf0096ba6ccf45ed0bddf444ca463c99b6975"
+            },
+            {
+              "scope": "وصف أولد سكول من بطاقة مشاركة صفحة الصنف",
+              "quote": "Pure beef burger patty, topped with our signature Buffalo sauce and cheddar cheese.",
+              "page_url": "https://buffaloburger.com/menu/old-school",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "0a70ee0c64cacc6703a6891aca25b8539fb660b4998486a500bf2c52a87f792c"
+            },
+            {
+              "scope": "وصف راستافاري من بطاقة مشاركة صفحة الصنف",
+              "quote": "بايتس الجبنة الشيدر المحشوه بالهالپنيو وصوص البافالو الكريمي و مع قطعة البرجر.",
+              "page_url": "https://buffaloburger.com/menu/the-rastafari",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "a55a9f865a9b386f7e3545c99fb3921248ead2e7c143556f852fb679763c68d7"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": null,
+          "writing_context_sha256": "a03d232d61e4d7493930eee611052234d538832b4b93f6ef2f183a5ea7f4c97b",
+          "journey": "READY",
+          "cta": {
+            "url": "https://buffaloburger.com/menu",
+            "evidence_index": 0,
+            "text": "شوف المنيو",
+            "action": "OPEN_CATALOG"
+          },
+          "edits": [
+            {
+              "id": "shared-sauce-registered",
+              "field": "message",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "الاتنين فيهم صوص بافالو.",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "shared-sauce-unregistered",
+              "field": "message",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "whole-menu-jalapeno",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 4,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "five-guys-bacon",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "6270a602411f1d60b85f673a0a128d5d1d906785eaf1003cdb316ad7fbb11d67"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "78e71e390ab1bc14b97c00368112eaf5",
+          "elapsed_ms": 23.859,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Bacon Burger",
+              "quote": "Fresh, 100% beef patties hot off the grill, layered with strips of crispy Applewood smoked bacon and placed on a soft, toasted sesame seed bun.",
+              "page_url": "https://www.fiveguys.com/menu/burgers/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "d2af53a07c62810586cb020daeeebf8dec361ef4de057da035bd6681ad521a68"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "8358791ec5964a158ec40b1a20fe6acab6f3af64eb80d5698e60315982342b27",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.fiveguys.com/menu/burgers/",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "wrong-variant",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "order-promise",
+              "field": "cta",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nandos-wrap",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "92aaf397f72f8684824b4b712bb2d46ed805b3ccac66e6420d954e2d79052e51"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "c13da395fc5667124ef2cd3e11780a79",
+          "elapsed_ms": 21.234,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Grilled Chicken Wrap",
+              "quote": "Chicken breast grilled in your favourite spice.",
+              "page_url": "https://www.nandos.co.uk/food/menu/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "7a309409247ecf1da42448fa46d1832f220748edcdf30d367c27eb514a877b24"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "4d3d7924cdadd5e5cfc073fc84e8d848379673640de7ccecd6fd62796c850c51",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.nandos.co.uk/food/menu/",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "verbatim-heading",
+              "field": "headline",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "unsupported-price",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nandos-page-cap",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "92aaf397f72f8684824b4b712bb2d46ed805b3ccac66e6420d954e2d79052e51"
+          },
+          "source_mode": "simulated_transport",
+          "simulated_transport": "oversize_html",
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "51fc9207082a7b98c3d72642dfc1c7a0",
+          "elapsed_ms": 15.244,
+          "fetch": [
+            "PAGE_TOO_LARGE"
+          ],
+          "source_failed": true,
+          "stop": "NO_MORE_RELEVANT_SOURCES",
+          "gap": "FEATURE_EVIDENCE",
+          "evidence_match": null,
+          "evidence": [],
+          "cta_match": null,
+          "cta_copy_match": null,
+          "writing_context_sha256": null,
+          "journey": "BLOCKED",
+          "cta": null,
+          "edits": [],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nandos-timeout",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "92aaf397f72f8684824b4b712bb2d46ed805b3ccac66e6420d954e2d79052e51"
+          },
+          "source_mode": "simulated_transport",
+          "simulated_transport": "socket_timeout",
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "60597efb18664eba29374b58e2d7e1ed",
+          "elapsed_ms": 4.312,
+          "fetch": [
+            "SOURCE_TIMEOUT"
+          ],
+          "source_failed": true,
+          "stop": "NO_MORE_RELEVANT_SOURCES",
+          "gap": "FEATURE_EVIDENCE",
+          "evidence_match": null,
+          "evidence": [],
+          "cta_match": null,
+          "cta_copy_match": null,
+          "writing_context_sha256": null,
+          "journey": "BLOCKED",
+          "cta": null,
+          "edits": [],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "python-applications",
+          "split": "generalization",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "76df220804082404ecf0c9d0a0e2c4c20ec07491f5ad59cdde21c95a6ca8c597"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "120f4e90dff6940831acd47df4920631",
+          "elapsed_ms": 12.262,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Applications",
+              "quote": "The Python Package Index (PyPI) hosts thousands of third-party modules for Python.",
+              "page_url": "https://www.python.org/about/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "4739cc39d7deaad1540d9387f9ee8944063921d24b4e133e7f18c5f7e044f20f"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": null,
+          "writing_context_sha256": "aa39643a57d4b29ae6359b6a9120bd4b8f12ecba2282219af7610faaab7fd049",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.python.org/about/",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "all-modules-verified",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "osm-local-knowledge",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "45a8bb8a7dd02f76f520d62db20bd83d1cb10e13e931399e291b00d7aaaf8720"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "885bee224aeb4729fd79f4486e631e2d",
+          "elapsed_ms": 12.863,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Local Knowledge",
+              "quote": "Contributors use aerial imagery, GPS devices, and low-tech field maps to verify that OSM is accurate and up to date.",
+              "page_url": "https://www.openstreetmap.org/about",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "65f78568d179867afe510e56ad35fd25b989b890a4b48c55a68270fba50da5fe"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "dff9fe3b3a1daa26628aa61691dbf9e0594556fc6f9b59fe7d41d890e6628140",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.openstreetmap.org/about",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "verbatim-heading",
+              "field": "headline",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "every-road-verified",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nasa-mars-orbit",
+          "split": "generalization",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "292c7061e201562f9f4210d548245892c5f9758ac7ff5ca3a75ad8f468dd27a5"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "53aea75ecd68e9207f09c0f711dc9acd",
+          "elapsed_ms": 14.82,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Orbit and Rotation",
+              "quote": "As Mars orbits the Sun, it completes one rotation every 24.6 hours, which is very similar to one day on Earth (23.9 hours).",
+              "page_url": "https://science.nasa.gov/mars/facts/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "4d75f5e6eeebbbe1045d241302ebe8b7f98fb7bcb04f7cc4dbf732ce9304144f"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "1c0956826f2dd03e9662fca6264872e14999de366e29ecf477ce7319bf757a13",
+          "journey": "READY",
+          "cta": {
+            "url": "https://science.nasa.gov/mars/facts/",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "gravity-promise",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "debian-hardware",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "0fbd60a22b853cef920396e2a4c6f101f95b85f4a05cc1c6f00859b8117d8685"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "eb97b660cbb047a28e659eadfadb5398",
+          "elapsed_ms": 13.256,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "What hardware is supported?",
+              "quote": "For a complete list of currently supported ones, see the documentation for the stable release .",
+              "page_url": "https://www.debian.org/intro/about",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "f54c31f0afc95c0d72277b7f0960d94e8e8dc303b1a0f2d44ca5e5f3ad9244a2"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "ba8a63c7b3ff58c34b9ebb133310c7c78b488a0269747ec6a312a1241802f69f",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.debian.org/intro/about",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "unsupported-compatibility",
+              "field": "cta",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "sqlite-embedded-sql",
+          "split": "generalization",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "975ffff44d17675fc01e93881268998d35a6e83ccbc714c76b6671b83be795e2"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "d6a36b0e2577925090982fdb278789bd",
+          "elapsed_ms": 14.076,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Executive Summary",
+              "quote": "SQLite is an in-process library that implements a self-contained , serverless , zero-configuration , transactional SQL database engine.",
+              "page_url": "https://www.sqlite.org/about.html",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "7a439332e54667d8df4f3216f020c663da8fafe7c2c63c5d827e1bf96a48a2de"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "72598da3ecffff5e5ab86af68331c53724f4e08ae1092c644433f3a550f9841d",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.sqlite.org/about.html",
+            "evidence_index": 0,
+            "text": "اقرأ الشرح",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "unsupported-sqlite-guarantee",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        }
+      ],
+      "candidate": [
+        {
+          "case_id": "buffalo-menu",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "15d58cf5bd70ccd824cd582327e5022e1c3ec0db8c4f411e61a167e4cd792f81",
+            "edition_file_id": "53b896dddbc9f6d09b5004c5f70614ad60d4ebd0a344926babf5002a3ed7ae07"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "editorial-campaign@1",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": "6a3f45863d9676554efce1f8eb3e1b340bfd45e66cebfb136a0d9948ad148582",
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "4bb18cd7b660c38ddcb7894b788431f4",
+          "elapsed_ms": 18.31,
+          "fetch": [
+            "QUOTE_OBSERVED",
+            "QUOTE_OBSERVED",
+            "QUOTE_OBSERVED",
+            "QUOTE_OBSERVED"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "عنوان صفحة المنيو الرسمية",
+              "quote": "قائمة بافلو برجر",
+              "page_url": "https://buffaloburger.com/menu",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "82439b02324bf88df9dcc0047fcbf0096ba6ccf45ed0bddf444ca463c99b6975"
+            },
+            {
+              "scope": "وصف أولد سكول من بطاقة مشاركة صفحة الصنف",
+              "quote": "Pure beef burger patty, topped with our signature Buffalo sauce and cheddar cheese.",
+              "page_url": "https://buffaloburger.com/menu/old-school",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "0a70ee0c64cacc6703a6891aca25b8539fb660b4998486a500bf2c52a87f792c"
+            },
+            {
+              "scope": "وصف راستافاري من بطاقة مشاركة صفحة الصنف",
+              "quote": "بايتس الجبنة الشيدر المحشوه بالهالپنيو وصوص البافالو الكريمي و مع قطعة البرجر.",
+              "page_url": "https://buffaloburger.com/menu/the-rastafari",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "a55a9f865a9b386f7e3545c99fb3921248ead2e7c143556f852fb679763c68d7"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": null,
+          "writing_context_sha256": "a03d232d61e4d7493930eee611052234d538832b4b93f6ef2f183a5ea7f4c97b",
+          "journey": "READY",
+          "cta": {
+            "url": "https://buffaloburger.com/menu",
+            "evidence_index": 0,
+            "text": "شوف المنيو",
+            "action": "OPEN_CATALOG"
+          },
+          "edits": [
+            {
+              "id": "shared-sauce-registered",
+              "field": "message",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "الاتنين فيهم صوص بافالو.",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "shared-sauce-unregistered",
+              "field": "message",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "whole-menu-jalapeno",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 4,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "five-guys-bacon",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "6270a602411f1d60b85f673a0a128d5d1d906785eaf1003cdb316ad7fbb11d67"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "eaf4927585c649463451354b3a62b7f3",
+          "elapsed_ms": 21.211,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Bacon Burger",
+              "quote": "Fresh, 100% beef patties hot off the grill, layered with strips of crispy Applewood smoked bacon and placed on a soft, toasted sesame seed bun.",
+              "page_url": "https://www.fiveguys.com/menu/burgers/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "d2af53a07c62810586cb020daeeebf8dec361ef4de057da035bd6681ad521a68"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "8358791ec5964a158ec40b1a20fe6acab6f3af64eb80d5698e60315982342b27",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.fiveguys.com/menu/burgers/",
+            "evidence_index": 0,
+            "text": "Explore Bacon Burger",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "wrong-variant",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "Explore Bacon Burger",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "order-promise",
+              "field": "cta",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nandos-wrap",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "92aaf397f72f8684824b4b712bb2d46ed805b3ccac66e6420d954e2d79052e51"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "7cd6c21fa825937a9b750675ef0907f1",
+          "elapsed_ms": 20.268,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Grilled Chicken Wrap",
+              "quote": "Chicken breast grilled in your favourite spice.",
+              "page_url": "https://www.nandos.co.uk/food/menu/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "7a309409247ecf1da42448fa46d1832f220748edcdf30d367c27eb514a877b24"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "4d3d7924cdadd5e5cfc073fc84e8d848379673640de7ccecd6fd62796c850c51",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.nandos.co.uk/food/menu/",
+            "evidence_index": 0,
+            "text": "Explore Grilled Chicken Wrap",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "verbatim-heading",
+              "field": "headline",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "Grilled Chicken Wrap",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "unsupported-price",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "Explore Grilled Chicken Wrap",
+              "reason": null,
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nandos-page-cap",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "92aaf397f72f8684824b4b712bb2d46ed805b3ccac66e6420d954e2d79052e51"
+          },
+          "source_mode": "simulated_transport",
+          "simulated_transport": "oversize_html",
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "00f8cbd0fa2e20f58c3e8db49640fccc",
+          "elapsed_ms": 10.766,
+          "fetch": [
+            "PAGE_TOO_LARGE"
+          ],
+          "source_failed": true,
+          "stop": "NO_MORE_RELEVANT_SOURCES",
+          "gap": "FEATURE_EVIDENCE",
+          "evidence_match": null,
+          "evidence": [],
+          "cta_match": null,
+          "cta_copy_match": null,
+          "writing_context_sha256": null,
+          "journey": "BLOCKED",
+          "cta": null,
+          "edits": [],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nandos-timeout",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "92aaf397f72f8684824b4b712bb2d46ed805b3ccac66e6420d954e2d79052e51"
+          },
+          "source_mode": "simulated_transport",
+          "simulated_transport": "socket_timeout",
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "e34bf4aadb94e65eddd138bbd17fcfa4",
+          "elapsed_ms": 3.62,
+          "fetch": [
+            "SOURCE_TIMEOUT"
+          ],
+          "source_failed": true,
+          "stop": "NO_MORE_RELEVANT_SOURCES",
+          "gap": "FEATURE_EVIDENCE",
+          "evidence_match": null,
+          "evidence": [],
+          "cta_match": null,
+          "cta_copy_match": null,
+          "writing_context_sha256": null,
+          "journey": "BLOCKED",
+          "cta": null,
+          "edits": [],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "python-applications",
+          "split": "generalization",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "76df220804082404ecf0c9d0a0e2c4c20ec07491f5ad59cdde21c95a6ca8c597"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "5ac5902e5e84a7c4dc6bfe20140a3202",
+          "elapsed_ms": 13.103,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Applications",
+              "quote": "The Python Package Index (PyPI) hosts thousands of third-party modules for Python.",
+              "page_url": "https://www.python.org/about/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "4739cc39d7deaad1540d9387f9ee8944063921d24b4e133e7f18c5f7e044f20f"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": null,
+          "writing_context_sha256": "aa39643a57d4b29ae6359b6a9120bd4b8f12ecba2282219af7610faaab7fd049",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.python.org/about/",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "all-modules-verified",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "osm-local-knowledge",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "45a8bb8a7dd02f76f520d62db20bd83d1cb10e13e931399e291b00d7aaaf8720"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "a7ebcf1be6a48585cdc64dda171aebcf",
+          "elapsed_ms": 14.688,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Local Knowledge",
+              "quote": "Contributors use aerial imagery, GPS devices, and low-tech field maps to verify that OSM is accurate and up to date.",
+              "page_url": "https://www.openstreetmap.org/about",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "65f78568d179867afe510e56ad35fd25b989b890a4b48c55a68270fba50da5fe"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "dff9fe3b3a1daa26628aa61691dbf9e0594556fc6f9b59fe7d41d890e6628140",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.openstreetmap.org/about",
+            "evidence_index": 0,
+            "text": "Explore Local Knowledge",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "verbatim-heading",
+              "field": "headline",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "Local Knowledge",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "every-road-verified",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nasa-mars-orbit",
+          "split": "generalization",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "292c7061e201562f9f4210d548245892c5f9758ac7ff5ca3a75ad8f468dd27a5"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "68c64006887661582c6b246ddd187c48",
+          "elapsed_ms": 14.144,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Orbit and Rotation",
+              "quote": "As Mars orbits the Sun, it completes one rotation every 24.6 hours, which is very similar to one day on Earth (23.9 hours).",
+              "page_url": "https://science.nasa.gov/mars/facts/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "4d75f5e6eeebbbe1045d241302ebe8b7f98fb7bcb04f7cc4dbf732ce9304144f"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "1c0956826f2dd03e9662fca6264872e14999de366e29ecf477ce7319bf757a13",
+          "journey": "READY",
+          "cta": {
+            "url": "https://science.nasa.gov/mars/facts/",
+            "evidence_index": 0,
+            "text": "Explore Orbit and Rotation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "Explore Orbit and Rotation",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "gravity-promise",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "debian-hardware",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "0fbd60a22b853cef920396e2a4c6f101f95b85f4a05cc1c6f00859b8117d8685"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "f98389a3e34f6287cf757eeb05cc1d6a",
+          "elapsed_ms": 12.38,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "What hardware is supported?",
+              "quote": "For a complete list of currently supported ones, see the documentation for the stable release .",
+              "page_url": "https://www.debian.org/intro/about",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "f54c31f0afc95c0d72277b7f0960d94e8e8dc303b1a0f2d44ca5e5f3ad9244a2"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "ba8a63c7b3ff58c34b9ebb133310c7c78b488a0269747ec6a312a1241802f69f",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.debian.org/intro/about",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "unsupported-compatibility",
+              "field": "cta",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "sqlite-embedded-sql",
+          "split": "generalization",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "975ffff44d17675fc01e93881268998d35a6e83ccbc714c76b6671b83be795e2"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@2",
+              "sha256": "ea2355ec04ffadf8e8f7176d8413c9a328fdb32e833c0d214b7639c57f0c7ea4",
+              "edition_sha256": null,
+              "edition_implementation_sha256": "677129b2b4f7cdb0db841227a09f9b6b24b275d490189044c8d3866d72f869c6",
+              "transport_sha256": "5d022857bb9820f1a5206aaa0487c75a5bd3decfc28af36dd4dcd831bbc3796f",
+              "package_sha256": "72908702b06a0fe666d6fce695d04359acd16c96299e9aba7acb50ea2ea33414"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "38a68dddea99dac754339ae46d5e52c008796ff81cab0a1d5b15775335c4098b"
+            }
+          },
+          "trace_id": "4521ab3a78636a92229fa75cf0db6457",
+          "elapsed_ms": 14.115,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Executive Summary",
+              "quote": "SQLite is an in-process library that implements a self-contained , serverless , zero-configuration , transactional SQL database engine.",
+              "page_url": "https://www.sqlite.org/about.html",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "7a439332e54667d8df4f3216f020c663da8fafe7c2c63c5d827e1bf96a48a2de"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "72598da3ecffff5e5ab86af68331c53724f4e08ae1092c644433f3a550f9841d",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.sqlite.org/about.html",
+            "evidence_index": 0,
+            "text": "اقرأ عن Executive Summary",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "اقرأ عن Executive Summary",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "unsupported-sqlite-guarantee",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        }
+      ]
+    },
+    "gate": {
+      "decision": "ELIGIBLE_FOR_LOCAL_RELEASE",
+      "blockers": [],
+      "restored_edits": [
+        {
+          "case": "five-guys-bacon",
+          "edit": "specific-cta",
+          "split": "development"
+        },
+        {
+          "case": "nandos-wrap",
+          "edit": "specific-cta",
+          "split": "development"
+        },
+        {
+          "case": "nandos-wrap",
+          "edit": "verbatim-heading",
+          "split": "development"
+        },
+        {
+          "case": "osm-local-knowledge",
+          "edit": "verbatim-heading",
+          "split": "development"
+        },
+        {
+          "case": "nasa-mars-orbit",
+          "edit": "specific-cta",
+          "split": "generalization"
+        },
+        {
+          "case": "sqlite-embedded-sql",
+          "edit": "specific-cta",
+          "split": "generalization"
+        }
+      ],
+      "default_release": "stable"
+    }
+  },
+  "candidate": {
+    "schema": "adzy.campaign-eval-result@1",
+    "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+    "started_at": "2026-11-14T22:21:53.017328+00:00",
+    "mode": "offline_replay",
+    "results": {
+      "stable": [
+        {
+          "case_id": "buffalo-menu",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "15d58cf5bd70ccd824cd582327e5022e1c3ec0db8c4f411e61a167e4cd792f81",
+            "edition_file_id": "53b896dddbc9f6d09b5004c5f70614ad60d4ebd0a344926babf5002a3ed7ae07"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "editorial-campaign@1",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": "6a3f45863d9676554efce1f8eb3e1b340bfd45e66cebfb136a0d9948ad148582",
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "75448e36b615854dfe7bf287b34a459e",
+          "elapsed_ms": 25.644,
+          "fetch": [
+            "QUOTE_OBSERVED",
+            "QUOTE_OBSERVED",
+            "QUOTE_OBSERVED",
+            "QUOTE_OBSERVED"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "عنوان صفحة المنيو الرسمية",
+              "quote": "قائمة بافلو برجر",
+              "page_url": "https://buffaloburger.com/menu",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "82439b02324bf88df9dcc0047fcbf0096ba6ccf45ed0bddf444ca463c99b6975"
+            },
+            {
+              "scope": "وصف أولد سكول من بطاقة مشاركة صفحة الصنف",
+              "quote": "Pure beef burger patty, topped with our signature Buffalo sauce and cheddar cheese.",
+              "page_url": "https://buffaloburger.com/menu/old-school",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "0a70ee0c64cacc6703a6891aca25b8539fb660b4998486a500bf2c52a87f792c"
+            },
+            {
+              "scope": "وصف راستافاري من بطاقة مشاركة صفحة الصنف",
+              "quote": "بايتس الجبنة الشيدر المحشوه بالهالپنيو وصوص البافالو الكريمي و مع قطعة البرجر.",
+              "page_url": "https://buffaloburger.com/menu/the-rastafari",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "a55a9f865a9b386f7e3545c99fb3921248ead2e7c143556f852fb679763c68d7"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": null,
+          "writing_context_sha256": "a03d232d61e4d7493930eee611052234d538832b4b93f6ef2f183a5ea7f4c97b",
+          "journey": "READY",
+          "cta": {
+            "url": "https://buffaloburger.com/menu",
+            "evidence_index": 0,
+            "text": "شوف المنيو",
+            "action": "OPEN_CATALOG"
+          },
+          "edits": [
+            {
+              "id": "shared-sauce-registered",
+              "field": "message",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "الاتنين فيهم صوص بافالو.",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "shared-sauce-unregistered",
+              "field": "message",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "whole-menu-jalapeno",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 4,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "five-guys-bacon",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "6270a602411f1d60b85f673a0a128d5d1d906785eaf1003cdb316ad7fbb11d67"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "9400635af59333ac2e2af14eb9aeab43",
+          "elapsed_ms": 18.985,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Bacon Burger",
+              "quote": "Fresh, 100% beef patties hot off the grill, layered with strips of crispy Applewood smoked bacon and placed on a soft, toasted sesame seed bun.",
+              "page_url": "https://www.fiveguys.com/menu/burgers/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "d2af53a07c62810586cb020daeeebf8dec361ef4de057da035bd6681ad521a68"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "eb70228d1069e99dd0f8f4057faad3064b4b98847ebd1feba92049e6e196bbbc",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.fiveguys.com/menu/burgers/",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "wrong-variant",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "order-promise",
+              "field": "cta",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nandos-wrap",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "92aaf397f72f8684824b4b712bb2d46ed805b3ccac66e6420d954e2d79052e51"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "c5864773f49cffe40b220fe9f2a5d05e",
+          "elapsed_ms": 13.892,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Grilled Chicken Wrap",
+              "quote": "Chicken breast grilled in your favourite spice.",
+              "page_url": "https://www.nandos.co.uk/food/menu/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "7a309409247ecf1da42448fa46d1832f220748edcdf30d367c27eb514a877b24"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "4d3d7924cdadd5e5cfc073fc84e8d848379673640de7ccecd6fd62796c850c51",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.nandos.co.uk/food/menu/",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "verbatim-heading",
+              "field": "headline",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "unsupported-price",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nandos-page-cap",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "92aaf397f72f8684824b4b712bb2d46ed805b3ccac66e6420d954e2d79052e51"
+          },
+          "source_mode": "simulated_transport",
+          "simulated_transport": "oversize_html",
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "1e329a095728b12d9595cb240f74f811",
+          "elapsed_ms": 12.67,
+          "fetch": [
+            "PAGE_TOO_LARGE"
+          ],
+          "source_failed": true,
+          "stop": "NO_MORE_RELEVANT_SOURCES",
+          "gap": "FEATURE_EVIDENCE",
+          "evidence_match": null,
+          "evidence": [],
+          "cta_match": null,
+          "cta_copy_match": null,
+          "writing_context_sha256": null,
+          "journey": "BLOCKED",
+          "cta": null,
+          "edits": [],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nandos-timeout",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "92aaf397f72f8684824b4b712bb2d46ed805b3ccac66e6420d954e2d79052e51"
+          },
+          "source_mode": "simulated_transport",
+          "simulated_transport": "socket_timeout",
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "e026d9ee044c1b9c977d6ea0d4c5b58e",
+          "elapsed_ms": 3.586,
+          "fetch": [
+            "SOURCE_TIMEOUT"
+          ],
+          "source_failed": true,
+          "stop": "NO_MORE_RELEVANT_SOURCES",
+          "gap": "FEATURE_EVIDENCE",
+          "evidence_match": null,
+          "evidence": [],
+          "cta_match": null,
+          "cta_copy_match": null,
+          "writing_context_sha256": null,
+          "journey": "BLOCKED",
+          "cta": null,
+          "edits": [],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "python-applications",
+          "split": "generalization",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "76df220804082404ecf0c9d0a0e2c4c20ec07491f5ad59cdde21c95a6ca8c597"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "9f87d6356a5af04ea14de8fc8a8cfa5c",
+          "elapsed_ms": 12.2,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Applications",
+              "quote": "The Python Package Index (PyPI) hosts thousands of third-party modules for Python.",
+              "page_url": "https://www.python.org/about/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "4739cc39d7deaad1540d9387f9ee8944063921d24b4e133e7f18c5f7e044f20f"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": null,
+          "writing_context_sha256": "aa39643a57d4b29ae6359b6a9120bd4b8f12ecba2282219af7610faaab7fd049",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.python.org/about/",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "all-modules-verified",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "osm-local-knowledge",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "45a8bb8a7dd02f76f520d62db20bd83d1cb10e13e931399e291b00d7aaaf8720"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "3cde798441e6f1d9e46abd778382bf56",
+          "elapsed_ms": 11.486,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Local Knowledge",
+              "quote": "Contributors use aerial imagery, GPS devices, and low-tech field maps to verify that OSM is accurate and up to date.",
+              "page_url": "https://www.openstreetmap.org/about",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "65f78568d179867afe510e56ad35fd25b989b890a4b48c55a68270fba50da5fe"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "0d86597cef1e35b6aa17c65069fdab2d7ae4d7b330b9938e32adb5285117d6ba",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.openstreetmap.org/about",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "verbatim-heading",
+              "field": "headline",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "every-road-verified",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nasa-mars-orbit",
+          "split": "generalization",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "292c7061e201562f9f4210d548245892c5f9758ac7ff5ca3a75ad8f468dd27a5"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "8dac5632c520f279d562d2acf9e8554c",
+          "elapsed_ms": 13.146,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Orbit and Rotation",
+              "quote": "As Mars orbits the Sun, it completes one rotation every 24.6 hours, which is very similar to one day on Earth (23.9 hours).",
+              "page_url": "https://science.nasa.gov/mars/facts/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "4d75f5e6eeebbbe1045d241302ebe8b7f98fb7bcb04f7cc4dbf732ce9304144f"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "091de704ac47dc36e830d94602aa737f95586bafbd89ce3a77dce55639b2bce6",
+          "journey": "READY",
+          "cta": {
+            "url": "https://science.nasa.gov/mars/facts/",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "gravity-promise",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "debian-hardware",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "0fbd60a22b853cef920396e2a4c6f101f95b85f4a05cc1c6f00859b8117d8685"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "243b36cd1cf8167da9b7db1ea21d803e",
+          "elapsed_ms": 10.931,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "What hardware is supported?",
+              "quote": "For a complete list of currently supported ones, see the documentation for the stable release .",
+              "page_url": "https://www.debian.org/intro/about",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "f54c31f0afc95c0d72277b7f0960d94e8e8dc303b1a0f2d44ca5e5f3ad9244a2"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "ba8a63c7b3ff58c34b9ebb133310c7c78b488a0269747ec6a312a1241802f69f",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.debian.org/intro/about",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "unsupported-compatibility",
+              "field": "cta",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "sqlite-embedded-sql",
+          "split": "generalization",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "975ffff44d17675fc01e93881268998d35a6e83ccbc714c76b6671b83be795e2"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "stable",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@1",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "b1321e388723420da5380953ae9f8be9",
+          "elapsed_ms": 13.285,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Executive Summary",
+              "quote": "SQLite is an in-process library that implements a self-contained , serverless , zero-configuration , transactional SQL database engine.",
+              "page_url": "https://www.sqlite.org/about.html",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "7a439332e54667d8df4f3216f020c663da8fafe7c2c63c5d827e1bf96a48a2de"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "694a549e6763499272ecccd63b9e539a2899fbd9c8a173cada9dd42552fa4558",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.sqlite.org/about.html",
+            "evidence_index": 0,
+            "text": "اقرأ الشرح",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "unsupported-sqlite-guarantee",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        }
+      ],
+      "candidate": [
+        {
+          "case_id": "buffalo-menu",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "15d58cf5bd70ccd824cd582327e5022e1c3ec0db8c4f411e61a167e4cd792f81",
+            "edition_file_id": "53b896dddbc9f6d09b5004c5f70614ad60d4ebd0a344926babf5002a3ed7ae07"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "editorial-campaign@1",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": "6a3f45863d9676554efce1f8eb3e1b340bfd45e66cebfb136a0d9948ad148582",
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "51d1db06eefec5e17f410e2c7b2173f0",
+          "elapsed_ms": 16.116,
+          "fetch": [
+            "QUOTE_OBSERVED",
+            "QUOTE_OBSERVED",
+            "QUOTE_OBSERVED",
+            "QUOTE_OBSERVED"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "عنوان صفحة المنيو الرسمية",
+              "quote": "قائمة بافلو برجر",
+              "page_url": "https://buffaloburger.com/menu",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "82439b02324bf88df9dcc0047fcbf0096ba6ccf45ed0bddf444ca463c99b6975"
+            },
+            {
+              "scope": "وصف أولد سكول من بطاقة مشاركة صفحة الصنف",
+              "quote": "Pure beef burger patty, topped with our signature Buffalo sauce and cheddar cheese.",
+              "page_url": "https://buffaloburger.com/menu/old-school",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "0a70ee0c64cacc6703a6891aca25b8539fb660b4998486a500bf2c52a87f792c"
+            },
+            {
+              "scope": "وصف راستافاري من بطاقة مشاركة صفحة الصنف",
+              "quote": "بايتس الجبنة الشيدر المحشوه بالهالپنيو وصوص البافالو الكريمي و مع قطعة البرجر.",
+              "page_url": "https://buffaloburger.com/menu/the-rastafari",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "a55a9f865a9b386f7e3545c99fb3921248ead2e7c143556f852fb679763c68d7"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": null,
+          "writing_context_sha256": "a03d232d61e4d7493930eee611052234d538832b4b93f6ef2f183a5ea7f4c97b",
+          "journey": "READY",
+          "cta": {
+            "url": "https://buffaloburger.com/menu",
+            "evidence_index": 0,
+            "text": "شوف المنيو",
+            "action": "OPEN_CATALOG"
+          },
+          "edits": [
+            {
+              "id": "shared-sauce-registered",
+              "field": "message",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "الاتنين فيهم صوص بافالو.",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "shared-sauce-unregistered",
+              "field": "message",
+              "supported": true,
+              "critical": false,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "SUPPORTED_COPY_REJECTED"
+            },
+            {
+              "id": "whole-menu-jalapeno",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 4,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "five-guys-bacon",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "6270a602411f1d60b85f673a0a128d5d1d906785eaf1003cdb316ad7fbb11d67"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "28a55a46c576818bc409a0005e643eb8",
+          "elapsed_ms": 14.686,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Bacon Burger",
+              "quote": "Fresh, 100% beef patties hot off the grill, layered with strips of crispy Applewood smoked bacon and placed on a soft, toasted sesame seed bun.",
+              "page_url": "https://www.fiveguys.com/menu/burgers/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "d2af53a07c62810586cb020daeeebf8dec361ef4de057da035bd6681ad521a68"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "eb70228d1069e99dd0f8f4057faad3064b4b98847ebd1feba92049e6e196bbbc",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.fiveguys.com/menu/burgers/",
+            "evidence_index": 0,
+            "text": "Explore Bacon Burger",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "wrong-variant",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "Explore Bacon Burger",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "order-promise",
+              "field": "cta",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nandos-wrap",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "92aaf397f72f8684824b4b712bb2d46ed805b3ccac66e6420d954e2d79052e51"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "c8ea3ef5eca1814e96b3ac69409aa8b5",
+          "elapsed_ms": 15.283,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Grilled Chicken Wrap",
+              "quote": "Chicken breast grilled in your favourite spice.",
+              "page_url": "https://www.nandos.co.uk/food/menu/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "7a309409247ecf1da42448fa46d1832f220748edcdf30d367c27eb514a877b24"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "4d3d7924cdadd5e5cfc073fc84e8d848379673640de7ccecd6fd62796c850c51",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.nandos.co.uk/food/menu/",
+            "evidence_index": 0,
+            "text": "Explore Grilled Chicken Wrap",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "verbatim-heading",
+              "field": "headline",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "Grilled Chicken Wrap",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "unsupported-price",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "Explore Grilled Chicken Wrap",
+              "reason": null,
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nandos-page-cap",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "92aaf397f72f8684824b4b712bb2d46ed805b3ccac66e6420d954e2d79052e51"
+          },
+          "source_mode": "simulated_transport",
+          "simulated_transport": "oversize_html",
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "a2cae89877247d32c1b143331bd45115",
+          "elapsed_ms": 11.022,
+          "fetch": [
+            "PAGE_TOO_LARGE"
+          ],
+          "source_failed": true,
+          "stop": "NO_MORE_RELEVANT_SOURCES",
+          "gap": "FEATURE_EVIDENCE",
+          "evidence_match": null,
+          "evidence": [],
+          "cta_match": null,
+          "cta_copy_match": null,
+          "writing_context_sha256": null,
+          "journey": "BLOCKED",
+          "cta": null,
+          "edits": [],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nandos-timeout",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "92aaf397f72f8684824b4b712bb2d46ed805b3ccac66e6420d954e2d79052e51"
+          },
+          "source_mode": "simulated_transport",
+          "simulated_transport": "socket_timeout",
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "2cbd040e5c62cb29cef39b42edab116a",
+          "elapsed_ms": 3.812,
+          "fetch": [
+            "SOURCE_TIMEOUT"
+          ],
+          "source_failed": true,
+          "stop": "NO_MORE_RELEVANT_SOURCES",
+          "gap": "FEATURE_EVIDENCE",
+          "evidence_match": null,
+          "evidence": [],
+          "cta_match": null,
+          "cta_copy_match": null,
+          "writing_context_sha256": null,
+          "journey": "BLOCKED",
+          "cta": null,
+          "edits": [],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "python-applications",
+          "split": "generalization",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "76df220804082404ecf0c9d0a0e2c4c20ec07491f5ad59cdde21c95a6ca8c597"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "234e0f8a6254ecf4057832e7fd42b30f",
+          "elapsed_ms": 10.751,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Applications",
+              "quote": "The Python Package Index (PyPI) hosts thousands of third-party modules for Python.",
+              "page_url": "https://www.python.org/about/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "4739cc39d7deaad1540d9387f9ee8944063921d24b4e133e7f18c5f7e044f20f"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": null,
+          "writing_context_sha256": "aa39643a57d4b29ae6359b6a9120bd4b8f12ecba2282219af7610faaab7fd049",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.python.org/about/",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "all-modules-verified",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "osm-local-knowledge",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "45a8bb8a7dd02f76f520d62db20bd83d1cb10e13e931399e291b00d7aaaf8720"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "48c4fce436aabedceea7e32d0ffe94e6",
+          "elapsed_ms": 12.62,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Local Knowledge",
+              "quote": "Contributors use aerial imagery, GPS devices, and low-tech field maps to verify that OSM is accurate and up to date.",
+              "page_url": "https://www.openstreetmap.org/about",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "65f78568d179867afe510e56ad35fd25b989b890a4b48c55a68270fba50da5fe"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "0d86597cef1e35b6aa17c65069fdab2d7ae4d7b330b9938e32adb5285117d6ba",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.openstreetmap.org/about",
+            "evidence_index": 0,
+            "text": "Explore Local Knowledge",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "verbatim-heading",
+              "field": "headline",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "Local Knowledge",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "every-road-verified",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "nasa-mars-orbit",
+          "split": "generalization",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "292c7061e201562f9f4210d548245892c5f9758ac7ff5ca3a75ad8f468dd27a5"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "10195eefeafdc9c35d5f7db1f7bbccca",
+          "elapsed_ms": 14.422,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Orbit and Rotation",
+              "quote": "As Mars orbits the Sun, it completes one rotation every 24.6 hours, which is very similar to one day on Earth (23.9 hours).",
+              "page_url": "https://science.nasa.gov/mars/facts/",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "4d75f5e6eeebbbe1045d241302ebe8b7f98fb7bcb04f7cc4dbf732ce9304144f"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "091de704ac47dc36e830d94602aa737f95586bafbd89ce3a77dce55639b2bce6",
+          "journey": "READY",
+          "cta": {
+            "url": "https://science.nasa.gov/mars/facts/",
+            "evidence_index": 0,
+            "text": "Explore Orbit and Rotation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "Explore Orbit and Rotation",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "gravity-promise",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "debian-hardware",
+          "split": "development",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "0fbd60a22b853cef920396e2a4c6f101f95b85f4a05cc1c6f00859b8117d8685"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "2c4412d9b6f171b66da68428e9a46f89",
+          "elapsed_ms": 11.44,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "What hardware is supported?",
+              "quote": "For a complete list of currently supported ones, see the documentation for the stable release .",
+              "page_url": "https://www.debian.org/intro/about",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "f54c31f0afc95c0d72277b7f0960d94e8e8dc303b1a0f2d44ca5e5f3ad9244a2"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "ba8a63c7b3ff58c34b9ebb133310c7c78b488a0269747ec6a312a1241802f69f",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.debian.org/intro/about",
+            "evidence_index": 0,
+            "text": "Read the explanation",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "unsupported-compatibility",
+              "field": "cta",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        },
+        {
+          "case_id": "sqlite-embedded-sql",
+          "split": "generalization",
+          "eval_set_id": "47c566d550b3c14d8552a12d4eafe229f148028c32e2900abc7167adefd5de6b",
+          "fixtures": {
+            "snapshot_id": "975ffff44d17675fc01e93881268998d35a6e83ccbc714c76b6671b83be795e2"
+          },
+          "source_mode": "publisher_replay",
+          "simulated_transport": null,
+          "version": {
+            "schema": "adzy.campaign-release@1",
+            "release": "candidate",
+            "commit": "133181f820f99eba7b81269d53ece8cb36359422",
+            "reference_commit": "4648fbc043219661023fa97d92446bec9323fba4",
+            "model": {
+              "provider": null,
+              "model_id": null,
+              "mode": "deterministic"
+            },
+            "prompt": {
+              "id": null,
+              "mode": "no_model_prompt"
+            },
+            "planner": {
+              "policy": "source-campaign-planner@3",
+              "sha256": "012e05130502a2f8bb186267ba2363d2706ea26dbdd140b9b2673624118b0e00",
+              "edition_sha256": null,
+              "evidence_implementation_sha256": "065b325754a55b1f2db54b841de02ca1cf2174b380dc2dc15ba4b76695fbba9e",
+              "edition_implementation_sha256": "c0b8e60bf5a016310457c75f55ab734e6e8f13849b0b4fcc337a454e18e9987b",
+              "transport_sha256": "64ca526c97f4a0b9270dc75459178e1ab700aed32874b714ea32c570525090cf",
+              "socket_policy_sha256": "3679ce270ee4637cb06962cb844ee691f72240492c30ff5c3260196467135bd2",
+              "renderer_sha256": "24f353bd2cb3cb846e4608a4da1647fad76f7d42495feb8e4e362499927a0937",
+              "locked_dependencies_sha256": "59410ce5304cad3a18b0e1808908d13e6b0f93c8cd2e75d1475c698d55111f12",
+              "package_sha256": "8f473eec66388585979342672f50ad3318f0b92335bf682f8399478b9ebf40a5"
+            },
+            "guardrails": {
+              "policy": "campaign-copy@3",
+              "sha256": "e94f9c10b6497cd3c236318f3c8c3a019297769ec202328508cf8d5ab26edcbc"
+            }
+          },
+          "trace_id": "cecba676e317adc03f3cce703e1979a0",
+          "elapsed_ms": 12.687,
+          "fetch": [
+            "SOURCE_READ"
+          ],
+          "source_failed": false,
+          "stop": "DECISION_EVIDENCE_FOUND",
+          "gap": null,
+          "evidence_match": true,
+          "evidence": [
+            {
+              "scope": "Executive Summary",
+              "quote": "SQLite is an in-process library that implements a self-contained , serverless , zero-configuration , transactional SQL database engine.",
+              "page_url": "https://www.sqlite.org/about.html",
+              "capture_kind": "publisher_snapshot",
+              "body_sha256": "7a439332e54667d8df4f3216f020c663da8fafe7c2c63c5d827e1bf96a48a2de"
+            }
+          ],
+          "cta_match": true,
+          "cta_copy_match": true,
+          "writing_context_sha256": "694a549e6763499272ecccd63b9e539a2899fbd9c8a173cada9dd42552fa4558",
+          "journey": "READY",
+          "cta": {
+            "url": "https://www.sqlite.org/about.html",
+            "evidence_index": 0,
+            "text": "اقرأ عن Executive Summary",
+            "action": "READ_FEATURE"
+          },
+          "edits": [
+            {
+              "id": "specific-cta",
+              "field": "cta",
+              "supported": true,
+              "critical": false,
+              "accepted": true,
+              "observed": "اقرأ عن Executive Summary",
+              "reason": null,
+              "classification": "EXPECTED"
+            },
+            {
+              "id": "unsupported-sqlite-guarantee",
+              "field": "headline",
+              "supported": false,
+              "critical": true,
+              "accepted": false,
+              "reason": "COPY_REQUIRES_EVIDENCE_REVIEW",
+              "classification": "EXPECTED"
+            }
+          ],
+          "failures": [],
+          "page_calls": 1,
+          "provider_calls": 0,
+          "cost_usd": 0
+        }
+      ]
+    },
+    "gate": {
+      "decision": "ELIGIBLE_FOR_LOCAL_RELEASE",
+      "blockers": [],
+      "restored_edits": [
+        {
+          "case": "five-guys-bacon",
+          "edit": "specific-cta",
+          "split": "development"
+        },
+        {
+          "case": "nandos-wrap",
+          "edit": "specific-cta",
+          "split": "development"
+        },
+        {
+          "case": "nandos-wrap",
+          "edit": "verbatim-heading",
+          "split": "development"
+        },
+        {
+          "case": "osm-local-knowledge",
+          "edit": "verbatim-heading",
+          "split": "development"
+        },
+        {
+          "case": "nasa-mars-orbit",
+          "edit": "specific-cta",
+          "split": "generalization"
+        },
+        {
+          "case": "sqlite-embedded-sql",
+          "edit": "specific-cta",
+          "split": "generalization"
+        }
+      ],
+      "default_release": "stable"
+    }
+  },
+  "context_baseline": [
+    {
+      "id": "audit-adjacent-ar",
+      "expected": "QUALIFIED_SOURCE_GUIDE",
+      "status": "READY",
+      "gap": null,
+      "kind": "BOUNDED_REWRITE_REQUIRES_HUMAN_REVIEW",
+      "copy": {
+        "headline": "ماذا يحظر متصفّحك؟",
+        "message": "يحظر المتصفّح آلاف المتعقّبات المعروفة.",
+        "cta": "اقرأ عن حظر المتعقّبات"
+      },
+      "evidence": [
+        {
+          "page_url": "https://audit-adjacent-ar.example/features",
+          "capture_kind": "synthetic",
+          "captured_at": "2026-11-14T00:00:00+00:00",
+          "body_sha256": "f040744bb5f7f08ccaeca1ad0a784914c90b7e2e720c27a5ee3c9f683db06b4c",
+          "text_sha256": "d9e8cb3167e2a4bd3ebdbbbc74f679047d82043131e498b9cf44a34a9c08d163",
+          "title": "Publisher catalogue",
+          "label": "Known Trackers",
+          "quote": "The browser blocks thousands of known trackers while you browse.",
+          "context": "The browser blocks thousands of known trackers while you browse.",
+          "score": 6,
+          "specificity": 2.0,
+          "scope": "Known Trackers",
+          "outcome": "QUOTE_OBSERVED",
+          "constraints": {
+            "basis": "FULL_SOURCE_CONTEXT",
+            "page_path": "/features",
+            "price": null,
+            "branch": null,
+            "valid_until": null,
+            "market": "UNCONFIRMED"
+          }
+        }
+      ]
+    },
+    {
+      "id": "clean-tracker-ar",
+      "expected": "BOUNDED_REWRITE_REQUIRES_HUMAN_REVIEW",
+      "status": "READY",
+      "gap": null,
+      "kind": "BOUNDED_REWRITE_REQUIRES_HUMAN_REVIEW",
+      "copy": {
+        "headline": "ماذا يحظر متصفّحك؟",
+        "message": "يحظر المتصفّح آلاف المتعقّبات المعروفة.",
+        "cta": "اقرأ عن حظر المتعقّبات"
+      },
+      "evidence": [
+        {
+          "page_url": "https://clean-tracker-ar.example/features",
+          "capture_kind": "synthetic",
+          "captured_at": "2026-11-14T00:00:00+00:00",
+          "body_sha256": "9138c96d015f8d06a5322292ee8b94d8c23da41748928cddf508ea144d5c9fac",
+          "text_sha256": "93a410fd9c9c44a720861478213984cdd6b1daa5213de0c6b37af3991e3060de",
+          "title": "Publisher catalogue",
+          "label": "Known Trackers",
+          "quote": "The browser blocks thousands of known trackers while you browse.",
+          "context": "The browser blocks thousands of known trackers while you browse.",
+          "score": 6,
+          "specificity": 2.0,
+          "scope": "Known Trackers",
+          "outcome": "QUOTE_OBSERVED",
+          "constraints": {
+            "basis": "FULL_SOURCE_CONTEXT",
+            "page_path": "/features",
+            "price": null,
+            "branch": null,
+            "valid_until": null,
+            "market": "UNCONFIRMED"
+          }
+        }
+      ]
+    },
+    {
+      "id": "peer-heading-boundary-en",
+      "expected": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+      "status": "READY",
+      "gap": null,
+      "kind": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+      "copy": {
+        "headline": "Trail Day Pass",
+        "message": "The Trail Day Pass includes access to the signed woodland trail.",
+        "cta": "Read the explanation"
+      },
+      "evidence": [
+        {
+          "page_url": "https://peer-heading-boundary-en.example/features",
+          "capture_kind": "synthetic",
+          "captured_at": "2026-11-14T00:00:00+00:00",
+          "body_sha256": "a92742611253b748a68cdfe0b092e11b063da31b443925b27f9f9dcdc61ea25c",
+          "text_sha256": "78681f2a5b08bedca577eee7b9c63fa02d7dfe1cb4530dbcd281185ae1912ebe",
+          "title": "Publisher catalogue",
+          "label": "Trail Day Pass",
+          "quote": "The Trail Day Pass includes access to the signed woodland trail.",
+          "context": "The Trail Day Pass includes access to the signed woodland trail.",
+          "score": 9,
+          "specificity": 2.5,
+          "scope": "Trail Day Pass",
+          "outcome": "QUOTE_OBSERVED",
+          "constraints": {
+            "basis": "FULL_SOURCE_CONTEXT",
+            "page_path": "/features",
+            "price": null,
+            "branch": null,
+            "valid_until": null,
+            "market": "UNCONFIRMED"
+          }
+        }
+      ]
+    },
+    {
+      "id": "table-qualifier-en",
+      "expected": "QUALIFIED_SOURCE_GUIDE",
+      "status": "READY",
+      "gap": null,
+      "kind": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+      "copy": {
+        "headline": "Studio Audio Monitor",
+        "message": "The Studio Audio Monitor streams live mixes to a paired device.",
+        "cta": "Read the explanation"
+      },
+      "evidence": [
+        {
+          "page_url": "https://table-qualifier-en.example/features",
+          "capture_kind": "synthetic",
+          "captured_at": "2026-11-14T00:00:00+00:00",
+          "body_sha256": "384d79735315cb016c8cb8746b0637d9a145b10fbb691d1ce16d0b3ed235d897",
+          "text_sha256": "7fcbbbbee03c3b3b7455b63334b0f0ab7d73100413b5630f995a48fe75f02cb9",
+          "title": "Publisher catalogue",
+          "label": "Studio Audio Monitor",
+          "quote": "The Studio Audio Monitor streams live mixes to a paired device.",
+          "context": "The Studio Audio Monitor streams live mixes to a paired device.",
+          "score": 9,
+          "specificity": 3.0,
+          "scope": "Studio Audio Monitor",
+          "outcome": "QUOTE_OBSERVED",
+          "constraints": {
+            "basis": "FULL_SOURCE_CONTEXT",
+            "page_path": "/features",
+            "price": null,
+            "branch": null,
+            "valid_until": null,
+            "market": "UNCONFIRMED"
+          }
+        }
+      ]
+    },
+    {
+      "id": "list-date-ar",
+      "expected": "QUALIFIED_SOURCE_GUIDE",
+      "status": "BLOCKED",
+      "gap": "FEATURE_EVIDENCE",
+      "kind": "BLOCKED",
+      "copy": null,
+      "evidence": []
+    },
+    {
+      "id": "separate-section-en",
+      "expected": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+      "status": "READY",
+      "gap": null,
+      "kind": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+      "copy": {
+        "headline": "Trail Day Pass",
+        "message": "The Trail Day Pass includes access to the signed woodland trail.",
+        "cta": "Read the explanation"
+      },
+      "evidence": [
+        {
+          "page_url": "https://separate-section-en.example/features",
+          "capture_kind": "synthetic",
+          "captured_at": "2026-11-14T00:00:00+00:00",
+          "body_sha256": "4f93edbe46f74be294dccd0d311e486e469e7be07560284f9f63d27895e8433c",
+          "text_sha256": "df7529f6c2995a285bfef799ed8770381ed90ba73c1a5b36c50d03d272a4e3cc",
+          "title": "Publisher catalogue",
+          "label": "Trail Day Pass",
+          "quote": "The Trail Day Pass includes access to the signed woodland trail.",
+          "context": "The Trail Day Pass includes access to the signed woodland trail.",
+          "score": 9,
+          "specificity": 3.0,
+          "scope": "Trail Day Pass",
+          "outcome": "QUOTE_OBSERVED",
+          "constraints": {
+            "basis": "FULL_SOURCE_CONTEXT",
+            "page_path": "/features",
+            "price": null,
+            "branch": null,
+            "valid_until": null,
+            "market": "UNCONFIRMED"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hidden-injection-en",
+      "expected": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+      "status": "READY",
+      "gap": null,
+      "kind": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+      "copy": {
+        "headline": "Trail Day Pass",
+        "message": "The Trail Day Pass includes access to the signed woodland trail.",
+        "cta": "Read the explanation"
+      },
+      "evidence": [
+        {
+          "page_url": "https://hidden-injection-en.example/features",
+          "capture_kind": "synthetic",
+          "captured_at": "2026-11-14T00:00:00+00:00",
+          "body_sha256": "062311bf7d8e9227ce930d864fdf6577efdb854f0b5eae42ec9fad275306e3ab",
+          "text_sha256": "1c6c672d2f78eabb0e6e10c436aa9ff901c3165db20ffd0ff003a797d42e9099",
+          "title": "Publisher catalogue",
+          "label": "Trail Day Pass",
+          "quote": "The Trail Day Pass includes access to the signed woodland trail.",
+          "context": "The Trail Day Pass includes access to the signed woodland trail.",
+          "score": 9,
+          "specificity": 3.0,
+          "scope": "Trail Day Pass",
+          "outcome": "QUOTE_OBSERVED",
+          "constraints": {
+            "basis": "FULL_SOURCE_CONTEXT",
+            "page_path": "/features",
+            "price": null,
+            "branch": null,
+            "valid_until": null,
+            "market": "UNCONFIRMED"
+          }
+        }
+      ]
+    },
+    {
+      "id": "source-failure-en",
+      "expected": "BLOCKED",
+      "status": "BLOCKED",
+      "gap": "FEATURE_EVIDENCE",
+      "kind": "BLOCKED",
+      "copy": null,
+      "evidence": []
+    },
+    {
+      "id": "within-block-pronoun-en",
+      "expected": "BLOCKED",
+      "status": "READY",
+      "gap": null,
+      "kind": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+      "copy": {
+        "headline": "Trail Day Pass",
+        "message": "The annual Tourist Pass is sold at the entrance.",
+        "cta": "Read the explanation"
+      },
+      "evidence": [
+        {
+          "page_url": "https://within-block-pronoun-en.example/features",
+          "capture_kind": "synthetic",
+          "captured_at": "2026-11-14T00:00:00+00:00",
+          "body_sha256": "1c694905a6ed431cf31b6f16140184d2425a97f32ccfabe30f26f5d3dc0ffafe",
+          "text_sha256": "8a15d942f1a72300a74491d4ab9d6ed25957097dd1b9e9436e70ccaff37e4e81",
+          "title": "Publisher catalogue",
+          "label": "Trail Day Pass",
+          "quote": "The annual Tourist Pass is sold at the entrance.",
+          "context": "The annual Tourist Pass is sold at the entrance. It includes access to trails outside the signed woodland area.",
+          "score": 7,
+          "specificity": 1.0,
+          "scope": "Trail Day Pass",
+          "outcome": "QUOTE_OBSERVED",
+          "constraints": {
+            "basis": "FULL_SOURCE_CONTEXT",
+            "page_path": "/features",
+            "price": null,
+            "branch": null,
+            "valid_until": null,
+            "market": "UNCONFIRMED"
+          }
+        }
+      ]
+    },
+    {
+      "id": "explicit-contradiction-en",
+      "expected": "BLOCKED",
+      "status": "BLOCKED",
+      "gap": "SOURCE_CONFLICT",
+      "kind": "BLOCKED",
+      "copy": null,
+      "evidence": [
+        {
+          "page_url": "https://explicit-contradiction-en.example/features",
+          "capture_kind": "synthetic",
+          "captured_at": "2026-11-14T00:00:00+00:00",
+          "body_sha256": "00439d956700a7ccf0c133507ed12c1224db5ec05d1c414d0fd21c1f7d05bc14",
+          "text_sha256": "8eb1ab21c4943f5cb98cd79a4e2b735be2678919f8818b961e577eca5f19a0ee",
+          "title": "Publisher catalogue",
+          "label": "Studio Audio Monitor",
+          "quote": "The Studio Audio Monitor streams live mixes to a paired device.",
+          "context": "The Studio Audio Monitor streams live mixes to a paired device.",
+          "score": 9,
+          "specificity": 1.5,
+          "scope": "Studio Audio Monitor",
+          "outcome": "QUOTE_OBSERVED",
+          "constraints": {
+            "basis": "FULL_SOURCE_CONTEXT",
+            "page_path": "/features",
+            "price": null,
+            "branch": null,
+            "valid_until": null,
+            "market": "UNCONFIRMED"
+          }
+        }
+      ]
+    }
+  ],
+  "context_candidate": {
+    "manifest": {
+      "baseline_commit": "133181f820f99eba7b81269d53ece8cb36359422",
+      "files": {
+        "context-cases.json": "2d33d62c6cb5eed35adfbf80180bc3819f170d244a081b372e0cb7bf5056992b",
+        "protocol.md": "4e7e3906bfe54621305afea9cd42299341eceb0382ea892975fd0fc83d537b05"
+      }
+    },
+    "results": [
+      {
+        "id": "audit-adjacent-ar",
+        "expected": "QUALIFIED_SOURCE_GUIDE",
+        "observed": "QUALIFIED_SOURCE_GUIDE",
+        "journey": "READY",
+        "gap": null,
+        "package": {
+          "brand_name": "Publisher",
+          "language": "ar",
+          "direction": "rtl",
+          "source_url": "https://audit-adjacent-ar.example/features",
+          "source_evidence_index": 0,
+          "factual_review": "QUALIFIED_SOURCE_GUIDE",
+          "copy": {
+            "headline": "شروط الناشر",
+            "message": "راجع شروط الناشر للموضوع.",
+            "cta": "راجع المصدر"
+          },
+          "theme": "cobalt",
+          "caption": "شروط الناشر راجع شروط الناشر للموضوع. راجع المصدر.",
+          "storyboard": [
+            {
+              "seconds": "0–3",
+              "visual": "يظهر سؤال الحملة فوق شكل هندسي بسيط.",
+              "line": "شروط الناشر"
+            },
+            {
+              "seconds": "3–8",
+              "visual": "يظهر اسم الميزة وتظل الخلفية ثابتة.",
+              "line": "راجع شروط الناشر للموضوع."
+            },
+            {
+              "seconds": "8–12",
+              "visual": "تظهر بطاقة باسم البراند والدعوة.",
+              "line": "راجع المصدر"
+            }
+          ],
+          "poster_layout": "source-campaign@1"
+        },
+        "evidence": [
+          {
+            "page_url": "https://audit-adjacent-ar.example/features",
+            "capture_kind": "synthetic_fixture",
+            "captured_at": "2026-11-14T00:00:00+00:00",
+            "body_sha256": "7a1fb32821d97be18b21d0cf4f7a715625c561d21fece4443011472cd0bccb2c",
+            "text_sha256": "d9e8cb3167e2a4bd3ebdbbbc74f679047d82043131e498b9cf44a34a9c08d163",
+            "title": "Publisher catalogue",
+            "label": "Known Trackers",
+            "quote": "The browser blocks thousands of known trackers while you browse.",
+            "context": "The browser blocks thousands of known trackers while you browse.",
+            "score": 6,
+            "anchor": {
+              "subject": "Known Trackers",
+              "support": {
+                "block": 1,
+                "element": "p",
+                "text": "The browser blocks thousands of known trackers while you browse.",
+                "start": 0,
+                "end": 64,
+                "quote": "The browser blocks thousands of known trackers while you browse."
+              },
+              "qualifications": [
+                {
+                  "block": 2,
+                  "element": "p",
+                  "text": "This feature requires a paid subscription and is disabled by default.",
+                  "start": 0,
+                  "end": 69,
+                  "quote": "This feature requires a paid subscription and is disabled by default."
+                }
+              ],
+              "context_extent": "BOUNDED_SECTION_NEIGHBORHOOD"
+            },
+            "specificity": 2.0,
+            "scope": "Known Trackers",
+            "outcome": "QUOTE_OBSERVED",
+            "constraints": {
+              "basis": "BOUNDED_SECTION_NEIGHBORHOOD",
+              "page_path": "/features",
+              "price": null,
+              "branch": null,
+              "valid_until": null,
+              "market": "UNCONFIRMED"
+            }
+          }
+        ],
+        "failures": []
+      },
+      {
+        "id": "clean-tracker-ar",
+        "expected": "BOUNDED_REWRITE_REQUIRES_HUMAN_REVIEW",
+        "observed": "BOUNDED_REWRITE_REQUIRES_HUMAN_REVIEW",
+        "journey": "READY",
+        "gap": null,
+        "package": {
+          "brand_name": "Publisher",
+          "language": "ar",
+          "direction": "rtl",
+          "source_url": "https://clean-tracker-ar.example/features",
+          "source_evidence_index": 0,
+          "factual_review": "BOUNDED_REWRITE_REQUIRES_HUMAN_REVIEW",
+          "copy": {
+            "headline": "ماذا يحظر متصفّحك؟",
+            "message": "يحظر المتصفّح آلاف المتعقّبات المعروفة.",
+            "cta": "اقرأ عن حظر المتعقّبات"
+          },
+          "theme": "cobalt",
+          "caption": "يحظر المتصفّح آلاف المتعقّبات المعروفة أثناء تصفّح الويب. اقرأ كيف تعمل الميزة.",
+          "storyboard": [
+            {
+              "seconds": "0–3",
+              "visual": "يظهر سؤال الحملة فوق شكل هندسي بسيط.",
+              "line": "ماذا يحظر متصفّحك؟"
+            },
+            {
+              "seconds": "3–8",
+              "visual": "يظهر اسم الميزة وتظل الخلفية ثابتة.",
+              "line": "يحظر المتصفّح آلاف المتعقّبات المعروفة."
+            },
+            {
+              "seconds": "8–12",
+              "visual": "تظهر بطاقة باسم البراند والدعوة.",
+              "line": "اقرأ عن حظر المتعقّبات"
+            }
+          ],
+          "poster_layout": "source-campaign@2",
+          "concept": "filter"
+        },
+        "evidence": [
+          {
+            "page_url": "https://clean-tracker-ar.example/features",
+            "capture_kind": "synthetic_fixture",
+            "captured_at": "2026-11-14T00:00:00+00:00",
+            "body_sha256": "c969dfbcea089a75be45c96bd7cd7172e7884faf16ae3067de66d98c902180f4",
+            "text_sha256": "93a410fd9c9c44a720861478213984cdd6b1daa5213de0c6b37af3991e3060de",
+            "title": "Publisher catalogue",
+            "label": "Known Trackers",
+            "quote": "The browser blocks thousands of known trackers while you browse.",
+            "context": "The browser blocks thousands of known trackers while you browse.",
+            "score": 6,
+            "anchor": {
+              "subject": "Known Trackers",
+              "support": {
+                "block": 1,
+                "element": "p",
+                "text": "The browser blocks thousands of known trackers while you browse.",
+                "start": 0,
+                "end": 64,
+                "quote": "The browser blocks thousands of known trackers while you browse."
+              },
+              "qualifications": [],
+              "context_extent": "BOUNDED_SECTION_NEIGHBORHOOD"
+            },
+            "specificity": 2.0,
+            "scope": "Known Trackers",
+            "outcome": "QUOTE_OBSERVED",
+            "constraints": {
+              "basis": "BOUNDED_SECTION_NEIGHBORHOOD",
+              "page_path": "/features",
+              "price": null,
+              "branch": null,
+              "valid_until": null,
+              "market": "UNCONFIRMED"
+            }
+          }
+        ],
+        "failures": []
+      },
+      {
+        "id": "peer-heading-boundary-en",
+        "expected": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+        "observed": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+        "journey": "READY",
+        "gap": null,
+        "package": {
+          "brand_name": "Publisher",
+          "language": "en",
+          "direction": "ltr",
+          "source_url": "https://peer-heading-boundary-en.example/features",
+          "source_evidence_index": 0,
+          "factual_review": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+          "copy": {
+            "headline": "Trail Day Pass",
+            "message": "The Trail Day Pass includes access to the signed woodland trail.",
+            "cta": "Read the explanation"
+          },
+          "theme": "cobalt",
+          "caption": "Trail Day Pass — The Trail Day Pass includes access to the signed woodland trail. Read the explanation.",
+          "storyboard": [
+            {
+              "seconds": "0–3",
+              "visual": "Reveal the campaign prompt over a simple geometric motif.",
+              "line": "Trail Day Pass"
+            },
+            {
+              "seconds": "3–8",
+              "visual": "Reveal the topic label and hold the background still.",
+              "line": "The Trail Day Pass includes access to the signed woodland trail."
+            },
+            {
+              "seconds": "8–12",
+              "visual": "End on the brand name and exact call to action.",
+              "line": "Read the explanation"
+            }
+          ],
+          "poster_layout": "source-campaign@1"
+        },
+        "evidence": [
+          {
+            "page_url": "https://peer-heading-boundary-en.example/features",
+            "capture_kind": "synthetic_fixture",
+            "captured_at": "2026-11-14T00:00:00+00:00",
+            "body_sha256": "8a7028f1f81deecb594405f56d1ae452fc4704be90dacc3d204ea8918d73cb73",
+            "text_sha256": "78681f2a5b08bedca577eee7b9c63fa02d7dfe1cb4530dbcd281185ae1912ebe",
+            "title": "Publisher catalogue",
+            "label": "Trail Day Pass",
+            "quote": "The Trail Day Pass includes access to the signed woodland trail.",
+            "context": "The Trail Day Pass includes access to the signed woodland trail.",
+            "score": 9,
+            "anchor": {
+              "subject": "Trail Day Pass",
+              "support": {
+                "block": 2,
+                "element": "p",
+                "text": "The Trail Day Pass includes access to the signed woodland trail.",
+                "start": 0,
+                "end": 64,
+                "quote": "The Trail Day Pass includes access to the signed woodland trail."
+              },
+              "qualifications": [],
+              "context_extent": "BOUNDED_SECTION_NEIGHBORHOOD"
+            },
+            "specificity": 2.5,
+            "scope": "Trail Day Pass",
+            "outcome": "QUOTE_OBSERVED",
+            "constraints": {
+              "basis": "BOUNDED_SECTION_NEIGHBORHOOD",
+              "page_path": "/features",
+              "price": null,
+              "branch": null,
+              "valid_until": null,
+              "market": "UNCONFIRMED"
+            }
+          }
+        ],
+        "failures": []
+      },
+      {
+        "id": "table-qualifier-en",
+        "expected": "QUALIFIED_SOURCE_GUIDE",
+        "observed": "QUALIFIED_SOURCE_GUIDE",
+        "journey": "READY",
+        "gap": null,
+        "package": {
+          "brand_name": "Publisher",
+          "language": "en",
+          "direction": "ltr",
+          "source_url": "https://table-qualifier-en.example/features",
+          "source_evidence_index": 0,
+          "factual_review": "QUALIFIED_SOURCE_GUIDE",
+          "copy": {
+            "headline": "Publisher conditions",
+            "message": "Review the publisher’s conditions.",
+            "cta": "Check the source"
+          },
+          "theme": "cobalt",
+          "caption": "Publisher conditions Review the publisher’s conditions. Check the source.",
+          "storyboard": [
+            {
+              "seconds": "0–3",
+              "visual": "Reveal the campaign prompt over a simple geometric motif.",
+              "line": "Publisher conditions"
+            },
+            {
+              "seconds": "3–8",
+              "visual": "Reveal the topic label and hold the background still.",
+              "line": "Review the publisher’s conditions."
+            },
+            {
+              "seconds": "8–12",
+              "visual": "End on the brand name and exact call to action.",
+              "line": "Check the source"
+            }
+          ],
+          "poster_layout": "source-campaign@1"
+        },
+        "evidence": [
+          {
+            "page_url": "https://table-qualifier-en.example/features",
+            "capture_kind": "synthetic_fixture",
+            "captured_at": "2026-11-14T00:00:00+00:00",
+            "body_sha256": "7f5b0a2f6ea3deb23fa2872ce7fe3f494ceaf54d5dba25e6a9ce080fc4880b6e",
+            "text_sha256": "7fcbbbbee03c3b3b7455b63334b0f0ab7d73100413b5630f995a48fe75f02cb9",
+            "title": "Publisher catalogue",
+            "label": "Studio Audio Monitor",
+            "quote": "The Studio Audio Monitor streams live mixes to a paired device.",
+            "context": "The Studio Audio Monitor streams live mixes to a paired device.",
+            "score": 9,
+            "anchor": {
+              "subject": "Studio Audio Monitor",
+              "support": {
+                "block": 1,
+                "element": "p",
+                "text": "The Studio Audio Monitor streams live mixes to a paired device.",
+                "start": 0,
+                "end": 63,
+                "quote": "The Studio Audio Monitor streams live mixes to a paired device."
+              },
+              "qualifications": [
+                {
+                  "block": 2,
+                  "element": "tr",
+                  "text": "Compatibility It requires a compatible receiver.",
+                  "start": 0,
+                  "end": 48,
+                  "quote": "Compatibility It requires a compatible receiver."
+                }
+              ],
+              "context_extent": "BOUNDED_SECTION_NEIGHBORHOOD"
+            },
+            "specificity": 3.0,
+            "scope": "Studio Audio Monitor",
+            "outcome": "QUOTE_OBSERVED",
+            "constraints": {
+              "basis": "BOUNDED_SECTION_NEIGHBORHOOD",
+              "page_path": "/features",
+              "price": null,
+              "branch": null,
+              "valid_until": null,
+              "market": "UNCONFIRMED"
+            }
+          }
+        ],
+        "failures": []
+      },
+      {
+        "id": "list-date-ar",
+        "expected": "QUALIFIED_SOURCE_GUIDE",
+        "observed": "QUALIFIED_SOURCE_GUIDE",
+        "journey": "READY",
+        "gap": null,
+        "package": {
+          "brand_name": "Publisher",
+          "language": "ar",
+          "direction": "rtl",
+          "source_url": "https://list-date-ar.example/features",
+          "source_evidence_index": 0,
+          "factual_review": "QUALIFIED_SOURCE_GUIDE",
+          "copy": {
+            "headline": "شروط الناشر",
+            "message": "راجع شروط الناشر للموضوع.",
+            "cta": "راجع المصدر"
+          },
+          "theme": "cobalt",
+          "caption": "شروط الناشر راجع شروط الناشر للموضوع. راجع المصدر.",
+          "storyboard": [
+            {
+              "seconds": "0–3",
+              "visual": "يظهر سؤال الحملة فوق شكل هندسي بسيط.",
+              "line": "شروط الناشر"
+            },
+            {
+              "seconds": "3–8",
+              "visual": "يظهر اسم الميزة وتظل الخلفية ثابتة.",
+              "line": "راجع شروط الناشر للموضوع."
+            },
+            {
+              "seconds": "8–12",
+              "visual": "تظهر بطاقة باسم البراند والدعوة.",
+              "line": "راجع المصدر"
+            }
+          ],
+          "poster_layout": "source-campaign@1"
+        },
+        "evidence": [
+          {
+            "page_url": "https://list-date-ar.example/features",
+            "capture_kind": "synthetic_fixture",
+            "captured_at": "2026-11-14T00:00:00+00:00",
+            "body_sha256": "33e64a6b811e0e8e968b07b528428bb829eee17e25c3eab367aba608323b5ac1",
+            "text_sha256": "9f336a0a60aba7f638705c0615f5fbb73148800ebd7915aae63672adfcb16ee4",
+            "title": "Publisher catalogue",
+            "label": "بطاقة الجولات المدرسية",
+            "quote": "تتيح بطاقة الجولات المدرسية زيارة قاعات المعرض مع مجموعة مدرسية.",
+            "context": "تتيح بطاقة الجولات المدرسية زيارة قاعات المعرض مع مجموعة مدرسية.",
+            "score": 9,
+            "anchor": {
+              "subject": "بطاقة الجولات المدرسية",
+              "support": {
+                "block": 1,
+                "element": "p",
+                "text": "تتيح بطاقة الجولات المدرسية زيارة قاعات المعرض مع مجموعة مدرسية.",
+                "start": 0,
+                "end": 64,
+                "quote": "تتيح بطاقة الجولات المدرسية زيارة قاعات المعرض مع مجموعة مدرسية."
+              },
+              "qualifications": [
+                {
+                  "block": 2,
+                  "element": "li",
+                  "text": "تسري البطاقة حتى ٣٠ نوفمبر.",
+                  "start": 0,
+                  "end": 27,
+                  "quote": "تسري البطاقة حتى ٣٠ نوفمبر."
+                }
+              ],
+              "context_extent": "BOUNDED_SECTION_NEIGHBORHOOD"
+            },
+            "specificity": 3.0,
+            "scope": "بطاقة الجولات المدرسية",
+            "outcome": "QUOTE_OBSERVED",
+            "constraints": {
+              "basis": "BOUNDED_SECTION_NEIGHBORHOOD",
+              "page_path": "/features",
+              "price": null,
+              "branch": null,
+              "valid_until": null,
+              "market": "UNCONFIRMED"
+            }
+          }
+        ],
+        "failures": []
+      },
+      {
+        "id": "separate-section-en",
+        "expected": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+        "observed": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+        "journey": "READY",
+        "gap": null,
+        "package": {
+          "brand_name": "Publisher",
+          "language": "en",
+          "direction": "ltr",
+          "source_url": "https://separate-section-en.example/features",
+          "source_evidence_index": 0,
+          "factual_review": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+          "copy": {
+            "headline": "Trail Day Pass",
+            "message": "The Trail Day Pass includes access to the signed woodland trail.",
+            "cta": "Read the explanation"
+          },
+          "theme": "cobalt",
+          "caption": "Trail Day Pass — The Trail Day Pass includes access to the signed woodland trail. Read the explanation.",
+          "storyboard": [
+            {
+              "seconds": "0–3",
+              "visual": "Reveal the campaign prompt over a simple geometric motif.",
+              "line": "Trail Day Pass"
+            },
+            {
+              "seconds": "3–8",
+              "visual": "Reveal the topic label and hold the background still.",
+              "line": "The Trail Day Pass includes access to the signed woodland trail."
+            },
+            {
+              "seconds": "8–12",
+              "visual": "End on the brand name and exact call to action.",
+              "line": "Read the explanation"
+            }
+          ],
+          "poster_layout": "source-campaign@1"
+        },
+        "evidence": [
+          {
+            "page_url": "https://separate-section-en.example/features",
+            "capture_kind": "synthetic_fixture",
+            "captured_at": "2026-11-14T00:00:00+00:00",
+            "body_sha256": "128f1f9f432639e0aa13eab20fcbe34be7917532d69d91e1aeb5a8e9c03d39fb",
+            "text_sha256": "df7529f6c2995a285bfef799ed8770381ed90ba73c1a5b36c50d03d272a4e3cc",
+            "title": "Publisher catalogue",
+            "label": "Trail Day Pass",
+            "quote": "The Trail Day Pass includes access to the signed woodland trail.",
+            "context": "The Trail Day Pass includes access to the signed woodland trail.",
+            "score": 9,
+            "anchor": {
+              "subject": "Trail Day Pass",
+              "support": {
+                "block": 2,
+                "element": "p",
+                "text": "The Trail Day Pass includes access to the signed woodland trail.",
+                "start": 0,
+                "end": 64,
+                "quote": "The Trail Day Pass includes access to the signed woodland trail."
+              },
+              "qualifications": [],
+              "context_extent": "BOUNDED_SECTION_NEIGHBORHOOD"
+            },
+            "specificity": 3.0,
+            "scope": "Trail Day Pass",
+            "outcome": "QUOTE_OBSERVED",
+            "constraints": {
+              "basis": "BOUNDED_SECTION_NEIGHBORHOOD",
+              "page_path": "/features",
+              "price": null,
+              "branch": null,
+              "valid_until": null,
+              "market": "UNCONFIRMED"
+            }
+          }
+        ],
+        "failures": []
+      },
+      {
+        "id": "hidden-injection-en",
+        "expected": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+        "observed": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+        "journey": "READY",
+        "gap": null,
+        "package": {
+          "brand_name": "Publisher",
+          "language": "en",
+          "direction": "ltr",
+          "source_url": "https://hidden-injection-en.example/features",
+          "source_evidence_index": 0,
+          "factual_review": "SOURCE_LABEL_REUSE_REQUIRES_HUMAN_REVIEW",
+          "copy": {
+            "headline": "Trail Day Pass",
+            "message": "The Trail Day Pass includes access to the signed woodland trail.",
+            "cta": "Read the explanation"
+          },
+          "theme": "cobalt",
+          "caption": "Trail Day Pass — The Trail Day Pass includes access to the signed woodland trail. Read the explanation.",
+          "storyboard": [
+            {
+              "seconds": "0–3",
+              "visual": "Reveal the campaign prompt over a simple geometric motif.",
+              "line": "Trail Day Pass"
+            },
+            {
+              "seconds": "3–8",
+              "visual": "Reveal the topic label and hold the background still.",
+              "line": "The Trail Day Pass includes access to the signed woodland trail."
+            },
+            {
+              "seconds": "8–12",
+              "visual": "End on the brand name and exact call to action.",
+              "line": "Read the explanation"
+            }
+          ],
+          "poster_layout": "source-campaign@1"
+        },
+        "evidence": [
+          {
+            "page_url": "https://hidden-injection-en.example/features",
+            "capture_kind": "synthetic_fixture",
+            "captured_at": "2026-11-14T00:00:00+00:00",
+            "body_sha256": "e0ade14de4e540da5b4433ba5dc4ed5a0884ccae2a2bac85096b259cb9947e16",
+            "text_sha256": "1c6c672d2f78eabb0e6e10c436aa9ff901c3165db20ffd0ff003a797d42e9099",
+            "title": "Publisher catalogue",
+            "label": "Trail Day Pass",
+            "quote": "The Trail Day Pass includes access to the signed woodland trail.",
+            "context": "The Trail Day Pass includes access to the signed woodland trail.",
+            "score": 9,
+            "anchor": {
+              "subject": "Trail Day Pass",
+              "support": {
+                "block": 2,
+                "element": "p",
+                "text": "The Trail Day Pass includes access to the signed woodland trail.",
+                "start": 0,
+                "end": 64,
+                "quote": "The Trail Day Pass includes access to the signed woodland trail."
+              },
+              "qualifications": [],
+              "context_extent": "BOUNDED_SECTION_NEIGHBORHOOD"
+            },
+            "specificity": 3.0,
+            "scope": "Trail Day Pass",
+            "outcome": "QUOTE_OBSERVED",
+            "constraints": {
+              "basis": "BOUNDED_SECTION_NEIGHBORHOOD",
+              "page_path": "/features",
+              "price": null,
+              "branch": null,
+              "valid_until": null,
+              "market": "UNCONFIRMED"
+            }
+          }
+        ],
+        "failures": []
+      },
+      {
+        "id": "source-failure-en",
+        "expected": "BLOCKED",
+        "observed": "BLOCKED",
+        "journey": "BLOCKED",
+        "gap": "FEATURE_EVIDENCE",
+        "package": null,
+        "evidence": [],
+        "failures": []
+      },
+      {
+        "id": "within-block-pronoun-en",
+        "expected": "BLOCKED",
+        "observed": "BLOCKED",
+        "journey": "BLOCKED",
+        "gap": "FEATURE_EVIDENCE",
+        "package": null,
+        "evidence": [],
+        "failures": []
+      },
+      {
+        "id": "explicit-contradiction-en",
+        "expected": "BLOCKED",
+        "observed": "BLOCKED",
+        "journey": "BLOCKED",
+        "gap": "SOURCE_CONFLICT",
+        "package": null,
+        "evidence": [
+          {
+            "page_url": "https://explicit-contradiction-en.example/features",
+            "capture_kind": "synthetic_fixture",
+            "captured_at": "2026-11-14T00:00:00+00:00",
+            "body_sha256": "00e891f7a3c75e52e3cec9e82e54e4b5ba7945c1cd08a4c80883f0cf45b9f013",
+            "text_sha256": "8eb1ab21c4943f5cb98cd79a4e2b735be2678919f8818b961e577eca5f19a0ee",
+            "title": "Publisher catalogue",
+            "label": "Studio Audio Monitor",
+            "quote": "The Studio Audio Monitor streams live mixes to a paired device.",
+            "context": "The Studio Audio Monitor streams live mixes to a paired device.",
+            "score": 9,
+            "anchor": {
+              "subject": "Studio Audio Monitor",
+              "support": {
+                "block": 1,
+                "element": "p",
+                "text": "The Studio Audio Monitor streams live mixes to a paired device.",
+                "start": 0,
+                "end": 63,
+                "quote": "The Studio Audio Monitor streams live mixes to a paired device."
+              },
+              "qualifications": [
+                {
+                  "block": 2,
+                  "element": "p",
+                  "text": "The Studio Audio Monitor is no longer available to customers.",
+                  "start": 0,
+                  "end": 61,
+                  "quote": "The Studio Audio Monitor is no longer available to customers."
+                }
+              ],
+              "context_extent": "BOUNDED_SECTION_NEIGHBORHOOD"
+            },
+            "specificity": 1.5,
+            "scope": "Studio Audio Monitor",
+            "outcome": "QUOTE_OBSERVED",
+            "constraints": {
+              "basis": "BOUNDED_SECTION_NEIGHBORHOOD",
+              "page_path": "/features",
+              "price": null,
+              "branch": null,
+              "valid_until": null,
+              "market": "UNCONFIRMED"
+            }
+          }
+        ],
+        "failures": []
+      }
+    ],
+    "blockers": []
+  },
+  "damaged_candidate": {
+    "exit_code": 1,
+    "mutation": "restrict anchor lookup to the supporting text block",
+    "gate": {
+      "decision": "KEEP_STABLE",
+      "blockers": [
+        {
+          "case": "audit-adjacent-ar",
+          "failures": [
+            "UNEXPECTED_PACKAGE_OUTCOME",
+            "QUALIFICATION_NOT_ANCHORED",
+            "UNQUALIFIED_CLAIM"
+          ]
+        },
+        {
+          "case": "table-qualifier-en",
+          "failures": [
+            "UNEXPECTED_PACKAGE_OUTCOME",
+            "QUALIFICATION_NOT_ANCHORED",
+            "UNQUALIFIED_CLAIM"
+          ]
+        },
+        {
+          "case": "list-date-ar",
+          "failures": [
+            "UNEXPECTED_PACKAGE_OUTCOME",
+            "QUALIFICATION_NOT_ANCHORED",
+            "UNQUALIFIED_CLAIM"
+          ]
+        }
+      ],
+      "restored_edits": [
+        {
+          "case": "five-guys-bacon",
+          "edit": "specific-cta",
+          "split": "development"
+        },
+        {
+          "case": "nandos-wrap",
+          "edit": "specific-cta",
+          "split": "development"
+        },
+        {
+          "case": "nandos-wrap",
+          "edit": "verbatim-heading",
+          "split": "development"
+        },
+        {
+          "case": "osm-local-knowledge",
+          "edit": "verbatim-heading",
+          "split": "development"
+        },
+        {
+          "case": "nasa-mars-orbit",
+          "edit": "specific-cta",
+          "split": "generalization"
+        },
+        {
+          "case": "sqlite-embedded-sql",
+          "edit": "specific-cta",
+          "split": "generalization"
+        }
+      ],
+      "default_release": "stable"
+    }
+  }
+}

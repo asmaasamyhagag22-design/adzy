@@ -36,6 +36,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -740,6 +741,8 @@ class Approval(Base):
     origin: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'live'"))
     imported_at: Mapped[str | None] = mapped_column(DateTime(timezone=True))
     note: Mapped[str | None] = mapped_column(Text)
+    artifact_manifest: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    artifact_archive: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
 
     __table_args__ = (
         # Right row, right brand, right KIND — all three in the database.
@@ -750,6 +753,12 @@ class Approval(Base):
         CheckConstraint("subject_kind IN ('swot','strategy','campaign')", name="subject_kind_is_known"),
         CheckConstraint("decision IN ('approved','rejected')", name="decision_is_known"),
         CheckConstraint("origin IN ('live','legacy_import')", name="origin_is_known"),
+        CheckConstraint(
+            "(artifact_manifest IS NULL AND artifact_archive IS NULL) OR "
+            "(subject_kind = 'campaign' AND decision = 'approved' "
+            "AND artifact_manifest IS NOT NULL AND jsonb_typeof(artifact_manifest) = 'object' "
+            "AND artifact_archive IS NOT NULL AND octet_length(artifact_archive) BETWEEN 1 AND 16777216)",
+            name="artifact_bundle_is_paired"),
         # A LIVE approval is a person deciding behind `require_user`; the SWOT and strategy routes
         # are the only write paths and neither generates a system approval, so a live row must name
         # BOTH its actor and its moment. Audited before enforcing.

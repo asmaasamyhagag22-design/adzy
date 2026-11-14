@@ -5,17 +5,17 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
+from http.client import HTTPException
 import re
 from time import monotonic
 from urllib.error import URLError
 from urllib.parse import urldefrag, urlsplit
-from urllib.request import Request
 
 from bs4 import BeautifulSoup
 
 from business_profile.llm.embeddings import top_k
 from scraper.extractors.links import extract_links_from_html
-from scraper.url_utils import open_public_url
+from scraper.campaign_http import open_campaign_url
 
 
 MAX_PAGES = 2
@@ -72,20 +72,37 @@ def same_source(url, root):
 
 
 def load_public_page(url, timeout, *, max_bytes=MAX_BYTES, user_agent=None, socket_timeout=2.0):
-    """Use the crawler's public URL and redirect safety guard."""
     deadline = monotonic() + timeout
-    request = Request(url, headers={"User-Agent": user_agent, "Accept": "text/html"}) if user_agent else url
-    with open_public_url(request, timeout=min(timeout, socket_timeout), follow_redirects=False) as response:
+    with open_campaign_url(url, deadline=deadline, socket_timeout=socket_timeout, max_bytes=max_bytes,
+                           user_agent=user_agent or "ADZY/1.0") as response:
+        if response.status in {206, 226} or response.headers.get("Content-Range") is not None:
+            raise ResearchGap("SOURCE_PARTIAL_RESPONSE")
         if response.headers.get_content_type() != "text/html":
             raise ResearchGap("HTML_REQUIRED")
+        if any(coding.strip().lower() != "identity"
+               for coding in response.headers.get_all("Content-Encoding", ())):
+            raise ResearchGap("UNSUPPORTED_CONTENT_ENCODING")
+        transfer = response.headers.get_all("Transfer-Encoding", ())
+        if transfer and [coding.strip().lower() for coding in transfer] != ["chunked"]:
+            raise ResearchGap("UNSUPPORTED_TRANSFER_ENCODING")
+        lengths = response.headers.get_all("Content-Length", ())
+        if lengths and (transfer or len(lengths) != 1 or not re.fullmatch(r"[0-9]{1,18}", lengths[0].strip())):
+            raise ResearchGap("INVALID_SOURCE_LENGTH")
+        if lengths and int(lengths[0]) > max_bytes:
+            raise ResearchGap("PAGE_TOO_LARGE")
         body = bytearray()
-        while len(body) <= max_bytes:
-            if monotonic() >= deadline:
-                raise ResearchGap("SOURCE_DEADLINE")
-            chunk = response.read1(min(8192, max_bytes + 1 - len(body)))
-            if not chunk:
-                return Page(response.geturl(), bytes(body), "public_http")
-            body.extend(chunk)
+        try:
+            while len(body) <= max_bytes:
+                if monotonic() >= deadline:
+                    raise ResearchGap("SOURCE_DEADLINE")
+                chunk = response.read1(min(8192, max_bytes + 1 - len(body)))
+                if not chunk:
+                    if response.length:
+                        raise ResearchGap("SOURCE_TRUNCATED")
+                    return Page(url, bytes(body), "public_http")
+                body.extend(chunk)
+        except HTTPException as exc:
+            raise ResearchGap("SOURCE_TRUNCATED") from exc
         raise ResearchGap("PAGE_TOO_LARGE")
 
 

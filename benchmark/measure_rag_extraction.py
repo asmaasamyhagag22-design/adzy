@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from business_profile.build import build_profile  # noqa: E402
-from business_profile.llm.caller import default_caller  # noqa: E402
+from business_profile.llm.caller import default_caller, format_cost  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 _DEFAULT = REPO / "scrapes" / "te_eg_20260628_085013" / "manifest.json"
@@ -65,7 +65,7 @@ def _summary(res) -> dict:
 def _print_block(label: str, s: dict) -> None:
     print(f"\n===== {label} =====")
     print(f"pack blocks seen: {s['pack_blocks']}   validation rejections: {s['rejections']}"
-          f"   extraction cost: ${s['cost']:.4f}")
+          f"   extraction cost: {format_cost(s['cost'])}")
     for key in ("offerings", "value_props", "insights", "trust", "audience"):
         items = s[key]
         print(f"\n  {key} ({len(items)}):")
@@ -125,7 +125,9 @@ def main(argv: list[str]) -> int:
     _diff("trust", s_base["trust"], s_rag["trust"])
     _diff("audience", s_base["audience"], s_rag["audience"])
     print(f"\npack: {s_base['pack_blocks']} (capped) -> {s_rag['pack_blocks']} (full)")
-    print(f"total extraction cost: ${s_base['cost'] + s_rag['cost']:.4f} (2 runs)")
+    costs = (s_base["cost"], s_rag["cost"])
+    total = sum(costs) if None not in costs else None
+    print(f"total extraction cost: {format_cost(total)} (2 runs)")
     return 0
 
 
