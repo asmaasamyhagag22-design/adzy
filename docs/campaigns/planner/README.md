@@ -42,4 +42,4 @@ python tools/compare_campaign_planner.py --output "$run_dir/direct" "$run_dir"/e
 python tools/compare_campaign_planner.py --output "$run_dir/replay" docs/campaigns/planner/results/direct/*.json
 ```
 
-أرشيف الطلب المباشر يحفظ `source_blocks` و`request_sha256` اللذين يحددان ما أُرسل في التشغيل الأصلي. تتطابق الصفحات الأصلية مع حالات التطوير، وفي حالتي Firefox اختلفت ترتيب ومحتويات المقتطفات عن لقطة الجولة اللاحقة. قارن لقطات التشغيل من مسار واحد إذا كنت تريد قياسًا منضبطًا بنفس المقاطع. [البروتوكول](PROTOCOL.md) · [سجل التنفيذ](EXECUTION.md) · [تقرير المقارنة](RESULTS.md) · [دليل المقابلة](../INTERVIEW.md)
+أرشيف الطلب المباشر يحفظ `source_blocks` و`request_sha256` اللذين يحددان ما أُرسل في التشغيل الأصلي. تتطابق الصفحات الأصلية مع حالات التطوير، وفي حالتي Firefox اختلفت ترتيب ومحتويات المقتطفات عن لقطة الجولة اللاحقة. قارن لقطات التشغيل من مسار واحد إذا كنت تريد قياسًا منضبطًا بنفس المقاطع. [البروتوكول](PROTOCOL.md) · [سجل التنفيذ](EXECUTION.md) · [تقرير المقارنة](RESULTS.md) · [معمارية Campaign](../transformation/ARCHITECTURE.md)

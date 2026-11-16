@@ -8,17 +8,16 @@ from pathlib import Path
 import re
 import shutil
 
-PACKAGES = ('benchmark','info','ads_intel','advisor','api','brand','business_profile','campaign','competitor',
+PACKAGES = ('benchmark','ads_intel','advisor','api','brand','business_profile','campaign','competitor',
     'creative','dashboard','db','decision_engine','grounding','instagram_intelligence',
     'launch_bundle','marketing_intel','media_plan','media_plan_v2','ops','policy_linter',
     'poster','reel','reviews','scraper','scripts','social_intel','strategy','telemetry','trends','workflows')
 EXTENSIONS = {'.ttf','.py','.yaml','.yml','.toml','.sql','.mako'}
-DOCS = ('COPY_EDITOR_RESULT.md','.gitignore','README.md','THIRD_PARTY_ASSETS.md','POSTER_V1_PUBLICATION_REVIEW.md','FOUNDATION_RESULT.md','APP_GRAPH_INTEGRATION_RESULT.md',
+DOCS = ('.gitignore','README.md','THIRD_PARTY_ASSETS.md','POSTER_V1_PUBLICATION_REVIEW.md',
     'alembic.ini','requirements.txt','requirements-lock.txt','requirements-workflow.in',
     'requirements-workflow.txt','requirements-app.in','requirements-app.txt',
     'tests/conftest.py','tests/test_review_workflow.py','tests/test_app_review_graph.py',
-    'tools/prepare_app_publication.py','POSTER_V1_RELEASE_RESULT.md',
-    'POSTER_BOUNDARY_RESULT.md','CLAIM_ASSESSMENT_RESULT.md','SEMANTIC_QUALIFICATION_RESULT.md',
+    'tools/prepare_app_publication.py',
     'tools/check_poster_v1.py','tools/verify_poster_v1_browser.py','pytest.ini','.github/workflows/poster-v1.yml','tests/test_poster_delivery.py','tests/test_poster_operation_boundary.py',
     'tests/poster_boundary_support.py','tests/test_poster_acceptance_truth.py',
     'tests/test_poster_dispatch_policy.py','tests/test_poster_rtl_alignment.py','tests/test_portfolio_authorization.py',
@@ -136,7 +135,7 @@ def prepare(destination):
                      if source_candidate(path, root) and path.suffix in {'.html', '.json'})
     for study in ('editing', 'lifecycle'):
         paths.update(root/'docs/campaigns'/study/name for name in ('PROTOCOL.md', 'cases.json'))
-    paths.update(root/'docs/campaigns'/name for name in ('INTERVIEW.md', 'buffalo/editions.json'))
+    paths.add(root/'docs/campaigns/buffalo/editions.json')
     paths.update(root/'docs/experiments/profile-refresh'/name for name in (
         'RESULT.md', 'browser-result.json', 'desktop-recovery.png', 'mobile-recovery.png'))
     paths.update(root/'docs/experiments/review-shadow'/name for name in (
@@ -146,7 +145,7 @@ def prepare(destination):
         'EXECUTION.md', 'research-release.json', 'research-result.json', 'public-research.json',
         'copy-release.json', 'copy-result.json', 'browser-result.json', 'campaign-desktop.png',
         'campaign-mobile.png', 'exception.png'))
-    extra=('POSTER_ECONOMIC_REPAIR_RESULT.md','tests/test_poster_economic_repair.py',
+    extra=('tests/test_poster_economic_repair.py',
         'tests/test_poster_qa_brand_roles.py','tests/test_poster_candidate_persistence.py',
         'tests/test_poster_design_controls.py','tests/test_poster_acceptance_red_boundary.py',
         'tests/test_gate2c_canonical_poster.py','tests/test_compiler_source_support.py',
@@ -184,8 +183,12 @@ def prepare(destination):
         rows.append({'path':str(rel),'sha256':hashlib.sha256(raw).hexdigest()})
     # Verify navigable public docs without importing application or touching private data.
     broken_links = []
-    public_docs = [target/'README.md', target/'COPY_EDITOR_RESULT.md', target/'POSTER_V1_RELEASE_RESULT.md', target/'POSTER_V1_PUBLICATION_REVIEW.md', target/'POSTER_ECONOMIC_REPAIR_RESULT.md', target/'docs/demo/README.md', target/'docs/getting-started.md', target/'docs/results/README.md', target/'examples/volume-cafe/README.md',
-                   target/'docs/v2/EXECUTION.md', *list((target/'docs/architecture').glob('*.md'))]
+    public_docs = [
+        target/'README.md', target/'POSTER_V1_PUBLICATION_REVIEW.md',
+        target/'docs/demo/README.md', target/'docs/getting-started.md', target/'docs/results/README.md',
+        target/'examples/volume-cafe/README.md', target/'docs/v2/EXECUTION.md',
+        *list((target/'docs/architecture').glob('*.md')),
+    ]
     public_docs.extend(target/directory/name for directory, names in CAMPAIGN_DOCS.items()
                        for name in names if name.endswith('.md'))
     for doc in public_docs:

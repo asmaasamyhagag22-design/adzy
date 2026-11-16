@@ -8,7 +8,7 @@
 | راستافاري | [ZIP](rastafari/campaign.zip) · [إيصال](rastafari/campaign.json) | [طولي](rastafari/poster-portrait.png) · [مربع](rastafari/poster-square.png) |
 | ترافل | [ZIP](truffle/campaign.zip) · [إيصال](truffle/campaign.json) | [طولي](truffle/poster-portrait.png) · [مربع](truffle/poster-square.png) |
 
-[قبل وبعد واتجاه الصفوف](review/comparison.png) · [معاينة الموبايل](menu/recommended-portrait-mobile.png) · [رفض العنوان من الواجهة](menu/rejected.png) · [سجل التنفيذ](EXECUTION.md) · [مذاكرة الكود](../INTERVIEW.md)
+[قبل وبعد واتجاه الصفوف](review/comparison.png) · [معاينة الموبايل](menu/recommended-portrait-mobile.png) · [رفض العنوان من الواجهة](menu/rejected.png) · [سجل التنفيذ](EXECUTION.md)
 
 [خطوات التشغيل من checkout نظيف](../../../README.md#replay-buffalo-from-a-clean-checkout) · [المدخلات](cases.json) · [اللقطة](../../demo/campaign-snapshots/buffalo/manifest.json) · [نتيجة اختبارات المتصفح](menu/browser-result.json)
 

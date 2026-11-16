@@ -1,6 +1,6 @@
 # تشغيل ومراجعة حملة ADZY ثابتة
 
-فرع التسليم `codex/adzy-campaign-quality` يبدأ من `85e1edfba1bf698c09eff5998ca8785633be98bb` على `codex/adzy-campaign-planner`. ابدأ بـ[سجل التنفيذ](EXECUTION.md) ثم [النتائج](RESULTS.md) و[دليل المقابلة](../INTERVIEW.md).
+فرع التسليم `codex/adzy-campaign-quality` يبدأ من `85e1edfba1bf698c09eff5998ca8785633be98bb` على `codex/adzy-campaign-planner`. ابدأ بـ[سجل التنفيذ](EXECUTION.md) ثم [النتائج](RESULTS.md).
 
 ## شغّلها من الواجهة
 

@@ -9,7 +9,7 @@
 | LEGO Pick a Brick | ما فكرتك للقطعة الأولى؟ | [الحزمة](lego/deliverables/campaign.zip) · [الطولي](lego/deliverables/poster-portrait.png) · [السابق](lego/deliverables/initial/campaign.zip) |
 | Rijksmuseum | See two artworks side by side | [الحزمة](rijksmuseum/deliverables/campaign.zip) · [الطولي](rijksmuseum/deliverables/poster-portrait.png) · [السابق](rijksmuseum/deliverables/initial/campaign.zip) |
 
-المقارنة والمراجعات في [سجل التنفيذ](EXECUTION.md) و[تقرير المراجعة](REVIEW.md). شرح قرارات التنفيذ والتشخيص في [دليل المقابلة](INTERVIEW.md).
+المقارنة والمراجعات في [سجل التنفيذ](EXECUTION.md) و[تقرير المراجعة](REVIEW.md). قرارات التشغيل في [معمارية Campaign](transformation/ARCHITECTURE.md).
 
 ## إعادة تشغيل الديمو
 

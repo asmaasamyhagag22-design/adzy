@@ -32,6 +32,9 @@ def test_export_omits_historical_logs_manifests_and_unselected_tests(tmp_path):
         'docs/campaigns/editing/snapshots/sqlite/manifest.json',
     } <= names
     assert 'docs/campaigns/transformation/source-review-manifest.json' not in names
+    assert not any(name.startswith('info/') for name in names)
+    assert not ({'docs/campaigns/INTERVIEW.md', 'docs/legacy/process.md', '_live_swot.py'} & names)
+    assert not any('/' not in name and name.endswith('_RESULT.md') for name in names)
     assert len([n for n in names if n.startswith('poster/fonts/')])==4
     assert not any(n.startswith('docs/validation/copy-editor/') for n in names)
     assert not any(n.endswith(('.log','.sqlite','.jsonl')) for n in names)

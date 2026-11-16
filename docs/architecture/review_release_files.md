@@ -57,7 +57,7 @@ The manifest contains SHA-256 digests for the required Python/schema sources. It
 - [ ] `requirements-workflow.in` and `requirements-workflow.txt` (optional environment; no overlay onto base lock).
 - [ ] `tests/test_review_workflow.py` and existing `tests/conftest.py` for the documented test command.
 - [ ] Existing regression support: `tests/test_gate2b_positioning_contracts.py`, `tests/test_gate2_research_gap_resolution.py`, `tests/test_gate2b_postgres_strategy.py`, `tests/product_slice_fixtures.py`, `vertex_spend.py` (required by the existing test fixtures), `db/session.py`, and `db/test_database_safety.py`.
-- [ ] `README.md`, `FOUNDATION_RESULT.md`, `.gitignore` additions.
+- [ ] `README.md` and `.gitignore` additions.
 - [ ] `docs/images/synthetic-research.png`, `docs/images/synthetic-poster.png`: existing application screenshots copied for stable public links; fictional evidence/provider/QA data, explicitly captioned.
 - [ ] `docs/architecture/review_workflow.md`, `review_graph.mmd`, `review_release_files.md`, `review_source_manifest.json`, `foundation_demo_evidence.json`, `foundation_sdk_observations.json`, `foundation_validation.txt`.
 - [ ] Updated `docs/upgrade_audit/PROGRESS.md` and `logs/HANDOFF.md`/`logs/spend.md` for project continuity.

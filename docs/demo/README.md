@@ -42,4 +42,4 @@ Run the complete browser journey, including response loss, a late preview, resta
 python tools/verify_copy_editor_browser.py --directory /tmp/copy-editor-demo --evidence-dir /tmp/copy-editor-browser
 ```
 
-The browser tool explicitly materializes a fake QA fixture in its guarded disposable database to exercise final delivery. This fixture operation is absent from the application API and does not qualify a real image. See [copy editor details](../../COPY_EDITOR_RESULT.md).
+The browser tool explicitly materializes a fake QA fixture in its guarded disposable database to exercise final delivery. This fixture operation is absent from the application API and does not qualify a real image. The [browser checks](../../tools/verify_copy_editor_browser.py) document the exercised flow.

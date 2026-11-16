@@ -9,8 +9,6 @@ video — and each one had become a line in the Opportunities column of a client
 saved before it shipped went straight from the store into `synthesize_swot(trends=…)` untouched.
 The fix moves the same test to the point where stored rows are handed over.
 
-The second test here guards the write path that carries those rows: an empty list is a WRITE, not
-an absence, and `BrandStore`'s one-level merge will happily let one replace real content.
 """
 from __future__ import annotations
 
@@ -65,27 +63,3 @@ def test_trends_stored_only_under_the_swot_are_still_found():
              "swot": {"trends": [{"title": "Beauty & Personal Care - Egypt | Statista Market Forecast",
                                   "url": _REPORT, "matched_terms": ["beauty"]}]}}
     assert len(market_signals_for(brand)) == 1
-
-
-# --- the write guard --------------------------------------------------------------------------
-
-def test_the_apply_refuses_to_empty_something_the_record_had():
-    """MEASURED on the first write: `_swot_to_frontend` emits every key it knows, so a value the
-    apply tool forgot to carry shipped as `[]` and four brands went from 6/5/5/6 stored trends to
-    zero. Nobody would have seen it until a Trend tab rendered blank in front of a client."""
-    from info.swot_apply import _would_empty
-    stored = {"trends": [{"title": "t"}], "notes": ["n"], "site_readiness": [{"title": "s"}]}
-    assert _would_empty(stored, {"trends": [], "notes": ["n"], "site_readiness": [{"title": "s"}]}) == ["trends"]
-    assert _would_empty(stored, {"trends": [], "notes": [], "site_readiness": []}) == [
-        "trends", "site_readiness", "notes"]
-
-
-def test_the_guard_allows_a_record_that_never_had_it():
-    from info.swot_apply import _would_empty
-    assert _would_empty({"trends": [], "notes": [], "site_readiness": []},
-                        {"trends": [], "notes": [], "site_readiness": []}) == []
-
-
-def test_the_guard_allows_growth():
-    from info.swot_apply import _would_empty
-    assert _would_empty({"notes": ["a"]}, {"notes": ["a", "b"], "trends": [{"t": 1}]}) == []
