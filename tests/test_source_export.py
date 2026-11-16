@@ -4,9 +4,11 @@ from pathlib import Path
 import sys
 import json
 
+import pytest
+
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools'))
-from prepare_app_publication import prepare, release_test_paths, source_candidate
+from prepare_app_publication import CAMPAIGN_DOCS, prepare, release_test_paths, source_candidate
 
 
 def test_export_omits_historical_logs_manifests_and_unselected_tests(tmp_path):
@@ -19,6 +21,17 @@ def test_export_omits_historical_logs_manifests_and_unselected_tests(tmp_path):
     assert 'poster/copy_editor.py' in names and 'tests/test_copy_editor.py' in names
     assert 'tests/copy_editor_review_fixture.py' in names
     assert 'tools/verify_copy_editor_browser.py' in names
+    assert {
+        'docs/images/campaign-architecture/diagram.html',
+        'docs/images/campaign-architecture/overview.webp',
+        'docs/images/campaign-architecture/overview-mobile.webp',
+        'docs/images/campaign-showcase/buffalo-formats.webp',
+        'docs/images/campaign-showcase/campaign-review-mobile.webp',
+        'docs/campaigns/transformation/ARCHITECTURE.md',
+        'docs/campaigns/transformation/context-manifest.json',
+        'docs/campaigns/editing/snapshots/sqlite/manifest.json',
+    } <= names
+    assert 'docs/campaigns/transformation/source-review-manifest.json' not in names
     assert len([n for n in names if n.startswith('poster/fonts/')])==4
     assert not any(n.startswith('docs/validation/copy-editor/') for n in names)
     assert not any(n.endswith(('.log','.sqlite','.jsonl')) for n in names)
@@ -51,3 +64,15 @@ def test_nested_runtime_and_symlink_sources_are_not_candidates(tmp_path):
     outside=tmp_path/'secret.py';outside.write_text('private')
     link=tmp_path/'api/linked.py';link.symlink_to(outside)
     assert not source_candidate(link,tmp_path)
+
+
+
+def test_export_rejects_missing_responsive_image(tmp_path, monkeypatch):
+    directory = 'docs/images/campaign-showcase'
+    missing = 'campaign-review-mobile.webp'
+    monkeypatch.setitem(CAMPAIGN_DOCS, directory, tuple(
+        name for name in CAMPAIGN_DOCS[directory] if name != missing
+    ))
+
+    with pytest.raises(ValueError, match=r'Broken public documentation links:.*campaign-review-mobile\.webp'):
+        prepare(tmp_path/'public')

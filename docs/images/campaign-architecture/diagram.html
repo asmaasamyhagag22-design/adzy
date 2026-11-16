@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADZY Campaign architecture</title>
+<style>
+  @font-face {
+    font-family: "Noto Sans";
+    src: url("../../../poster/fonts/NotoSans-Regular.ttf") format("truetype");
+    font-weight: 400;
+  }
+  @font-face {
+    font-family: "Noto Sans";
+    src: url("../../../poster/fonts/NotoSans-Bold.ttf") format("truetype");
+    font-weight: 700;
+  }
+  :root {
+    color-scheme: light;
+    --ink: #172826;
+    --muted: #405653;
+    --canvas: #f5f3eb;
+    --teal: #125d56;
+    --teal-light: #e3f0ed;
+    --amber: #824c1d;
+    --amber-light: #fbedd8;
+    --line: #cbd5cb;
+    --columns: minmax(0, 1fr) 64px minmax(0, 1.16fr) 64px minmax(0, 1.03fr);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font-family: "Noto Sans", sans-serif; }
+  main { padding: 48px 52px 36px; min-height: 100vh; }
+  header { display: flex; justify-content: space-between; align-items: end; gap: 20px; padding-bottom: 26px; }
+  .brand { color: var(--teal); font-weight: 700; font-size: 23px; letter-spacing: .12em; }
+  h1 { margin: 4px 0 0; font-size: 58px; line-height: 1.09; letter-spacing: -.045em; }
+  .scope { margin: 0; color: var(--muted); text-align: right; font-size: 21px; line-height: 1.35; }
+  .lanes, .stage { display: grid; grid-template-columns: var(--columns); }
+  .lanes { padding: 0 0 12px; border-bottom: 1px solid var(--line); }
+  .lanes strong { padding-inline: 20px; color: var(--teal); font-size: 19px; }
+  .lanes strong:nth-child(2) { grid-column: 3; }
+  .lanes strong:nth-child(3) { grid-column: 5; }
+  .stage { margin: 14px 0; }
+  .card { padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px; background: #fffdf7; }
+  .stage .api { border-color: #a9c7be; background: var(--teal-light); }
+  .stage .archive { border-color: #dfbd92; background: var(--amber-light); }
+  .stage h2, .stage h3 { margin: 0 0 7px; font-size: 26px; line-height: 1.2; letter-spacing: -.025em; }
+  .stage p { margin: 0; font-size: 21px; line-height: 1.34; color: var(--muted); }
+  .stage .storage-title { margin-bottom: 3px; color: var(--amber); }
+  .stage .api-title { color: var(--teal); }
+  .endpoint, .edge {
+    color: var(--teal); font-family: ui-monospace, monospace; font-size: 17px; font-weight: 700;
+    line-height: 1.25;
+  }
+  .endpoint { display: block; margin-bottom: 8px; overflow-wrap: anywhere; }
+  .edge { display: grid; place-items: center; }
+  .edge span {
+    display: block; width: 100%; height: 2px; background: #4d716a; position: relative;
+  }
+  .edge span::before, .edge span::after {
+    content: ""; position: absolute; top: -4px; width: 0; height: 0; display: none;
+    border-block: 5px solid transparent;
+  }
+  .edge.to span::after, .edge.both span::after { display: block; right: 0; border-left: 10px solid #4d716a; }
+  .edge.from span::before, .edge.both span::before { display: block; left: 0; border-right: 10px solid #4d716a; }
+  .claim { padding: 16px 20px; border-top: 1px solid var(--line); margin: 20px 0 0; }
+  .claim p { margin: 0; color: var(--muted); font-size: 19px; line-height: 1.35; }
+  .claim strong { color: var(--ink); }
+  @media (max-width: 760px) {
+    main { min-height: 0; padding: 20px 16px 12px; }
+    header { display: block; padding-bottom: 12px; }
+    .brand { font-size: 13px; }
+    h1 { margin: 4px 0 5px; font-size: 34px; }
+    .scope { text-align: left; font-size: 14px; }
+    .lanes, .edge { display: none; }
+    .stage {
+      display: block; padding: 3px 12px 11px; margin: 10px 0;
+      border: 1px solid var(--line); border-radius: 9px; background: #fffdf7;
+    }
+    .card { padding: 8px 0 0; border: 0; border-radius: 0; }
+    .stage .api, .stage .archive { background: transparent; }
+    .stage h2 { font-size: 20px; }
+    .stage h3 { margin-bottom: 3px; font-size: 16px; }
+    .stage p { font-size: 14px; }
+    .endpoint { margin-bottom: 5px; font-size: 12px; }
+    .claim { padding: 9px 0 5px; margin: 12px 0 0; }
+    .claim p { font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div><div class="brand">ADZY</div><h1>Campaign architecture</h1></div>
+    <p class="scope">Local pilot · one FastAPI worker on loopback</p>
+  </header>
+
+  <div class="lanes">
+    <strong>Reviewer in browser</strong>
+    <strong>Campaign API</strong>
+    <strong>Sources and storage</strong>
+  </div>
+
+  <section class="stage" aria-labelledby="research">
+    <div class="card">
+      <h2 id="research">Research &amp; review</h2>
+      <p>Website, objective and language</p>
+    </div>
+    <div class="edge both" aria-hidden="true"><span></span></div>
+    <div class="card api">
+      <span class="endpoint">POST /plan · POST /brief</span>
+      <h3 class="api-title">Draft from publisher evidence</h3>
+      <p>Bounded research and copy review. Recheck the current run before saving.</p>
+    </div>
+    <div class="edge both" aria-hidden="true"><span></span></div>
+    <div class="card">
+      <h3>Live HTML or verified snapshot</h3>
+      <p>PostgreSQL stores the proposal, evidence and revisions.</p>
+    </div>
+  </section>
+
+  <section class="stage" aria-labelledby="preview">
+    <div class="card">
+      <h2 id="preview">Preview both sizes</h2>
+      <p>Portrait and square, one request per size</p>
+    </div>
+    <div class="edge both" aria-hidden="true"><span></span></div>
+    <div class="card api">
+      <span class="endpoint">GET /package/preview</span>
+      <h3 class="api-title">Return PNG and SHA-256</h3>
+      <p>Verify ownership, revision and decision around preview retrieval.</p>
+    </div>
+    <div class="edge both" aria-hidden="true"><span></span></div>
+    <div class="card">
+      <h3>Local draft cache</h3>
+      <p>Chromium renders on a cache miss. Approved previews come from the stored ZIP.</p>
+    </div>
+  </section>
+
+  <section class="stage" aria-labelledby="approve">
+    <div class="card">
+      <h2 id="approve">Approve this revision</h2>
+      <p>Current run ID and both preview hashes</p>
+    </div>
+    <div class="edge to" aria-hidden="true"><span></span></div>
+    <div class="card api">
+      <span class="endpoint">POST /review</span>
+      <h3 class="api-title">Verify both preview hashes</h3>
+      <p>Build the ZIP from the cached PNGs and recheck under a brand lock.</p>
+    </div>
+    <div class="edge to" aria-hidden="true"><span></span></div>
+    <div class="card archive">
+      <h3 class="storage-title">PostgreSQL</h3>
+      <p>Approval, artifact manifest and ZIP bytes commit in one transaction.</p>
+    </div>
+  </section>
+
+  <section class="stage" aria-labelledby="export">
+    <div class="card">
+      <h2 id="export">Download campaign ZIP</h2>
+      <p>Two PNGs and the evidence receipt</p>
+    </div>
+    <div class="edge both" aria-hidden="true"><span></span></div>
+    <div class="card api">
+      <span class="endpoint">GET /package/export</span>
+      <h3 class="api-title">Verify the committed archive</h3>
+      <p>Check the ZIP hash, current revision and approval ID before responding.</p>
+    </div>
+    <div class="edge from" aria-hidden="true"><span></span></div>
+    <div class="card archive">
+      <h3 class="storage-title">PostgreSQL</h3>
+      <p>Read the exact approved bytes.</p>
+    </div>
+  </section>
+
+  <footer class="claim">
+    <p><strong>Separate execution paths</strong> · LangGraph strategy review · Model-assisted artwork production · CI replay and browser verification</p>
+  </footer>
+</main>
+</body>
+</html>

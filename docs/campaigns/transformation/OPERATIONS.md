@@ -53,7 +53,7 @@ python tools/drill_campaign_pilot.py --output /tmp/adzy-campaign-drill \
   --previous-checkout /absolute/path/to/clean-133181f-checkout
 ```
 
-The hosted workflow configuration adds a fresh PostgreSQL/Chromium Campaign journey and targeted concurrency, evidence and transport checks. The local receipt is evidence for this host. The branch protection settings and a hosted run of the candidate require a separate remote action.
+The hosted workflow configuration adds a fresh PostgreSQL/Chromium Campaign journey and targeted concurrency, evidence and transport checks. The hosted Campaign jobs passed on commit `0420295`. The branch was unprotected when checked. [Campaign run](https://github.com/asmaasamyhagag22-design/adzy/actions/runs/43649966314)
 
 ## Local execution record, 14 November 2026
 

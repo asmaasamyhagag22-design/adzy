@@ -54,9 +54,12 @@ product fidelity or readability. [Diagnostic rows and raster measurements](publi
   alert receiver. It measured sequential and burst load, restarted with an
   empty preview store, and exercised binary and database rollback.
   [Deployment commands, SLOs, recovery details and limits](OPERATIONS.md)
-- The updated CI configuration wires the real Campaign journey and fault checks
-  to pull requests. A hosted run on this branch and GitHub required-check
-  enforcement await authorization to change remote state.
+- The frozen replay and real PostgreSQL/Chromium journey passed on GitHub for
+  `0420295`. Branch protection was disabled when checked. The Poster V1 job on
+  the same commit stopped because the source-only package omitted README link
+  targets. Local follow-up verified the repaired source export, ran the evaluator
+  from the exported bundle, and completed the synthetic Poster V1 and Copy Editor
+  browser journeys. [Campaign run](https://github.com/asmaasamyhagag22-design/adzy/actions/runs/43649966314) · [Poster V1 run](https://github.com/asmaasamyhagag22-design/adzy/actions/runs/43649966372)
 - Public operation, parallel workers, a durable research queue, broadly
   qualified semantics and independent creative validation remain open. The
   runbook specifies the verified single-worker loopback profile. External

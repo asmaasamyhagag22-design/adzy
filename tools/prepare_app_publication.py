@@ -2,6 +2,7 @@
 import argparse
 import ast
 import hashlib
+from html.parser import HTMLParser
 import json
 from pathlib import Path
 import re
@@ -26,6 +27,42 @@ DOCS = ('COPY_EDITOR_RESULT.md','.gitignore','README.md','THIRD_PARTY_ASSETS.md'
     'tests/poster_operations_frontend.test.cjs','tests/wp0_swot_frontend.test.cjs',
     'grounding/poster_claim_contract_fixture.json','tests/test_webapp_spend_gate.py',
     'tests/test_route_persistence_classification_2gb.py','tests/test_security_headers.py')
+
+
+CAMPAIGN_DOCS = {
+    'docs/campaigns/transformation': (
+        'ARCHITECTURE.md', 'OPERATIONS.md', 'REPORT.md', 'REVIEW-PACKET.md', 'RISKS.md',
+        'browser-results.json', 'context-cases.json', 'context-manifest.json', 'pilot-drill.json',
+        'protocol.md', 'publisher-diagnostics.json', 'replay-outcomes.json',
+    ),
+    'docs/images/campaign-architecture': ('diagram.html', 'overview.webp', 'overview-mobile.webp'),
+    'docs/images/campaign-showcase': (
+        'README.md', 'buffalo-formats.webp', 'campaign-review-mobile.webp',
+        'campaign-review.webp', 'verification.json',
+    ),
+}
+CAMPAIGN_SNAPSHOTS = (
+    'docs/demo/campaign-snapshots/buffalo', 'docs/demo/campaign-snapshots/five-guys',
+    'docs/demo/campaign-snapshots/nandos', 'docs/campaigns/lifecycle/snapshots/osm',
+    'docs/campaigns/lifecycle/snapshots/python', 'docs/campaigns/editing/snapshots/debian',
+    'docs/campaigns/editing/snapshots/nasa', 'docs/campaigns/editing/snapshots/sqlite',
+)
+
+
+class ImageTargets(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.targets = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in {'img', 'source'}:
+            return
+        media = dict(attrs)
+        if media.get('src'):
+            self.targets.append(media['src'])
+        for candidate in (media.get('srcset') or '').split(','):
+            if fields := candidate.split():
+                self.targets.append(fields[0])
 
 
 def release_test_paths(root):
@@ -85,16 +122,21 @@ def prepare(destination):
     portfolio = root/'docs/campaigns/buffalo/portfolio'
     for name in ('case.json', 'edition.json', 'poster-portrait.png', 'poster-square.png',
                  'poster-portrait-390.png', 'poster-square-390.png', 'campaign.zip',
-                 'campaign.json', 'comparison.jpg', 'REVIEW.md', 'pricing.json', 'browser-result.json',
+                 'campaign.json', 'comparison.jpg', 'REVIEW.md', 'pricing.json', 'browser-result.json', 'rejected.json',
                  'gemini-critique.md', 'gemini-final-critique.md'):
         paths.add(portfolio/name)
     paths.update(path for path in (portfolio/'prompts').glob('*.prompt') if source_candidate(path, root))
     for path in (root/'poster/campaign_scenes').glob('*.jpg'):
         if re.fullmatch(r'[0-9a-f]{64}', path.stem) and source_candidate(path, root):
             paths.add(path)
-    paths.update(path for path in (root/'docs/demo/campaign-snapshots/buffalo').glob('*')
-                 if source_candidate(path, root) and path.suffix in {'.html', '.json'})
-    paths.add(root/'docs/campaigns/INTERVIEW.md')
+    for directory, names in CAMPAIGN_DOCS.items():
+        paths.update(root/directory/name for name in names)
+    for directory in CAMPAIGN_SNAPSHOTS:
+        paths.update(path for path in (root/directory).glob('*')
+                     if source_candidate(path, root) and path.suffix in {'.html', '.json'})
+    for study in ('editing', 'lifecycle'):
+        paths.update(root/'docs/campaigns'/study/name for name in ('PROTOCOL.md', 'cases.json'))
+    paths.update(root/'docs/campaigns'/name for name in ('INTERVIEW.md', 'buffalo/editions.json'))
     paths.update(root/'docs/experiments/profile-refresh'/name for name in (
         'RESULT.md', 'browser-result.json', 'desktop-recovery.png', 'mobile-recovery.png'))
     paths.update(root/'docs/experiments/review-shadow'/name for name in (
@@ -133,7 +175,7 @@ def prepare(destination):
     for source in sorted(paths):
         rel = source.relative_to(root)
         raw = source.read_bytes()
-        if source.suffix not in {'.png','.ttf'}:
+        if source.suffix not in {'.png', '.ttf', '.webp'}:
             text = raw.decode('utf-8',errors='replace')
             for rule,pattern in patterns.items():
                 for m in re.finditer(pattern,text):
@@ -144,9 +186,14 @@ def prepare(destination):
     broken_links = []
     public_docs = [target/'README.md', target/'COPY_EDITOR_RESULT.md', target/'POSTER_V1_RELEASE_RESULT.md', target/'POSTER_V1_PUBLICATION_REVIEW.md', target/'POSTER_ECONOMIC_REPAIR_RESULT.md', target/'docs/demo/README.md', target/'docs/getting-started.md', target/'docs/results/README.md', target/'examples/volume-cafe/README.md',
                    target/'docs/v2/EXECUTION.md', *list((target/'docs/architecture').glob('*.md'))]
+    public_docs.extend(target/directory/name for directory, names in CAMPAIGN_DOCS.items()
+                       for name in names if name.endswith('.md'))
     for doc in public_docs:
         if not doc.exists(): continue
-        for link in re.findall(r'\]\(([^)]+)\)', doc.read_text()):
+        markdown = doc.read_text(encoding='utf-8')
+        embedded = ImageTargets()
+        embedded.feed(markdown)
+        for link in re.findall(r'\]\(([^)]+)\)', markdown) + embedded.targets:
             if re.match(r'^(https?://|mailto:|#)', link): continue
             if not (doc.parent/link.split('#')[0]).exists():
                 broken_links.append({'path':str(doc.relative_to(target)), 'target':link})
